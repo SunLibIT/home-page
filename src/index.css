@@ -1,0 +1,20 @@
+/* Reset minimal pour le dev local. En prod (Softr), l'iframe fournit son propre contexte.
+   NE PAS charger de Google Fonts ici : 'Plus Jakarta Sans' reste en fallback system-ui. */
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+body {
+  background: #f3f6f7; /* T.canvas — cohérent avec le fond du bloc */
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, Segoe UI, Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: #101a28;
+}
+#root {
+  min-height: 100vh;
+}
