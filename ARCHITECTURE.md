@@ -68,7 +68,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 4 | `TabBar` (onglets réutilisables avec pastille compteur) |
 | 5 | Helpers de formatage : `fmtDate`, `relDays`, `fmtRel`, `fmtDue`, `dueVariant`, `initials`, `avatarBg`, `firstNameOf` |
 | **6** | **Données** : `DS = datasource.define({…})`, tous les `SELECT_*`, types de vue, `flatten`/`flattenRows`, `mapNotif`/`mapTask`/`mapNote`/`isDone`, `MOCK_USER` + `MOCK_ROWS` (indexé par source) |
-| **6-bis** | **Couche SOURCES** : `SourceKey`, catalogue `SOURCES`, `isLive`/`liveState`/`offlineState`, adapters (`AbonnesSource`) et dispatch statique **`SourceFeed`** |
+| **6-bis** | **Couche SOURCES** : `SourceKey`, **descripteur `CATALOG`** (`SourceDesc`/`FieldDesc`), map `ICONS` + `iconOf`, `variantOf`, `isLive`/`liveState`/`offlineState`, adapters (`AbonnesSource`) et dispatch statique **`SourceFeed`** |
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, `WidgetChromeCtx`, `WidgetEditMenu`, **`Widget`** (la coquille), `PageNavBar`, `Hero`, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifRow`/`NotifWidget`, `TaskRow`/`TasksWidget` |
@@ -194,8 +194,8 @@ type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr";
 type Row = { id: string } & Record<string, unknown>;          // ligne APLATIE : { id, …alias }
 type SourceState = { rows: Row[]; loading: boolean; error: boolean };
 
-const SOURCES: Record<SourceKey, SourceMeta> = { … };         // label, connected, fields, defaultMap
-const isLive = (k) => !USE_MOCK && SOURCES[k].connected;
+const CATALOG: Record<SourceKey, SourceDesc> = { … };         // label, connected, fields, defaultMap
+const isLive = (k) => !USE_MOCK && CATALOG[k].connected;
 
 function AbonnesSource({ children }) {                        // 1 adapter par source
   const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
@@ -218,16 +218,61 @@ Ce que cette couche apporte :
   `mapTask`, `mapNote`) — plus de double chemin `USE_MOCK ? … : …` dans chaque widget.
 - **Granularité mock/live gratuite** : `offlineState` sert le mock de toute source non connectée,
   même avec `USE_MOCK = false`. Le `MOCK_ROWS` est indexé par `SourceKey` (plus par widget).
-- **Catalogue déclaratif** : `SOURCES[k].fields` (alias → `{ label, kind }`) et `defaultMap`
-  décrivent la source aux widgets configurables — c'est ce catalogue, et lui seul, qui alimente le
-  formulaire d'options (§9-bis). Il ne contient **aucun** nom de champ brut : les noms Airtable
-  exacts ne vivent que dans les `SELECT_*`.
 - Écart au doc cible : l'état de chargement se lit sur `res.isLoading` / `res.error` (l'API Softr
   n'expose pas de `status` textuel).
 
+### Le DESCRIPTEUR de source — `CATALOG` (§6-bis)
+
+C'est le « tout-en-JSON » de la cible rév. 2 : une entrée de **pure donnée** par source, qui décrit
+la table aux widgets génériques. Aucun nom de champ brut n'y figure — les noms Airtable exacts ne
+vivent que dans les `SELECT_*`.
+
+```tsx
+type FieldDesc = {
+  label: string;
+  kind: "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
+  options?: string[];                       // valeurs possibles → menus des formulaires
+  variants?: Record<string, BadgeVariant>;  // valeur métier → couleur de badge
+};
+
+type SourceDesc = {
+  key: SourceKey; label: string;
+  icon: string;                             // CLÉ de la map ICONS, pas un composant
+  connected: boolean;
+  fields: Record<string, FieldDesc>;        // clés = ALIAS du SELECT_*
+  defaultSort: { by: string; dir: "asc" | "desc" };
+  defaultMap?: FieldRoleMap;
+};
+```
+
+Ce que chaque pièce apporte concrètement :
+
+- **`options`** — les valeurs réelles du champ. Dans le formulaire d'options, la valeur d'un filtre
+  devient un **menu déroulant** (`FilterValueInput`) au lieu d'une saisie libre : on ne tape plus un
+  statut à la main. Celles d'`abonnes` sont les **vrais choix Airtable**, relevés le 2026-07-31 sur
+  « Statut Dossiers » (12 valeurs — un 13ᵉ choix, `En attente de solvabilité`, est un **doublon à
+  nettoyer côté Airtable**) et « Type d installation » (5 valeurs).
+- **`variants`** — la couleur de badge par valeur métier, via `variantOf(desc, alias, valeur)` ;
+  repli sur l'heuristique `statusVariant` (§3) pour toute valeur non listée. C'est ce qui permet à
+  « Dossier annulé » d'être *neutre* là où l'heuristique le dirait *danger*.
+- **`icon`** — une **clé** (`"Bell"`), résolue par `ICONS` / `iconOf()`. Un JSON ne peut pas porter
+  un composant : c'est l'illustration du principe « clés en JSON, implémentations en code ». Le
+  widget affiche l'icône de **sa source**, donc elle suit un changement de source dans Options.
+- **`defaultSort`** — appliqué **sens compris** quand l'utilisateur change de source (« fin
+  croissant » pour des tâches, « créé le décroissant » pour des dossiers) ; un tri explicitement
+  choisi est toujours respecté.
+
+⚠️ Les noms de variants sont ceux du **kit visuel** (`ok`, `warn`, `info`, `danger`, `solar`,
+`brand`, `neutral`), pas ceux du document cible (`success`, `warning`) : on ne renomme pas le kit.
+
+Un banc d'essai vérifie la cohérence interne du descripteur : tri par défaut et `defaultMap` ne
+citent que des champs connus, chaque `variant` correspond à une `option` déclarée, aucune option en
+doublon, et **le mock n'utilise que des valeurs déclarées** — c'est ce test qui a révélé que le mock
+portait encore les anciennes offres « Duo / Solo / Pro », supprimées d'Airtable.
+
 **Ajouter une source** = 6 gestes, ~30 lignes, sans toucher au moteur : recette `ARCHITECTURE-V2.md`
 §6 (connecter dans l'onglet *Sources* → membre du `define` → `SELECT_*` → adapter → `case` →
-entrée `SOURCES` avec `connected: true`). Elle est alors immédiatement disponible dans le sélecteur
+entrée `CATALOG` avec `connected: true`). Elle est alors immédiatement disponible dans le sélecteur
 de source de tout widget liste.
 
 ### Le widget liste générique et sa configuration (§9-bis)
@@ -529,7 +574,7 @@ const DS = datasource.define({
 ⚠️ Les noms de champs comportent des **espaces finaux et des casses irrégulières** (`"Date "`,
 `"date "`, `"date de fin"` vs `"Date de fin"`) : ne jamais les normaliser. `RECENT = 12` lignes
 affichées par widget liste. Les `SELECT_*` des 4 sources non connectées sont déjà écrits, prêts à
-l'emploi ; ces sources sont catalogudées dans `SOURCES` avec `connected: false` → `SourceFeed` leur
+l'emploi ; ces sources sont catalogudées dans `CATALOG` avec `connected: false` → `SourceFeed` leur
 sert leur mock (aperçu) ou une liste vide (live), **sans jamais appeler `useRecords`** sur un id
 absent du `define`. Les brancher : recette `ARCHITECTURE-V2.md` §6.
 
@@ -588,7 +633,7 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
    Reste ouvert : les types sur-mesure (`notifs`, `taches`, LinkedIn) n'ont pas d'options — c'est
    un choix, pas un oubli (leurs réglages utiles n'existent pas encore).
 8. ~~**`USE_MOCK` est global**~~ **résolu (phase 1)** : `USE_MOCK` reste l'interrupteur global, mais
-   la granularité vient de `SOURCES[k].connected` — toute source non connectée sert son mock même
+   la granularité vient de `CATALOG[k].connected` — toute source non connectée sert son mock même
    avec `USE_MOCK = false` (`offlineState`), sans interrupteur supplémentaire.
 9. **Pas de pagination réelle** : `flatten().slice(0, 12)` côté client, pas de `fetchNextPage`.
 10. **`USE_MOCK` est encore à `true`** : rien ne tourne en live aujourd'hui, sauf la persistance

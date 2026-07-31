@@ -519,7 +519,7 @@ colonne « reste à faire » dit ce que la rév. 2 y ajoute.
 | Phase | Contenu | État | Ce que la rév. 2 ajoute |
 |---|---|---|---|
 | **0** | Schéma v2 + `migrateV1` + `seeded`/`parked` | ✅ **livré** | rien |
-| **1** | `SourceFeed` + adapters + catalogue décrivant les sources ; Cards → `Render` des types legacy | ✅ **livré** (catalogue = `SOURCES`, minimal) | `CATALOG` enrichi : `options`, `variants`, `presets`, `actions`, `create`, `icon` en clé, `defaultSort` |
+| **1** | `SourceFeed` + adapters + catalogue décrivant les sources ; Cards → `Render` des types legacy | ✅ **livré** ; **`CATALOG` enrichi livré le 2026-07-31** : `SourceDesc`/`FieldDesc`, `options` (vraies valeurs Airtable), `variants` + `variantOf`, `icon` en clé + map `ICONS`, `defaultSort` appliqué au changement de source, `key` | reste au catalogue : `presets`, `actions`, `create` (ils dépendent de la grammaire `InstanceCfg`, donc des étapes suivantes) |
 | **2** | Type générique + Options branché | ✅ **livré** (types `list` + `kpi`, deux formulaires) | **unification en un type `data`** + grammaire `query`/`view` + Options **générique unique** |
 | **3** | Galerie de presets + multi-instances | ✅ **livré** (presets **générés en code**) | presets **déclarés dans le catalogue** |
 | **4** | Vues kpi et table + **actions d'écriture** | 🟡 **partiel** : `kpi` livré, `table` non, **aucune écriture** | vue `table`, `SELECT_*_W`, `SourceApi.write`, `runAction`, formulaire de création |
@@ -538,10 +538,12 @@ Reste également, indépendant de la refonte : **brancher les 4 sources métier*
    dépréciés** dont le `coerce` traduit l'ancienne cfg vers la grammaire
    `query`/`view` (sinon toute instance déjà posée par un utilisateur partirait
    dans `parked`).
-2. **`SOURCES` → `CATALOG`.** Le catalogue livré porte `label`, `connected`,
-   `fields {label, kind}`, `defaultMap`. Il faut y ajouter `options`,
-   `variants`, `writable`, `icon`, `defaultSort`, `presets`, `actions`,
-   `create` — et remplacer `defaultMap` par le `view.map` des presets.
+2. ~~**`SOURCES` → `CATALOG`**~~ **fait (2026-07-31)** : renommé et enrichi —
+   `key`, `icon` (clé + map `ICONS`), `options`, `variants` (+ `variantOf`, repli
+   sur `statusVariant`), `defaultSort`, `kind` élargi (`longtext`, `url`).
+   `writable` est reporté à l'étape des écritures, `presets`/`actions`/`create` à
+   celle de la grammaire — pour ne pas déclarer du JSON que rien ne lit encore.
+   `defaultMap` reste : il devra devenir le `view.map` des presets.
 3. **`ListCfg`/`KpiCfg` → `InstanceCfg`.** Les cfg livrées sont plates
    (`source`, `map`, `filter` unique, `sort`, `limit`, `unit`, `dateField`,
    `compareDays`). La grammaire cible imbrique `query`/`view` et passe le filtre

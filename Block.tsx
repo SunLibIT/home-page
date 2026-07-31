@@ -542,13 +542,17 @@ const MOCK_USER = { firstName: "Frédéric" };
    même quand USE_MOCK=false (granularité mock/live gratuite, cf. offlineState). */
 const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
   // ← SELECT_ABONNE : nom / prenom / partenaire / statut / offre / creeLe
+  // ⚠️ `offre` : les valeurs sont celles RÉELLEMENT proposées par le champ Airtable
+  // « Type d installation » (les anciennes Duo / Solo / Pro n'existent plus). Le
+  // catalogue (§6-bis) en porte la liste, et un banc d'essai vérifie que le mock
+  // n'utilise que des valeurs déclarées.
   abonnes: [
-    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "Duo", creeLe: daysAgo(1) },
-    { id: "n2", prenom: "", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "Pro", creeLe: daysAgo(2) },
-    { id: "n3", prenom: "", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier incomplet pour instruction", offre: "Pro", creeLe: daysAgo(2) },
-    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "Duo", creeLe: daysAgo(15) },
-    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Solo", creeLe: daysAgo(15) },
-    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Duo", creeLe: daysAgo(15) },
+    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "PV + Batterie", creeLe: daysAgo(1) },
+    { id: "n2", prenom: "", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(2) },
+    { id: "n3", prenom: "", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier complet pour instruction", offre: "PV seul", creeLe: daysAgo(2) },
+    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15) },
+    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15) },
+    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Extension PV", creeLe: daysAgo(15) },
   ],
 
   // ← SELECT_TACHE_PR / SELECT_TACHE_PA : desc / associe / fin / fait
@@ -582,11 +586,11 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
 };
 
 /* ============================================================================
-   6-bis. COUCHE SOURCES — le registre de données (phase 1 de la cible v2)
+   6-bis. COUCHE CATALOG — le registre de données (phase 1 de la cible v2)
    ----------------------------------------------------------------------------
    Un widget ne lit plus une table : il consomme une SOURCE. Trois pièces par
    source — le littéral dans `datasource.define` (§6), le `SELECT_*` (§6), et un
-   ADAPTER de 5 lignes ci-dessous — plus une entrée du catalogue `SOURCES` qui la
+   ADAPTER de 5 lignes ci-dessous — plus une entrée du catalogue `CATALOG` qui la
    décrit (label, champs, mappage proposé) aux widgets configurables à venir.
 
    ⚠️ La contrainte Softr sur `from` n'est pas contournée, elle est CANALISÉE :
@@ -599,55 +603,120 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
 type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr";
 
 // Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
-type FieldKind = "text" | "date" | "badge" | "number" | "bool";
+type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
 // Champ (par ALIAS) proposé pour chaque rôle d'affichage d'un widget liste.
 type FieldRoleMap = { title?: string; sub?: string; date?: string; badge?: string };
 
-type SourceMeta = {
-  label: string;        // libellé humain (sélecteur de source)
+/* Descripteur d'un CHAMP. `options` alimente les menus de valeur des formulaires
+   (plus de saisie libre pour un statut) ; `variants` donne la couleur de badge par
+   valeur métier, avec repli sur l'heuristique `statusVariant` (§3) si la valeur
+   n'est pas listée. Les noms de variants sont ceux du kit visuel (`ok`, `warn`, …),
+   pas ceux du document cible (`success`, `warning`) : on ne renomme pas le kit. */
+type FieldDesc = {
+  label: string;
+  kind: FieldKind;
+  options?: string[];
+  variants?: Record<string, BadgeVariant>;
+};
+
+type SourceDesc = {
+  key: SourceKey;
+  label: string;
+  icon: string;         // CLÉ de la map ICONS — un JSON ne peut pas porter un composant
   connected: boolean;   // false tant que l'ID n'est pas un membre de DS (§6)
-  fields: Record<string, { label: string; kind: FieldKind }>;  // clés = ALIAS du SELECT_*
+  fields: Record<string, FieldDesc>;   // clés = ALIAS du SELECT_*
+  defaultSort: { by: string; dir: "asc" | "desc" };
   defaultMap?: FieldRoleMap;
 };
 
-/* Catalogue déclaratif. Il ne contient JAMAIS de nom de champ brut : uniquement
-   des alias — les noms Airtable exacts ne vivent que dans les `SELECT_*` (§6). */
-const SOURCES: Record<SourceKey, SourceMeta> = {
+/* Catalogue déclaratif — le « descripteur de source ». Il ne contient JAMAIS de nom
+   de champ brut : uniquement des alias (les noms Airtable exacts ne vivent que dans
+   les `SELECT_*`, §6) et des données pures : libellés, natures, valeurs possibles,
+   couleurs, tri par défaut. Les `options`/`variants` d'`abonnes` sont les VRAIS
+   choix des champs Airtable (relevés le 2026-07-31 sur « Statut Dossiers » et
+   « Type d installation »). */
+const CATALOG: Record<SourceKey, SourceDesc> = {
   abonnes: {
+    key: "abonnes",
     label: "Abonnés — BDD Abonné",
+    icon: "Bell",
     connected: true,
     fields: {
       nom: { label: "Nom", kind: "text" },
       prenom: { label: "Prénom", kind: "text" },
       partenaire: { label: "Installateur", kind: "text" },
-      statut: { label: "Statut dossier", kind: "badge" },
-      offre: { label: "Type d'installation", kind: "badge" },
+      statut: {
+        label: "Statut dossier", kind: "badge",
+        // ⚠️ « En attente de solvabilité » existe EN DOUBLE dans le champ Airtable
+        // (deux choix homonymes) : listé une fois ici, à nettoyer côté Airtable.
+        options: [
+          "Dossier annulé", "Dossier incomplet pour instruction", "Dossier complet pour instruction",
+          "Dossier incomplet pour édition de contrat", "Contrat à éditer",
+          "Contrat envoyé et en attente signature", "Assurance non ok", "Dossier refusé",
+          "Contrat signé", "Dossier PRO en cours d'étude du service technique",
+          "En attente de solvabilité", "En attente validation",
+        ],
+        variants: {
+          "Dossier annulé": "neutral",
+          "Dossier incomplet pour instruction": "danger",
+          "Dossier complet pour instruction": "warn",
+          "Dossier incomplet pour édition de contrat": "danger",
+          "Contrat à éditer": "warn",
+          "Contrat envoyé et en attente signature": "warn",
+          "Assurance non ok": "danger",
+          "Dossier refusé": "danger",
+          "Contrat signé": "ok",
+          "Dossier PRO en cours d'étude du service technique": "info",
+          "En attente de solvabilité": "warn",
+          "En attente validation": "warn",
+        },
+      },
+      offre: {
+        label: "Type d'installation", kind: "badge",
+        options: ["PV seul", "PV + Batterie", "PV + Batterie Virtuelle", "Batterie seule (sur une installation SunLib)", "Extension PV"],
+        variants: {
+          "PV seul": "info",
+          "PV + Batterie": "brand",
+          "PV + Batterie Virtuelle": "brand",
+          "Batterie seule (sur une installation SunLib)": "solar",
+          "Extension PV": "neutral",
+        },
+      },
       creeLe: { label: "Créé le", kind: "date" },
     },
+    defaultSort: { by: "creeLe", dir: "desc" },
     defaultMap: { title: "nom", sub: "partenaire", date: "creeLe", badge: "statut" },
   },
   notesIns: {
+    key: "notesIns",
     label: "Notes installateurs — Suivi client",
+    icon: "HardHat",
     connected: false,   // ⚠️ passer à true UNIQUEMENT avec l'id dans DS + un adapter
     fields: {
       nom: { label: "Installateur", kind: "text" },
-      note: { label: "Note", kind: "text" },
+      note: { label: "Note", kind: "longtext" },
       date: { label: "Date", kind: "date" },
     },
+    defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
   },
   notesPro: {
+    key: "notesPro",
     label: "Notes prospects — Suivi propect",
+    icon: "Target",
     connected: false,
     fields: {
       nom: { label: "Prospect", kind: "text" },
-      note: { label: "Note", kind: "text" },
+      note: { label: "Note", kind: "longtext" },
       date: { label: "Date", kind: "date" },
     },
+    defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
   },
   tachesPa: {
+    key: "tachesPa",
     label: "Tâches partenaires — Taches",
+    icon: "CalendarClock",
     connected: false,
     fields: {
       desc: { label: "Description", kind: "text" },
@@ -655,10 +724,13 @@ const SOURCES: Record<SourceKey, SourceMeta> = {
       fin: { label: "Date de fin", kind: "date" },
       fait: { label: "Fait", kind: "bool" },
     },
+    defaultSort: { by: "fin", dir: "asc" },
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
   },
   tachesPr: {
+    key: "tachesPr",
     label: "Tâches prospects — Taches prospect",
+    icon: "ClipboardList",
     connected: false,
     fields: {
       desc: { label: "Description", kind: "text" },
@@ -666,16 +738,32 @@ const SOURCES: Record<SourceKey, SourceMeta> = {
       fin: { label: "Date de fin", kind: "date" },
       fait: { label: "Fait", kind: "bool" },
     },
+    defaultSort: { by: "fin", dir: "asc" },
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
   },
 };
+
+/* Résolution des icônes : le descripteur porte une CLÉ (donnée), la map porte le
+   composant (code). Aucun import dynamique n'est possible dans le bloc, d'où cette
+   table — c'est l'illustration du principe « clés en JSON, implémentations en code ».
+   Une clé inconnue retombe sur une icône neutre plutôt que de casser le rendu. */
+const ICONS: Record<string, LucideIcon> = {
+  Bell, CalendarClock, ClipboardList, HardHat, Target, Users, Inbox,
+  LayoutGrid, BarChart3, Newspaper, Megaphone, Sparkles, Building2, Briefcase, Ticket,
+};
+const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
+
+/** Couleur de badge d'une valeur métier : `variants` du descripteur d'abord,
+ *  heuristique `statusVariant` (§3) en repli. PURE. */
+const variantOf = (desc: SourceDesc, alias: string | undefined, value: string): BadgeVariant =>
+  (alias ? desc.fields[alias]?.variants?.[value] : undefined) ?? statusVariant(value);
 
 type SourceState = { rows: Row[]; loading: boolean; error: boolean };
 type SourceChildren = (s: SourceState) => ReactNode;
 
 // Une source est lue en base seulement si le mock global est coupé ET qu'elle est
 // réellement connectée (sinon : mock, ou rien — jamais d'appel sur un id absent).
-const isLive = (k: SourceKey): boolean => !USE_MOCK && SOURCES[k].connected;
+const isLive = (k: SourceKey): boolean => !USE_MOCK && CATALOG[k].connected;
 
 /* NB : l'API Softr expose `isLoading` / `error` (comme le reste du fichier, cf.
    §11 `bddRes.isLoading`) — pas de `status` textuel. */
@@ -695,7 +783,7 @@ function AbonnesSource({ children }: { children: SourceChildren }) {
    1) la connecter dans l'onglet Sources du bloc, récupérer son id (onglet Chat) ;
    2) l'ajouter comme membre de `datasource.define` (§6) ;
    3) copier AbonnesSource en changeant `from`/`select`/`orderBy` ;
-   4) ajouter son `case` ci-dessous ; 5) passer `connected: true` dans SOURCES. */
+   4) ajouter son `case` ci-dessous ; 5) passer `connected: true` dans CATALOG. */
 function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
   if (!isLive(source)) return <>{children(offlineState(source))}</>;
   switch (source) {
@@ -1287,9 +1375,9 @@ const LIST_LIMIT_MAX = 50;
    « réparé » : on tolère à la lecture (cf. normalizeLayout, §10-bis). --- */
 function coerceListCfg(raw: unknown, fallback: ListCfg): ListCfg {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
-  const source: SourceKey = o.source in SOURCES ? o.source : fallback.source;
+  const source: SourceKey = o.source in CATALOG ? o.source : fallback.source;
   const known = (alias: unknown): string | undefined =>
-    typeof alias === "string" && alias in SOURCES[source].fields ? alias : undefined;
+    typeof alias === "string" && alias in CATALOG[source].fields ? alias : undefined;
 
   /* Mappage. Trois cas DISTINCTS, et cette distinction compte : sans elle, retirer
      un champ dans le formulaire serait impossible (le défaut reviendrait aussitôt).
@@ -1299,7 +1387,8 @@ function coerceListCfg(raw: unknown, fallback: ListCfg): ListCfg {
                                           champ disparu du catalogue)
      Le « aucun » est stocké en chaîne vide, et non en `undefined` : JSON.stringify
      supprimerait la clé, et le défaut reviendrait au rechargement. */
-  const base: FieldRoleMap = source === fallback.source ? fallback.map : SOURCES[source].defaultMap ?? {};
+  const changedSource = source !== fallback.source;
+  const base: FieldRoleMap = changedSource ? CATALOG[source].defaultMap ?? {} : fallback.map;
   const rawMap = (o.map && typeof o.map === "object" ? o.map : {}) as Record<string, unknown>;
   const roleOf = (role: keyof FieldRoleMap): string => {
     if (!(role in rawMap)) return known(base[role]) ?? "";
@@ -1315,15 +1404,29 @@ function coerceListCfg(raw: unknown, fallback: ListCfg): ListCfg {
   const filter: ListFilter | undefined =
     filterField && filterOp ? { field: filterField, op: filterOp, value: asText(rawFilter.value) } : undefined;
 
-  // `||` et non `??` : un repli doit aussi s'appliquer à une chaîne vide.
-  const sortBy = known(o.sort?.by) || known(fallback.sort.by) || map.date || map.title || "";
+  /* Tri. Trois cas, dans cet ordre :
+       · champ de tri explicite et valide → on le garde (avec le sens fourni) ;
+       · la source vient de changer → `defaultSort` du descripteur de la NOUVELLE
+         source, SENS COMPRIS (garder l'ancien sens n'aurait pas de sens : « fin
+         croissant » pour des tâches, « créé le décroissant » pour des dossiers) ;
+       · sinon → le tri du type, puis des replis sur les champs mappés.
+     `||` et non `??` : un repli doit aussi s'appliquer à une chaîne vide. */
+  const dflt = CATALOG[source].defaultSort;
+  const explicitBy = known(o.sort?.by);
+  const dirRaw = o.sort?.dir === "asc" || o.sort?.dir === "desc" ? o.sort.dir : undefined;
+  const sortBy = explicitBy
+    || (changedSource ? known(dflt.by) : known(fallback.sort.by) || known(dflt.by))
+    || map.date || map.title || "";
+  const sortDir: "asc" | "desc" = explicitBy
+    ? dirRaw ?? (changedSource ? dflt.dir : fallback.sort.dir)
+    : changedSource ? dflt.dir : dirRaw ?? fallback.sort.dir;
   return {
     title: asText(o.title ?? fallback.title),
     unit: asText(o.unit || fallback.unit) || "élément",
     source,
     map,
     filter,
-    sort: { by: sortBy, dir: o.sort?.dir === "asc" ? "asc" : "desc" },
+    sort: { by: sortBy, dir: sortDir },
     limit: Math.max(1, Math.min(LIST_LIMIT_MAX, Number(o.limit) > 0 ? Math.floor(Number(o.limit)) : fallback.limit)),
   };
 }
@@ -1367,7 +1470,7 @@ function applyView(rows: Row[], cfg: ListCfg): Row[] {
   let out = f ? rows.filter((r) => matchFilter(r[f.field], f)) : rows;
   const alias = cfg.sort.by;
   if (alias) {
-    const kind = SOURCES[cfg.source].fields[alias]?.kind;
+    const kind = CATALOG[cfg.source].fields[alias]?.kind;
     out = [...out].sort((a, b) => compareRows(a, b, alias, kind, cfg.sort.dir));
   }
   return out.slice(0, Math.max(1, Math.min(LIST_LIMIT_MAX, cfg.limit)));
@@ -1376,7 +1479,8 @@ function applyView(rows: Row[], cfg: ListCfg): Row[] {
 /* --- Présentiel générique. MÊME gabarit de ligne que NoteRow (§9) : pastille
    d'initiales, titre + date alignés, sous-titre clampé sur 2 lignes ; le rôle
    `badge` est rendu par le Badge de statut du gabarit (§3). --- */
-function GenericRow({ row, map, kinds }: { row: Row; map: FieldRoleMap; kinds: Record<string, { kind: FieldKind }> }) {
+function GenericRow({ row, map, desc }: { row: Row; map: FieldRoleMap; desc: SourceDesc }) {
+  const kinds = desc.fields;
   const title = map.title ? asText(row[map.title]) : "";
   const sub = map.sub ? asText(row[map.sub]) : "";
   const dateVal = map.date ? asText(row[map.date]) : "";
@@ -1399,7 +1503,8 @@ function GenericRow({ row, map, kinds }: { row: Row; map: FieldRoleMap; kinds: R
         </div>
         {(sub || badge) && (
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", minWidth: 0 }}>
-            {badge && <StatusBadge value={badge} />}
+            {/* Couleur pilotée par le descripteur (`variants`), heuristique en repli. */}
+            {badge && <Badge variant={variantOf(desc, map.badge, badge)}>{badge}</Badge>}
             {sub && <span className="slb-clamp2" style={{ ...CLAMP2, flex: 1, minWidth: 0, fontSize: "12px", fontWeight: 500, lineHeight: 1.45, color: T.ink2 }}>{sub}</span>}
           </div>
         )}
@@ -1408,8 +1513,8 @@ function GenericRow({ row, map, kinds }: { row: Row; map: FieldRoleMap; kinds: R
   );
 }
 
-function GenericList({ rows, map, kinds, loading, error, unit }: {
-  rows: Row[]; map: FieldRoleMap; kinds: Record<string, { kind: FieldKind }>;
+function GenericList({ rows, map, desc, loading, error, unit }: {
+  rows: Row[]; map: FieldRoleMap; desc: SourceDesc;
   loading: boolean; error: boolean; unit: string;
 }) {
   if (error) return <EmptyState dense icon={XCircle} title="Données indisponibles" hint="La source n'a pas répondu. Réessayez plus tard." />;
@@ -1432,24 +1537,25 @@ function GenericList({ rows, map, kinds, loading, error, unit }: {
   if (!rows.length) return <EmptyState dense icon={Inbox} title={`Aucun ${unit}`} hint="Aucune ligne ne correspond à ce réglage." />;
   return (
     <ScrollBody>
-      {rows.map((r) => <GenericRow key={r.id} row={r} map={map} kinds={kinds} />)}
+      {rows.map((r) => <GenericRow key={r.id} row={r} map={map} desc={desc} />)}
     </ScrollBody>
   );
 }
 
 /* --- Le widget complet : coquille + source + vue. Utilisé par TOUS les types
-   « liste » (le type générique `list` comme les types legacy convertis), chacun
-   fournissant simplement son icône. --- */
-function ListView({ icon, cfg }: { icon: LucideIcon; cfg: ListCfg }) {
-  const meta = SOURCES[cfg.source];
+   « liste » (le type générique `list` comme les types legacy convertis).
+   L'ICÔNE vient du descripteur de la source (`CATALOG[…].icon`, résolue par la map
+   ICONS) : elle suit donc automatiquement un changement de source dans Options. --- */
+function ListView({ cfg }: { cfg: ListCfg }) {
+  const desc = CATALOG[cfg.source];
   const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
   return (
     <SourceFeed source={cfg.source}>
       {(s) => {
         const rows = applyView(s.rows, cfg);
         return (
-          <Widget icon={icon} title={cfg.title || meta.label} sub={s.loading ? "Chargement…" : plural(rows.length, cfg.unit)}>
-            <GenericList rows={rows} map={cfg.map} kinds={meta.fields} loading={s.loading} error={s.error} unit={cfg.unit} />
+          <Widget icon={iconOf(desc.icon)} title={cfg.title || desc.label} sub={s.loading ? "Chargement…" : plural(rows.length, cfg.unit)}>
+            <GenericList rows={rows} map={cfg.map} desc={desc} loading={s.loading} error={s.error} unit={cfg.unit} />
           </Widget>
         );
       }}
@@ -1458,9 +1564,30 @@ function ListView({ icon, cfg }: { icon: LucideIcon; cfg: ListCfg }) {
 }
 
 /* --- Formulaire d'options (contenu du ⋮ « Options »). Entièrement alimenté par le
-   catalogue `SOURCES` : aucune connaissance d'un champ Airtable en dur. --- */
+   catalogue `CATALOG` : aucune connaissance d'un champ Airtable en dur. --- */
+/* Saisie de la VALEUR d'un filtre : menu déroulant si le descripteur liste les
+   valeurs possibles du champ (`options`), saisie libre sinon. Un statut ne se tape
+   plus à la main — c'est tout l'intérêt d'avoir les choix réels dans le catalogue. */
+function FilterValueInput({ desc, field, op, value, onChange, style }: {
+  desc: SourceDesc; field: string; op: ListFilterOp; value: string;
+  onChange: (v: string) => void; style: CSSProperties;
+}) {
+  const options = desc.fields[field]?.options;
+  // `lastDays` attend un nombre de jours, pas une valeur du champ.
+  if (op === "lastDays" || !options?.length) {
+    return <input style={style} value={value} aria-label="Valeur du filtre"
+      placeholder={op === "lastDays" ? "30" : "valeur"} onChange={(e) => onChange(e.target.value)} />;
+  }
+  return (
+    <select style={style} value={value} aria-label="Valeur du filtre" onChange={(e) => onChange(e.target.value)}>
+      <option value="">— choisir —</option>
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+
 function ListOptions({ cfg, onChange }: { cfg: ListCfg; onChange: (next: ListCfg) => void }) {
-  const meta = SOURCES[cfg.source];
+  const meta = CATALOG[cfg.source];
   const aliases = Object.keys(meta.fields);
   const set = (patch: Partial<ListCfg>) => onChange(coerceListCfg({ ...cfg, ...patch }, cfg));
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "10px 0 4px" };
@@ -1486,8 +1613,8 @@ function ListOptions({ cfg, onChange }: { cfg: ListCfg; onChange: (next: ListCfg
       <label style={lbl} htmlFor="slb-opt-src">Source de données</label>
       <select id="slb-opt-src" style={field} value={cfg.source}
         onChange={(e) => set({ source: e.target.value as SourceKey, map: {}, filter: undefined, sort: { by: "", dir: cfg.sort.dir } })}>
-        {(Object.keys(SOURCES) as SourceKey[]).map((k) => (
-          <option key={k} value={k}>{SOURCES[k].label}{SOURCES[k].connected ? "" : " (non connectée)"}</option>
+        {(Object.keys(CATALOG) as SourceKey[]).map((k) => (
+          <option key={k} value={k}>{CATALOG[k].label}{CATALOG[k].connected ? "" : " (non connectée)"}</option>
         ))}
       </select>
       {!meta.connected && (
@@ -1528,9 +1655,8 @@ function ListOptions({ cfg, onChange }: { cfg: ListCfg; onChange: (next: ListCfg
             {FILTER_OPS.map((f) => <option key={f.op} value={f.op}>{f.label}</option>)}
           </select>
           {opDef?.needsValue && (
-            <input style={{ ...field, width: 104 }} value={cfg.filter.value ?? ""} aria-label="Valeur du filtre"
-              placeholder={cfg.filter.op === "lastDays" ? "30" : "valeur"}
-              onChange={(e) => set({ filter: { ...cfg.filter!, value: e.target.value } })} />
+            <FilterValueInput desc={meta} field={cfg.filter.field} op={cfg.filter.op} value={cfg.filter.value ?? ""}
+              onChange={(v) => set({ filter: { ...cfg.filter!, value: v } })} style={{ ...field, width: 128 }} />
           )}
         </div>
       )}
@@ -1570,8 +1696,8 @@ const KPI_DAYS_MAX = 365;
 
 function coerceKpiCfg(raw: unknown, fallback: KpiCfg): KpiCfg {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
-  const source: SourceKey = o.source in SOURCES ? o.source : fallback.source;
-  const fields = SOURCES[source].fields;
+  const source: SourceKey = o.source in CATALOG ? o.source : fallback.source;
+  const fields = CATALOG[source].fields;
   const known = (alias: unknown): string | undefined =>
     typeof alias === "string" && alias in fields ? alias : undefined;
 
@@ -1617,15 +1743,15 @@ function kpiCount(rows: Row[], cfg: KpiCfg): { value: number; delta: number | nu
   return { value: current, delta: current - previous };
 }
 
-function KpiView({ icon, cfg }: { icon: LucideIcon; cfg: KpiCfg }) {
-  const meta = SOURCES[cfg.source];
+function KpiView({ cfg }: { cfg: KpiCfg }) {
+  const meta = CATALOG[cfg.source];
   return (
     <SourceFeed source={cfg.source}>
       {(s) => {
         const { value, delta } = kpiCount(s.rows, cfg);
         const window = cfg.compareDays && cfg.dateField ? `sur ${cfg.compareDays} j` : undefined;
         return (
-          <Widget icon={icon} title={cfg.title || meta.label} sub={window ?? meta.label}>
+          <Widget icon={iconOf(meta.icon)} title={cfg.title || meta.label} sub={window ?? meta.label}>
             <div style={{ padding: "14px 16px 18px", display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap" }}>
               {s.error ? (
                 <span style={{ fontSize: "13px", fontWeight: 600, color: T.ink3 }}>Donnée indisponible</span>
@@ -1654,7 +1780,7 @@ function KpiView({ icon, cfg }: { icon: LucideIcon; cfg: KpiCfg }) {
 }
 
 function KpiOptions({ cfg, onChange }: { cfg: KpiCfg; onChange: (next: KpiCfg) => void }) {
-  const meta = SOURCES[cfg.source];
+  const meta = CATALOG[cfg.source];
   const aliases = Object.keys(meta.fields);
   const dateAliases = aliases.filter((a) => meta.fields[a].kind === "date");
   const set = (patch: Partial<KpiCfg>) => onChange(coerceKpiCfg({ ...cfg, ...patch }, cfg));
@@ -1670,8 +1796,8 @@ function KpiOptions({ cfg, onChange }: { cfg: KpiCfg; onChange: (next: KpiCfg) =
       <label style={lbl} htmlFor="slb-kpi-src">Source de données</label>
       <select id="slb-kpi-src" style={field} value={cfg.source}
         onChange={(e) => set({ source: e.target.value as SourceKey, filter: undefined, dateField: undefined })}>
-        {(Object.keys(SOURCES) as SourceKey[]).map((k) => (
-          <option key={k} value={k}>{SOURCES[k].label}{SOURCES[k].connected ? "" : " (non connectée)"}</option>
+        {(Object.keys(CATALOG) as SourceKey[]).map((k) => (
+          <option key={k} value={k}>{CATALOG[k].label}{CATALOG[k].connected ? "" : " (non connectée)"}</option>
         ))}
       </select>
       {!meta.connected && (
@@ -1693,9 +1819,8 @@ function KpiOptions({ cfg, onChange }: { cfg: KpiCfg; onChange: (next: KpiCfg) =
             {FILTER_OPS.map((f) => <option key={f.op} value={f.op}>{f.label}</option>)}
           </select>
           {opDef?.needsValue && (
-            <input style={{ ...field, width: 104 }} value={cfg.filter.value ?? ""} aria-label="Valeur du filtre"
-              placeholder={cfg.filter.op === "lastDays" ? "30" : "valeur"}
-              onChange={(e) => set({ filter: { ...cfg.filter!, value: e.target.value } })} />
+            <FilterValueInput desc={meta} field={cfg.filter.field} op={cfg.filter.op} value={cfg.filter.value ?? ""}
+              onChange={(v) => set({ filter: { ...cfg.filter!, value: v } })} style={{ ...field, width: 128 }} />
           )}
         </div>
       )}
@@ -1803,7 +1928,7 @@ const LIST_CFG: ListCfg = {
   title: "",
   unit: "élément",
   source: "abonnes",
-  map: SOURCES.abonnes.defaultMap ?? {},
+  map: CATALOG.abonnes.defaultMap ?? {},
   sort: { by: "creeLe", dir: "desc" },
   limit: RECENT,
 };
@@ -1942,11 +2067,13 @@ type WidgetTypeDef = {
   Options?: FC<{ cfg: any; onChange: (next: any) => void }>;
 };
 
-// Fabriques de types génériques : même rendu, icône et cfg de départ par type.
+/* Fabriques de types génériques. `icon` ne sert plus qu'aux LIBELLÉS (menu
+   « Personnaliser », galerie) : à l'écran, le widget prend l'icône du descripteur
+   de sa source, donc elle suit un changement de source. */
 const listType = (title: string, icon: LucideIcon, base: ListCfg): WidgetTypeDef => ({
   title,
   icon,
-  Render: ({ cfg }) => <ListView icon={icon} cfg={cfg} />,
+  Render: ({ cfg }) => <ListView cfg={cfg} />,
   defaults: () => ({ ...base, map: { ...base.map } }),
   coerce: (raw) => coerceListCfg(raw, base),
   Options: ListOptions,
@@ -1955,7 +2082,7 @@ const listType = (title: string, icon: LucideIcon, base: ListCfg): WidgetTypeDef
 const kpiType = (title: string, icon: LucideIcon, base: KpiCfg): WidgetTypeDef => ({
   title,
   icon,
-  Render: ({ cfg }) => <KpiView icon={icon} cfg={cfg} />,
+  Render: ({ cfg }) => <KpiView cfg={cfg} />,
   defaults: () => ({ ...base }),
   coerce: (raw) => coerceKpiCfg(raw, base),
   Options: KpiOptions,
@@ -2059,10 +2186,10 @@ const PRESETS: Preset[] = [
     cfg: () => ({}),
     h,
   })),
-  ...(Object.keys(SOURCES) as SourceKey[]).map((s) => ({
+  ...(Object.keys(CATALOG) as SourceKey[]).map((s) => ({
     key: `list:${s}`,
-    label: `Liste — ${SOURCES[s].label}`,
-    hint: SOURCES[s].connected ? undefined : "source non connectée",
+    label: `Liste — ${CATALOG[s].label}`,
+    hint: CATALOG[s].connected ? undefined : "source non connectée",
     icon: LayoutGrid,
     type: "list" as WidgetTypeKey,
     cfg: () => listCfgFor(s),
