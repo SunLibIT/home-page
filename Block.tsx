@@ -54,7 +54,7 @@ import {
   CheckCheck, Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, EyeOff, RotateCcw,
-  Save, X, Newspaper, Megaphone,
+  Save, X, Newspaper, Megaphone, Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -1822,11 +1822,19 @@ const KPI_CFG: KpiCfg = {
       <div class="elfsight-app-…"> automatiquement, y compris après un remount
       (masquer/réafficher, réordonner). Aucune clé ni API exposée côté client.
       NB : un <script> écrit en JSX ne s'exécute pas → on l'ajoute au document. --- */
+/* Runtime Elfsight. Elfsight sert le MÊME runtime sous deux URLs — ses codes
+   d'intégration donnent tantôt `elfsightcdn.com/platform.js` (le plus récent),
+   tantôt `static.elfsight.com/platform/platform.js` : les deux fonctionnent, et
+   un seul chargement monte TOUS les `.elfsight-app-…` de la page, quel que soit
+   le widget. Inutile donc d'en charger deux si les snippets diffèrent. */
+const ELFSIGHT_PLATFORM = "https://elfsightcdn.com/platform.js";
+
 function useElfsightPlatform() {
   useEffect(() => {
-    if (document.querySelector('script[src*="elfsight.com/platform"], script[src*="elfsightcdn.com/platform"]')) return;
+    // Un seul platform.js suffit pour TOUS les widgets Elfsight du compte.
+    if (document.querySelector('script[src*="elfsightcdn.com/platform"], script[src*="elfsight.com/platform"]')) return;
     const s = document.createElement("script");
-    s.src = "https://static.elfsight.com/platform/platform.js";
+    s.src = ELFSIGHT_PLATFORM;
     s.async = true;
     document.body.appendChild(s);
   }, []);
@@ -1863,7 +1871,7 @@ function ElfsightEmbed({ appClass, label }: { appClass: string; label: string })
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>{label} indisponible</div>
             <div style={{ marginTop: 2, fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
-              L'embed Elfsight n'a pas démarré : vérifiez que la CSP de l'app autorise <code>static.elfsight.com</code>,
+              L'embed Elfsight n'a pas démarré : vérifiez que la CSP de l'app autorise <code>elfsightcdn.com</code> et <code>elfsight.com</code>,
               que le domaine <code>sunlibcrm2.softr.app</code> est autorisé côté Elfsight, et l'absence de bloqueur de contenu.
             </div>
           </div>
@@ -1882,11 +1890,26 @@ function LinkedinCard() {
   );
 }
 
+/* Titre volontairement NEUTRE : côté Elfsight, cette bannière change de contenu
+   (aujourd'hui « Webinaire l'abonnement pour l'ACC »), et ce n'est pas un embed
+   LinkedIn. La CLÉ de type reste `linkedinBanner` — c'est un contrat de
+   persistance, les layouts sauvegardés y font référence. */
 function LinkedinBannerCard() {
   return (
-    <Widget icon={Megaphone} title="À la une LinkedIn" sub="Mise en avant SunLib">
-      {/* ▼ EMBED Elfsight — bannière SunLib ▼ */}
-      <ElfsightEmbed appClass="elfsight-app-488a28ed-f4b6-4f5b-af44-c16613885c98" label="Bannière LinkedIn" />
+    <Widget icon={Megaphone} title="À la une SunLib" sub="Webinaires et annonces">
+      {/* ▼ EMBED Elfsight — bannière (contenu piloté depuis Elfsight) ▼ */}
+      <ElfsightEmbed appClass="elfsight-app-488a28ed-f4b6-4f5b-af44-c16613885c98" label="Bannière" />
+    </Widget>
+  );
+}
+
+/* Barre d'annonces Elfsight — troisième embed. Non livré par défaut (absent de
+   DEFAULT_INSTANCES) : il s'ajoute depuis la galerie « Ajouter un widget ». */
+function AnnoncesCard() {
+  return (
+    <Widget icon={Sparkles} title="Annonces SunLib" sub="Informations internes">
+      {/* ▼ EMBED Elfsight — barre d'annonces ▼ */}
+      <ElfsightEmbed appClass="elfsight-app-8f372b94-937a-4aa2-8762-0e56f6515ac7" label="Barre d'annonces" />
     </Widget>
   );
 }
@@ -1906,6 +1929,7 @@ function LinkedinBannerCard() {
 type WidgetTypeKey =
   | "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
   | "linkedin" | "linkedinBanner"
+  | "annonces" // ← 3ᵉ embed Elfsight (barre d'annonces), ajoutable via la galerie
   | "list"    // ← liste GÉNÉRIQUE pilotée par cfg (§9-bis)
   | "kpi";    // ← indicateur GÉNÉRIQUE piloté par cfg (§9-ter)
 
@@ -1944,7 +1968,8 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   notesProspects: listType("Dernières notes — Prospects", Target, NOTES_PRO_CFG),
   // Titres modifiables librement (les CLÉS, elles, sont figées : contrat de persistance).
   linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Render: LinkedinCard },
-  linkedinBanner: { title: "À la une LinkedIn", icon: Megaphone, Render: LinkedinBannerCard },
+  linkedinBanner: { title: "À la une SunLib", icon: Megaphone, Render: LinkedinBannerCard },
+  annonces: { title: "Annonces SunLib", icon: Sparkles, Render: AnnoncesCard },
   list: listType("Liste configurable", LayoutGrid, LIST_CFG),
   kpi: kpiType("Indicateur (KPI)", BarChart3, KPI_CFG),
 };
@@ -2018,15 +2043,21 @@ type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; typ
 const listCfgFor = (s: SourceKey): ListCfg =>
   coerceListCfg({ source: s, map: {}, sort: { by: "", dir: "desc" } }, LIST_CFG);
 
-const CUSTOM_TYPES: WidgetTypeKey[] = ["notifs", "taches", "linkedin", "linkedinBanner"];
+/* Types sur-mesure proposés dans la galerie, avec leur hauteur de départ (une barre
+   d'annonces n'a pas besoin d'un widget de 340 px). */
+const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize }[] = [
+  { type: "notifs" }, { type: "taches" }, { type: "linkedin" },
+  { type: "linkedinBanner", h: "sm" }, { type: "annonces", h: "sm" },
+];
 
 const PRESETS: Preset[] = [
-  ...CUSTOM_TYPES.map((t) => ({
+  ...CUSTOM_TYPES.map(({ type: t, h }) => ({
     key: t,
     label: WIDGET_REGISTRY[t].title,
     icon: WIDGET_REGISTRY[t].icon,
     type: t,
     cfg: () => ({}),
+    h,
   })),
   ...(Object.keys(SOURCES) as SourceKey[]).map((s) => ({
     key: `list:${s}`,

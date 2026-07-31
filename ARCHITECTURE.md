@@ -121,15 +121,28 @@ function NotifsCard() {
 Un widget à **deux sources** (`TachesCard`) imbrique simplement deux `<SourceFeed>`.
 Un widget dont la source n'est pas connectée reçoit le mock (aperçu) ou une liste vide (live) —
 son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appelé.
-Les deux widgets LinkedIn sont des embeds Elfsight : `useElfsightPlatform()` injecte
-`static.elfsight.com/platform.js` une seule fois, puis un `<div className="elfsight-app-…">`
-est rendu tel quel (un `<script>` écrit en JSX ne s'exécuterait pas).
+**Les trois embeds Elfsight** (`linkedin` = fil LinkedIn, `linkedinBanner` = bannière « À la une »,
+`annonces` = barre d'annonces) passent par `ElfsightEmbed` :
+
+- `useElfsightPlatform()` injecte le runtime **une seule fois** — un seul `platform.js` monte tous
+  les `.elfsight-app-…` de la page (un `<script>` écrit en JSX ne s'exécuterait pas). Elfsight sert
+  le même runtime sous deux URLs (`elfsightcdn.com/platform.js` et
+  `static.elfsight.com/platform/platform.js`) : ses codes d'intégration donnent tantôt l'une, tantôt
+  l'autre, les deux marchent, inutile d'en charger deux.
+- **Pas de `data-elfsight-app-lazy`** : le montage différé dépend de la visibilité, fragile dans une
+  iframe.
+- Si le conteneur est toujours vide au bout de 6 s, un **état de repli** nomme les trois causes à
+  vérifier (CSP de l'app, domaine autorisé côté Elfsight, bloqueur de contenu) au lieu de laisser un
+  cadre vide.
+- Les titres affichés sont **neutres** (« À la une SunLib », « Annonces SunLib ») : le contenu de ces
+  bannières change côté Elfsight, et ce ne sont pas des embeds LinkedIn. Les clés de type, elles,
+  restent figées (`linkedinBanner`).
 
 ### Couche C — l'entrée de registre (§10)
 
 ```tsx
 type WidgetTypeKey = "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
-                   | "linkedin" | "linkedinBanner" | "list";
+                   | "linkedin" | "linkedinBanner" | "annonces" | "list" | "kpi";
 
 type WidgetTypeDef = {
   title: string; icon: LucideIcon;
@@ -145,7 +158,8 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   notesInstallateurs: listType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
   notesProspects:     listType("Dernières notes — Prospects",     Target,  NOTES_PRO_CFG),
   linkedin:           { title: "SunLib sur LinkedIn",      icon: Newspaper,     Render: LinkedinCard },
-  linkedinBanner:     { title: "À la une LinkedIn",        icon: Megaphone,     Render: LinkedinBannerCard },
+  linkedinBanner:     { title: "À la une SunLib",          icon: Megaphone,     Render: LinkedinBannerCard },
+  annonces:           { title: "Annonces SunLib",          icon: Sparkles,      Render: AnnoncesCard },
   list:               listType("Liste configurable",       LayoutGrid, LIST_CFG),
 };
 
