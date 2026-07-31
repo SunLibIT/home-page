@@ -4,22 +4,21 @@
 > mécanique des widgets, et surtout **où et comment la data est persistée**.
 > Document de référence destiné à préparer la refonte du système de widgets ;
 > la cible et son plan de migration vivent dans `ARCHITECTURE-V2.md`.
-> Dernière mise à jour : 2026-07-31 — **les 5 phases de la v2 sont livrées** : modèle de
-> disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES (catalogue,
-> adapters, dispatch statique `SourceFeed`, mock par source) ; widget liste générique
-> piloté par `cfg` + ⋮ « Options » branché ; multi-instances (galerie, Dupliquer,
-> Supprimer) ; **widget indicateur (KPI)**. Les contraintes Softr du §1 et la mécanique de
-> persistance du §4 sont inchangées dans leur mécanique. **2026-07-31 (soir) : la table de
-> préférences quitte Softr Tables pour Airtable** — tout le stockage de l'app est désormais
-> sur Airtable (§4), et la nouvelle table est connectée au bloc. Reste à faire, hors
-> refonte : brancher les **4 sources métier** encore en mock (recette
-> `ARCHITECTURE-V2.md` §6), puis passer `USE_MOCK` à `false`.
+> Dernière mise à jour : 2026-07-31 — **la cible v2 est livrée jusqu'à sa RÉVISION 2** :
+> disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES et **descripteur
+> `CATALOG`** ; **type générique unique `data`** (grammaire `query`/`view` → vues liste, tableau,
+> indicateur) avec un **formulaire d'options unique** ; multi-instances (galerie de presets
+> **déclarés dans le catalogue**, Dupliquer, Supprimer) ; **actions d'écriture déclaratives**
+> (`RowActions`, `QuickCreate`) ; persistance passée **sur Airtable**.
+> Reste à faire, hors refonte : brancher les **4 sources métier** encore en mock (recette
+> `ARCHITECTURE-V2.md` §10) — ce qui activera la première écriture réelle — puis passer
+> `USE_MOCK` à `false`.
 
 ---
 
 ## 1. Nature du projet et contraintes de plateforme
 
-**Livrable unique : `Block.tsx` (2718 lignes).** On copie-colle ce seul fichier dans un bloc
+**Livrable unique : `Block.tsx` (3488 lignes).** On copie-colle ce seul fichier dans un bloc
 « vibe coding » de Softr (`sunlibcrm2.softr.app`, page `/home-copy`). Le bloc s'exécute
 **dans une iframe** au sein de la page Softr. Tout le reste du repo (`src/`, `package.json`,
 `vite.config.ts`) est un **scaffold Vite de dev** qui *simule* l'environnement Softr en local
@@ -72,8 +71,9 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, `WidgetChromeCtx`, `WidgetEditMenu`, **`Widget`** (la coquille), `PageNavBar`, `Hero`, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifRow`/`NotifWidget`, `TaskRow`/`TasksWidget` |
-| **9-bis** | **Widget liste GÉNÉRIQUE** : `ListCfg`, `coerceListCfg`, `matchFilter`/`compareRows`/`applyView` (purs), `GenericRow`/`GenericList`, `ListView`, **`ListOptions`** (le formulaire du ⋮) |
-| **9-ter** | **Widget indicateur (KPI) GÉNÉRIQUE** : `KpiCfg`, `coerceKpiCfg`, `kpiCount` (pur), `KpiView`, `KpiOptions` |
+| **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
+| **9-ter** | **ACTIONS** (écritures déclaratives) : `activeActions`, `interpolate`, `RowActions`, **`QuickCreate`** |
+| **9-quater** | **`DataOptions`** — le formulaire d'options UNIQUE, généré par la grammaire + `FilterValueInput` |
 | 10 | Enveloppes **data** (une par widget) + **`WIDGET_REGISTRY`** (registre des *types*) + `typeDefOf` |
 | **10-bis** | **Modèle de disposition v2** : `Instance`, `Layout`, `DEFAULT_INSTANCES`, **`PRESETS`** (galerie), `seed`, `normalizeLayout`, `migrateV1` + fonctions pures (déplacer / masquer / largeur / hauteur / **ajouter / dupliquer / supprimer**) |
 | 11 | `useHeroCounts`, **`usePersistentLayout`**, `SkeletonCard`, **`Dashboard`** (grille, mode Personnaliser, DnD, FLIP, toast) |
@@ -179,10 +179,10 @@ Deux familles de types cohabitent volontairement :
 
 | | Types **sur-mesure** | Types **liste** |
 |---|---|---|
-| Exemples | `notifs`, `taches`, les 2 LinkedIn | `notesInstallateurs`, `notesProspects`, `list`, `kpi` |
-| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `listType(...)` / `kpiType(...)` |
+| Exemples | `notifs`, `taches`, les 3 embeds Elfsight | `notesInstallateurs`, `notesProspects`, `data` (+ `list`/`kpi` dépréciés) |
+| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `dataType(...)` |
 | Interactions propres | oui (marquer comme lu, onglets, embed) | non |
-| ⋮ Options | non (bouton non affiché) | **oui** |
+| ⋮ Options | non (bouton non affiché) | **oui** — un formulaire unique (§9-quater) |
 
 Ajouter un widget générique = 1 entrée de registre. Ajouter un widget sur-mesure = présentiel +
 enveloppe + entrée. Dans les deux cas, + 1 entrée `DEFAULT_INSTANCES` pour le livrer par défaut.
@@ -275,51 +275,88 @@ portait encore les anciennes offres « Duo / Solo / Pro », supprimées d'Airtab
 entrée `CATALOG` avec `connected: true`). Elle est alors immédiatement disponible dans le sélecteur
 de source de tout widget liste.
 
-### Le widget liste générique et sa configuration (§9-bis)
+### Le widget générique `data` — la grammaire (§9-bis)
+
+**Un seul type de widget** affiche n'importe quelle source, sous trois formes. Ce qui change d'un
+widget à l'autre n'est pas du code, mais sa `cfg` — stockée dans `layout_json` :
 
 ```ts
-type ListCfg = {
-  title: string;                 // vide → libellé de la source
+type InstanceCfg = {
+  title: string;                 // vide → libellé du descripteur
   unit: string;                  // « note » → sous-titre « 7 notes »
   source: SourceKey;
-  map: FieldRoleMap;             // alias → rôle d'affichage (titre / détail / date / statut)
-  filter?: { field: string; op: "eq"|"neq"|"contains"|"lastDays"|"isEmpty"|"notEmpty"; value?: string };
-  sort: { by: string; dir: "asc" | "desc" };
-  limit: number;                 // 1 … 50
+  query: {
+    filter: { field: string; op: FilterOp; value?: string }[];   // combinés en ET
+    sort: { by: string; dir: "asc" | "desc" };
+    limit: number;                                               // 1 … 50
+  };
+  view:
+    | { kind: "list";  map: FieldRoleMap }                        // titre / détail / date / statut
+    | { kind: "table"; columns: string[] }                        // alias, dans l'ordre, max 6
+    | { kind: "kpi";   agg: "count" | "sum" | "avg"; field?: string;
+        dateField?: string; compareDays?: number };
+  actions?: { use: string[] };   // ids d'actions du descripteur, activées ici
+  create?: boolean;              // bouton « + » (formulaire du descripteur)
 };
 ```
 
-- **`applyView(rows, cfg)`** = filtre → **tri typé** (par `kind` : dates en temps, nombres en
-  nombres, textes en `localeCompare` fr) → limite. Fonctions **pures**, donc identiques en mock et
-  en live.
-- **`coerceListCfg(raw, defauts)`** ne throw jamais et valide tout contre le catalogue de la
-  source : source inconnue → repli, alias inconnu → repli, opérateur inconnu → filtre ignoré,
-  `limit` clampée. Trois cas distincts pour un rôle d'affichage — **absent** → défaut du type,
-  **vide (`""`)** → choix explicite « aucun » respecté, **invalide** → repli. Le « aucun » est
-  stocké en chaîne vide et non en `undefined`, sinon `JSON.stringify` supprimerait la clé et le
-  défaut reviendrait au rechargement.
+**Pourquoi un seul type et non trois** : la clé de type est un contrat de persistance (jamais
+renommée), alors que la vue doit rester modifiable. En mettant la vue dans la `cfg`, un widget passe
+de liste à tableau à indicateur **depuis le panneau Options, sans changer de type** — donc sans
+migration.
 
-### Le widget indicateur (§9-ter)
+- `applyQuery` = filtres (ET) → **tri typé** (dates en temps, nombres en nombres, textes en
+  `localeCompare` fr) → limite. `kpiCompute` agrège (`count`/`sum`/`avg`) et calcule l'écart avec la
+  fenêtre précédente. Toutes ces fonctions sont **pures**, donc identiques en mock et en live.
+- `coerceCfg` ne throw jamais et valide tout contre le descripteur : source inconnue → repli,
+  filtre invalide → **écarté** (mieux vaut un filtre en moins qu'un filtre faux), colonnes inconnues
+  ou en doublon → retirées, `sum`/`avg` sans champ numérique → retombe sur `count`, champ de
+  comparaison qui n'est pas une date → refusé, limite clampée. Trois cas distincts pour un rôle
+  d'affichage : **absent** → défaut, **vide (`""`)** → « aucun » respecté, **invalide** → repli.
+
+**COMPATIBILITÉ des cfg déjà livrées.** Les clés `list` et `kpi` de la rév. 1 ont été livrées avec
+des cfg *plates* (`map`, `filter` unique, `limit`, `dateField`, `compareDays`). Elles restent des
+types valides — **dépréciés** — et `fromLegacyCfg` traduit leur cfg vers la grammaire à la lecture :
+le filtre unique devient une liste d'un élément, `map` devient `view.map`, `dateField`/`compareDays`
+deviennent une `view` de kind `kpi`. Aucune instance déjà posée ne part dans `parked`, et le
+document n'est réécrit qu'au prochain « Enregistrer ». Supprimer ces deux clés ferait disparaître
+ces widgets de l'écran : ne pas le faire.
+
+⚠️ **Limite assumée du KPI** : l'agrégat porte sur les lignes **chargées** par la source (la première
+page renvoyée par Softr), pas sur le total serveur. Exact aux volumes actuels ; pour un vrai total
+sur grosse table, deux voies — variante d'adapter sans limite, ou champ rollup Airtable lu en une
+ligne. Le panneau d'options le dit à l'utilisateur.
+
+### Les ACTIONS — écrire en base depuis un widget (§9-ter)
+
+Une action est une **donnée** du descripteur ; l'exécuteur est générique.
 
 ```ts
-type KpiCfg = {
-  title: string;
-  source: SourceKey;
-  filter?: ListFilter;   // même forme et même moteur (`matchFilter`) que la liste
-  dateField?: string;    // alias d'un champ de `kind: "date"` — requis pour l'écart
-  compareDays?: number;  // fenêtre en jours (0 … 365) ; 0 = pas d'écart
-};
+type ActionDesc =
+  | { id; label; kind: "set";    set: Record<string, unknown>; confirm?: string }
+  | { id; label; kind: "toggle"; field: string }
+  | { id; label; kind: "link";   href: string; target?: "_top" | "_blank" };  // {alias} interpolés
 ```
 
-`kpiCount(rows, cfg)` est **pur** : sans fenêtre, il compte les lignes retenues par le filtre ;
-avec fenêtre et champ date, il compte la fenêtre courante `]-N ; 0]` et renvoie l'écart avec la
-fenêtre précédente `]-2N ; -N]`. `coerceKpiCfg` **refuse un champ de comparaison qui n'est pas une
-date** (l'écart n'aurait aucun sens) et clampe la fenêtre.
+`RowActions` les rend au survol d'une ligne (liste ou tableau) ; une action `set` avec `confirm`
+demande une confirmation **inline** (jamais `window.confirm`). `QuickCreate` est le « + » de
+l'en-tête, dont le formulaire vient de `desc.create` (`default: "@me.email"` résolu depuis la
+session).
 
-⚠️ **Limite assumée** : le compte porte sur les lignes **chargées** par la source (la première page
-renvoyée par Softr), pas sur le total serveur. Exact aux volumes actuels ; pour un vrai total sur
-grosse table, deux voies connues — variante d'adapter sans limite, ou champ rollup Airtable lu en
-une ligne (`ARCHITECTURE-V2.md` §2.2). Le libellé du panneau d'options le dit à l'utilisateur.
+L'adapter expose `SourceApi.write` **seulement** si la source a un `SELECT_*_W` et qu'une session
+existe. `write` absent = boutons d'écriture inertes, ce qui est le cas en aperçu « œil ».
+
+🔐 **La sécurité ne repose PAS sur le descripteur** — tout JSON côté client est falsifiable. Les
+vraies barrières, dans l'ordre : la whitelist **`SELECT_*_W`** (un champ absent est physiquement
+inécrivable, Softr répond 400) ; la **session obligatoire** ; les **permissions de la datasource**
+côté Softr ; le `confirm` pour les gestes destructeurs.
+
+État du branchement : `SELECT_TACHE_PA_W`/`_PR_W` (champ `Fait`) et `SELECT_NOTE_INS_W`/`_PRO_W`
+sont écrits et prêts ; leurs adapters restent à créer le jour où ces tables seront connectées (un
+exemple complet est en commentaire au-dessus de `SourceFeed`). « Abonnés » n'a **volontairement pas**
+de select d'écriture : le statut d'un dossier se change dans le CRM. En **aperçu** (`USE_MOCK`), une
+source hors ligne fournit un `write` **simulé** (mutation d'un état local, trace en console) : les
+actions et la création se testent sans base.
 
 ### La coquille `Widget`, le contexte d'édition et le ⋮ « Options »
 

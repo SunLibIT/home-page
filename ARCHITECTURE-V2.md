@@ -162,7 +162,8 @@ type FieldDesc = {
   kind: FieldKind;
   options?: string[];                       // valeurs possibles (badge / select de formulaire)
   variants?: Record<string, BadgeVariant>;  // valeur métier → couleur (repli : statusVariant)
-  writable?: boolean;                       // proposable dans actions & formulaires
+  // NB : `writable` n'a PAS été retenu — ce qui est écrivable est déterminé par le SELECT_*_W
+  // de l'adapter (la seule barrière réelle), pas par une donnée falsifiable côté client.
 };
 
 type ActionDesc =
@@ -519,11 +520,11 @@ colonne « reste à faire » dit ce que la rév. 2 y ajoute.
 | Phase | Contenu | État | Ce que la rév. 2 ajoute |
 |---|---|---|---|
 | **0** | Schéma v2 + `migrateV1` + `seeded`/`parked` | ✅ **livré** | rien |
-| **1** | `SourceFeed` + adapters + catalogue décrivant les sources ; Cards → `Render` des types legacy | ✅ **livré** ; **`CATALOG` enrichi livré le 2026-07-31** : `SourceDesc`/`FieldDesc`, `options` (vraies valeurs Airtable), `variants` + `variantOf`, `icon` en clé + map `ICONS`, `defaultSort` appliqué au changement de source, `key` | reste au catalogue : `presets`, `actions`, `create` (ils dépendent de la grammaire `InstanceCfg`, donc des étapes suivantes) |
-| **2** | Type générique + Options branché | ✅ **livré** (types `list` + `kpi`, deux formulaires) | **unification en un type `data`** + grammaire `query`/`view` + Options **générique unique** |
-| **3** | Galerie de presets + multi-instances | ✅ **livré** (presets **générés en code**) | presets **déclarés dans le catalogue** |
-| **4** | Vues kpi et table + **actions d'écriture** | 🟡 **partiel** : `kpi` livré, `table` non, **aucune écriture** | vue `table`, `SELECT_*_W`, `SourceApi.write`, `runAction`, formulaire de création |
-| **5** | Nouveaux projets via la recette §10 ; expérience §9 | ⏳ à faire | — |
+| **1** | `SourceFeed` + adapters + catalogue décrivant les sources | ✅ **livré** — descripteur `CATALOG` complet : `SourceDesc`/`FieldDesc`, `options` (vraies valeurs Airtable), `variants` + `variantOf`, `icon` en clé + map `ICONS`, `defaultSort`, **`presets`**, **`actions`**, **`create`** | — |
+| **2** | Type générique + Options branché | ✅ **livré** — type **`data`** unique, grammaire `query`/`view`, `DataOptions` (un seul formulaire) ; `list`/`kpi` conservés en types **dépréciés** dont `fromLegacyCfg` traduit la cfg plate | — |
+| **3** | Galerie de presets + multi-instances | ✅ **livré** — les presets sont désormais **déclarés dans le catalogue** (`presetsOf`) ; une source sans preset en reçoit un par défaut | — |
+| **4** | Vues kpi et table + **actions d'écriture** | 🟡 **mécanisme livré, branchement en attente** — vues `kpi` **et `table`** ; `SELECT_*_W` (whitelists), `SourceApi.write`, `RowActions` (`set`/`toggle`/`link` + confirmation inline), `QuickCreate` ; en aperçu, un `write` **simulé** permet de tester sans base | il manque les **adapters** des 4 tables non connectées : la première écriture réelle (case « Fait ») attend leur connexion Softr |
+| **5** | Nouveaux projets via la recette §10 ; expérience §9 (select dynamique) | ⏳ à faire | — |
 
 Reste également, indépendant de la refonte : **brancher les 4 sources métier**
 (`notesIns`, `notesPro`, `tachesPa`, `tachesPr`) et passer `USE_MOCK` à `false`.
@@ -532,32 +533,23 @@ Reste également, indépendant de la refonte : **brancher les 4 sources métier*
 
 À traiter en tête du chantier rév. 2 :
 
-1. **`list` et `kpi` existent déjà comme clés de type livrées.** La rév. 2 les
-   remplace par `data`. Comme une clé de type est un contrat de persistance,
-   elles ne doivent pas simplement disparaître : les garder en **types
-   dépréciés** dont le `coerce` traduit l'ancienne cfg vers la grammaire
-   `query`/`view` (sinon toute instance déjà posée par un utilisateur partirait
-   dans `parked`).
+1. ~~**`list` et `kpi` existent déjà comme clés de type livrées**~~ **traité** : conservés comme
+   types **dépréciés**, rendus par `DataView`, cfg traduite par `fromLegacyCfg` (filtre unique →
+   liste, `map` → `view.map`, `dateField`/`compareDays` → `view` kpi). 11 assertions dédiées.
 2. ~~**`SOURCES` → `CATALOG`**~~ **fait (2026-07-31)** : renommé et enrichi —
    `key`, `icon` (clé + map `ICONS`), `options`, `variants` (+ `variantOf`, repli
    sur `statusVariant`), `defaultSort`, `kind` élargi (`longtext`, `url`).
    `writable` est reporté à l'étape des écritures, `presets`/`actions`/`create` à
    celle de la grammaire — pour ne pas déclarer du JSON que rien ne lit encore.
    `defaultMap` reste : il devra devenir le `view.map` des presets.
-3. **`ListCfg`/`KpiCfg` → `InstanceCfg`.** Les cfg livrées sont plates
-   (`source`, `map`, `filter` unique, `sort`, `limit`, `unit`, `dateField`,
-   `compareDays`). La grammaire cible imbrique `query`/`view` et passe le filtre
-   **unique** à une **liste** de filtres combinés en ET.
-4. **Presets générés en code → déclarés en JSON.** `PRESETS`/`CUSTOM_TYPES`
-   deviennent la concaténation des `presets` des descripteurs + les legacy.
-5. **`connected`** ne figure pas dans `SourceDesc` alors que le code s'en sert
-   (et que le §8 le mentionne) : à conserver.
-6. **Styles.** Rappel du terrain (cf. `ARCHITECTURE.md` §1) : dans le bloc
-   Softr, la feuille injectée peut ne pas s'appliquer. Tout nouveau renderer —
-   `GenericTable` en particulier — doit poser sa mise en page **en style
-   inline**, jamais via des classes.
-7. **Icônes en clé (`ICONS`)** : nouveau, à introduire ; le code livré passe
-   les composants d'icônes directement.
+3. ~~**`ListCfg`/`KpiCfg` → `InstanceCfg`**~~ **fait** : grammaire `query`/`view` en place, filtre
+   unique devenu une **liste combinée en ET**, `unit` conservé (sous-titre « 7 notes »).
+4. ~~**Presets générés en code → déclarés en JSON**~~ **fait** : `SourceDesc.presets` alimente la
+   galerie via `presetsOf` ; les types sur-mesure restent proposés pour être ré-ajoutés.
+5. ~~**`connected`**~~ **conservé** dans `SourceDesc`, comme prévu.
+6. ~~**Styles**~~ **respecté** : `GenericTable` pose sa mise en page (table, en-tête collant,
+   colonnes, filets) **en style inline**, jamais via des classes.
+7. ~~**Icônes en clé (`ICONS`)**~~ **fait**.
 
 ---
 
