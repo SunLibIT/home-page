@@ -1,497 +1,567 @@
-# SunLib CRM — Accueil · Architecture cible v2 du système de widgets
+# SunLib CRM — Accueil · Architecture cible v2 : widgets pilotés par descripteurs
 
-> Complète `ARCHITECTURE.md` (état actuel). Objectif : **n'importe quelle table de
-> l'application peut devenir un widget de l'accueil**, avec un coût marginal quasi
-> nul, sans jamais retoucher le moteur (layout, persistance, mode Personnaliser).
-> Toutes les contraintes dures Softr de l'ARCHITECTURE.md restent en vigueur —
-> cette cible est conçue *à l'intérieur* de ces contraintes, pas contre elles.
-
----
-
-## 0. Le diagnostic en une phrase
-
-Aujourd'hui `WidgetId` fusionne **trois concepts** qui devraient être indépendants :
-*d'où viennent les données* (la source), *comment on les affiche* (le type de
-widget) et *ce que l'utilisateur a posé sur SON accueil* (l'instance). Résultat :
-chaque nouveau widget = 3 couches codées à la main, une seule instance possible
-par widget, et `widgets_config_json` qui ne sert à rien. La v2 sépare ces trois
-axes.
-
-```
-        layout_json (v2) — 1 ligne / utilisateur (table Preferences, inchangée)
-        ┌──────────────────────────────────────────────┐
-        │ items: [ { id, type, cfg, w, h }, … ]        │   ← INSTANCES
-        └──────────────────────┬───────────────────────┘
-                               │ pour chaque instance
-                               ▼
-            WIDGET_TYPES[type]           ← COMMENT afficher
-            Render · Options · defaults · coerce
-                               │ cfg.source
-                               ▼
-            <SourceFeed source={…}>      ← D'OÙ viennent les données
-            dispatch STATIQUE → 1 adapter useRecords par table
-                               │
-                               ▼
-                    Airtable / Softr Tables
-```
-
-La contrainte Softr sur `from` **ne se contourne pas, elle se canalise** : on
-n'écrira jamais `<Feed from={x}>`, mais un *dispatch statique* — un composant
-adapter par datasource (5 lignes chacun) et un `switch` qui les monte. Ajouter
-une source = ajouter un `case`. C'est le seul prix à payer, et il est fixe.
-
-> ⚠️ Nuance importante, souvent sur-lue : **seul `from` est verrouillé**. Les
-> paramètres `where`, `orderBy` et les valeurs passées aux filtres PEUVENT être
-> dynamiques (la persistance le prouve déjà : `q.text("email").is(email)`).
-> Si un jour une table est trop volumineuse pour le filtrage client, on ajoute
-> une variante d'adapter paramétrée par props — sans rien changer d'autre.
+> **Révision 2** — étend la première version avec la couche **descripteurs**
+> (stocker le maximum d'informations en JSON : données véhiculées, affichage,
+> actions), la grammaire d'instance `query · view · actions`, et les
+> **écritures** déclaratives vers Airtable / Softr Tables.
+> Complète `ARCHITECTURE.md` (état actuel). Toutes les contraintes dures Softr
+> restent en vigueur — cette cible est conçue *à l'intérieur* de ces
+> contraintes, pas contre elles.
+>
+> ⚠️ **État au 2026-07-31 : les phases 0 à 4 de la RÉVISION 1 sont déjà livrées**
+> (branche `refonte-widgets-v2`). La rév. 2 n'est donc pas un chantier vierge :
+> voir le §12, qui distingue ce qui est en place, ce qui doit être *étendu* et ce
+> qui reste à écrire — ainsi que le §12-bis, qui liste les écarts entre le code
+> livré et cette cible.
 
 ---
 
-## 1. Couche SOURCES — le registre de données
+## 0. La question, et la réponse en une phrase
 
-Un « registre de sources » remplace les enveloppes `*Card` codées à la main.
-Trois pièces par source : le littéral dans `define`, le `SELECT_*` (règles
-inchangées : noms Airtable **exacts** espaces finaux compris, FIELD IDs pour les
-tables Softr natives), et un **adapter** de 5 lignes. Plus une entrée de
-**catalogue déclaratif** qui décrit la source aux widgets génériques.
+« Comment faire pour que le maximum — les données véhiculées, le type
+d'affichage, les actions — soit stocké dans le JSON ? »
+
+**Principe directeur : les moteurs sont du code ; tout ce qu'ils lisent est du
+JSON.** Le JSON stocke des *clés* et des *valeurs* ; le code détient les
+*implémentations* derrière ces clés (un renderer, un adapter, une icône, un
+opérateur de filtre). Le code incompressible par source — imposé par Softr —
+tient en ~15 lignes. Tout le reste peut devenir données.
+
+```
+   layout_json (v2) — PAR UTILISATEUR         CATALOG — PARTAGÉ (constante JSON)
+   items: [{ id, type, cfg, w, h }, …]        descripteurs de sources : champs,
+   cfg = { source, query, view, actions }     kinds, badges, presets, actions,
+                  │                           formulaire de création
+                  ▼                                        │
+        WIDGET_TYPES["data"]  ◄────────────────────────────┘
+        renderers list / table / kpi · Options générique · runAction
+                  │  cfg.source
+                  ▼
+        <SourceFeed> → dispatch statique → adapters (useRecords + mutations)
+                  │                                        ▲
+                  ▼ lecture (SELECT_X)                     │ écriture (SELECT_X_W)
+              Airtable / Softr Tables ─────────────────────┘
+```
+
+Il y a donc **deux JSON, deux portées** — c'est la clarification centrale :
+
+| | Descripteur de source | cfg d'instance |
+|---|---|---|
+| Décrit | la table : champs, kinds, badges, presets, actions possibles | UN widget posé : quelle source, quels filtres, quelle vue, quelles actions activées |
+| Portée | partagé, identique pour tous | par utilisateur |
+| Vit dans | constante `CATALOG` de `Block.tsx` (§3, et pourquoi pas en table : §11) | `layout_json` (table `Home Preferences`), comme en rév. 1 |
+| Change quand | on branche/décrit une table | l'utilisateur personnalise |
+
+---
+
+## 1. La frontière code ↔ JSON — tracée précisément
+
+| Information | JSON | Code | Pourquoi |
+|---|---|---|---|
+| ID de datasource | | ✅ `datasource.define`, littéral | contrainte Softr dure |
+| `from` des hooks | | ✅ 1 adapter par source | contrainte Softr dure |
+| Noms de champs exacts / FIELD IDs | (expérience §9) | ✅ `SELECT_*` | seul endroit toléré ; c'est aussi la whitelist d'écriture |
+| Alias, libellés, kinds, options, `writable` | ✅ descripteur | | |
+| Couleurs de badge par valeur métier | ✅ descripteur | `statusVariant` en repli | |
+| Presets « prêts à poser » | ✅ descripteur | | |
+| Actions (écritures, liens, création) | ✅ descripteur + cfg | exécuteur générique `runAction` | |
+| Type d'affichage + réglages | ✅ `cfg.view` | renderers génériques | |
+| Filtres / tri / limite | ✅ `cfg.query` | `applyView` pure | |
+| Disposition (ordre, largeur, hauteur) | ✅ `layout_json` | moteur (inchangé) | |
+| Icônes | ✅ clé string | map `ICONS` | pas d'import dynamique possible |
+
+Corollaire pratique : **ajouter un style d'affichage = 1 renderer écrit une
+fois, disponible pour toutes les sources pour toujours**. Ajouter une source =
+~15 lignes de code contraint + ~35 lignes de pur JSON descriptif (§10).
+
+---
+
+## 2. Couche SOURCES — adapters lecture **et écriture**
+
+### 2.1 Deux selects par source : lecture large, écriture étroite
 
 ```tsx
-const DS = datasource.define({
-  abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30",
-  prefs:   "96961120-3d05-4ccc-8a48-3640ee48b060",
-  // notesIns: "…",  ← n'ajouter QUE des IDs réellement connectés (règle inchangée)
+/* Lecture : tout ce que les widgets peuvent AFFICHER. */
+const SELECT_SAV = q.select({
+  ident: "ID", client: "Client", statut: "Statut",
+  priorite: "Priorité", debut: "Date de début", fait: "Fait",
 });
 
-type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr"
-               | "savTickets" /* futur : projet Pilotage SAV */;
+/* Écriture : LA WHITELIST. Un alias absent d'ici est physiquement
+   inécrivable depuis le bloc (Softr répond 400). Ne jamais y mettre un champ
+   que l'utilisateur ne doit pas pouvoir modifier. */
+const SELECT_SAV_W = q.select({ statut: "Statut", fait: "Fait" });
+```
 
+Règles inchangées : noms Airtable **exacts** (espaces finaux compris) pour les
+tables Airtable, **FIELD IDs** pour les tables Softr natives ; CREATE en
+payload direct, UPDATE enveloppé `{ recordId, fields }`.
+
+### 2.2 L'adapter enrichi — `SourceApi`
+
+```tsx
 type Row = { id: string } & Record<string, unknown>;
 type SourceState = { rows: Row[]; loading: boolean; error: boolean };
-type SourceChildren = (s: SourceState) => React.ReactNode;
-```
-
-### 1.1 Le catalogue `SOURCES` — ce que les widgets ont le droit de savoir
-
-```tsx
-type FieldKind = "text" | "date" | "badge" | "number" | "bool";
-
-type SourceMeta = {
-  label: string;                                       // libellé humain (sélecteur)
-  connected: boolean;                                  // false tant que l'ID n'est pas dans DS
-  fields: Record<string, { label: string; kind: FieldKind }>;  // clés = ALIAS du SELECT_*
-  defaultMap?: Partial<ListMap>;                       // pré-mappage proposé au type "list"
+type SourceApi = SourceState & {
+  write?: {
+    update: (recordId: string, fields: Record<string, unknown>) => Promise<unknown>;
+    create?: (values: Record<string, unknown>) => Promise<unknown>;
+  };
 };
 
-const SOURCES: Record<SourceKey, SourceMeta> = {
-  abonnes: {
-    label: "Abonnés — BDD Abonné",
-    connected: true,
-    fields: {
-      nom:        { label: "Nom",                  kind: "text"  },
-      prenom:     { label: "Prénom",               kind: "text"  },
-      partenaire: { label: "Installateur",         kind: "text"  },
-      statut:     { label: "Statut dossier",       kind: "badge" },
-      offre:      { label: "Type d'installation",  kind: "badge" },
-      creeLe:     { label: "Créé le",              kind: "date"  },
-    },
-    defaultMap: { title: "nom", sub: "partenaire", date: "creeLe", badge: "statut" },
-  },
-  // notesIns, notesPro, tachesPa, tachesPr : connected:false, catalogues déjà connus
-};
-```
-
-Le catalogue alimente le sélecteur de source, les menus déroulants de mappage de
-champs, et le tri typé (dates vs textes vs nombres). **Il ne contient jamais les
-noms de champs bruts** — uniquement les alias, ce qui garde la règle « les noms
-exacts ne vivent QUE dans les `SELECT_*` ».
-
-### 1.2 Les adapters + le dispatch statique
-
-```tsx
-/* Un adapter PAR source : le SEUL endroit du fichier où useRecords lit une
-   table métier. `from` reste un membre littéral du define — contrainte Softr. */
-function AbonnesSource({ children }: { children: SourceChildren }) {
-  const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  return <>{children(liveState(res))}</>;
-}
-
-const liveState = (res: any): SourceState =>
-  ({ rows: flatten(res), loading: res.status === "loading", error: res.status === "error" });
-
-const offlineState = (k: SourceKey): SourceState =>
-  ({ rows: USE_MOCK ? (MOCK[k] ?? []) : [], loading: false, error: false });
-
-/* Dispatch STATIQUE — jamais de `from` variable. Ajouter une source = 1 case.
-   Aucun hook n'est appelé ici : monter/démonter des composants entiers est
-   légal pour React, et chaque adapter porte son propre useRecords. */
-function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
-  if (USE_MOCK || !SOURCES[source].connected) return <>{children(offlineState(source))}</>;
-  switch (source) {
-    case "abonnes":  return <AbonnesSource>{children}</AbonnesSource>;
-    // case "notesIns": return <NotesInsSource>{children}</NotesInsSource>;
-    default:         return <>{children(offlineState(source))}</>;
-  }
+function SavSource({ children }: { children: (s: SourceApi) => React.ReactNode }) {
+  const res  = useRecords({ from: DS.savTickets, select: SELECT_SAV, orderBy: q.desc("debut") });
+  const updM = useRecordUpdate({ from: DS.savTickets, fields: SELECT_SAV_W });
+  const crtM = useRecordCreate({ from: DS.savTickets, fields: SELECT_SAV_W });
+  const email = (useCurrentUser()?.email || "").trim();
+  const write = email
+    ? {
+        update: (recordId: string, fields: Record<string, unknown>) =>
+          updM.mutateAsync({ recordId, fields }),              // UPDATE enveloppé
+        create: (values: Record<string, unknown>) =>
+          crtM.mutateAsync(values),                            // CREATE direct
+      }
+    : undefined;   // pas de session (aperçu « œil ») → écriture court-circuitée, règle existante
+  return <>{children({ ...liveState(res), write })}</>;
 }
 ```
 
-Conséquences directes :
+Le dispatch statique `SourceFeed` de la rév. 1 est inchangé (un `case` par
+source, jamais de `from` variable) ; il fournit désormais un `SourceApi` au
+lieu d'un simple `SourceState`. En mock ou source non connectée : `write`
+simule localement (mutation d'un état local + note console) pour développer
+les actions sans base.
 
-- **Mock par source, gratuit.** `offlineState` sert automatiquement le mock pour
-  toute source non connectée, même quand `USE_MOCK=false` — ce qui règle la
-  limite n°8 (granularité du mock) sans interrupteur supplémentaire. Le `MOCK`
-  est re-clé par `SourceKey`, avec des lignes **à la forme des alias du
-  SELECT** : ainsi les transformations client (§2) sont identiques en mock et
-  en live.
-- **Deux instances sur la même source = deux `useRecords`.** Acceptable pour
-  nos volumes (12 lignes affichées). Si un jour c'est mesuré comme un problème,
-  l'optimisation connue est un `SourcesHost` qui monte un adapter par source
-  distincte et partage via contexte — à ne faire que si nécessaire.
-- **`useHeroCounts` devient un consommateur comme un autre** (ou reste tel quel
-  en phase 1 ; à terme, les chips du héro sont des mini-KPI, cf. §3.2).
+Rappels qui comptent pour ton usage « beaucoup de projets » :
+
+- **Autant de sources qu'on veut.** `define` n'a pas de limite connue, et
+  seules les instances **visibles** montent leur adapter : une source
+  connectée mais absente de l'écran (ou dans `hidden`) ne coûte **aucun**
+  fetch.
+- **Seul `from` est verrouillé.** `where`, `orderBy` et leurs valeurs peuvent
+  être dynamiques (la persistance le prouve : `q.text("email").is(email)`).
+  Porte ouverte pour du filtrage serveur par instance si une table devient
+  grosse.
+- **Changement de source dans Options** → remonter le widget avec
+  `key={cfg.source}` : l'arbre de hooks de l'adapter est remplacé proprement
+  (aucune violation des règles de hooks).
 
 ---
 
-## 2. Couche TYPES — le registre d'affichages
+## 3. Le CATALOGUE — le descripteur de source, cœur du « tout-en-JSON »
+
+C'est ici que vit « le maximum d'informations sur les données véhiculées ».
+Une entrée par source, **pure donnée** :
+
+```tsx
+type BadgeVariant = "success" | "info" | "warning" | "danger" | "neutral";
+type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
+
+type FieldDesc = {
+  label: string;
+  kind: FieldKind;
+  options?: string[];                       // valeurs possibles (badge / select de formulaire)
+  variants?: Record<string, BadgeVariant>;  // valeur métier → couleur (repli : statusVariant)
+  writable?: boolean;                       // proposable dans actions & formulaires
+};
+
+type ActionDesc =
+  | { id: string; label: string; kind: "set";    set: Record<string, unknown>; confirm?: string }
+  | { id: string; label: string; kind: "toggle"; field: string }
+  | { id: string; label: string; kind: "link";   href: string; target?: "_top" | "_blank" };
+    // href : gabarit avec {alias} interpolés depuis la ligne, ex. "…/sav?recordId={id}"
+
+type CreateFormDesc = {
+  label: string;                            // ex. "Nouveau dossier"
+  fields: { field: string; required?: boolean; default?: unknown }[];
+  // default "@me.email" → résolu à l'exécution avec useCurrentUser().email
+};
+
+type PresetDesc = { label: string; icon: string; cfg: InstanceCfg };  // cfg complète (§4)
+
+type SourceDesc = {
+  key: SourceKey;
+  label: string;
+  icon: string;                             // clé de la map ICONS (voir note)
+  fields: Record<string, FieldDesc>;        // clés = ALIAS du SELECT_* — jamais les noms bruts
+  defaultSort: { by: string; dir: "asc" | "desc" };
+  presets: PresetDesc[];
+  actions?: ActionDesc[];                   // actions PAR LIGNE offertes par la source
+  create?: CreateFormDesc;                  // formulaire de création rapide (bouton « + »)
+};
+
+const CATALOG: Record<SourceKey, SourceDesc> = { /* … une entrée par source … */ };
+```
+
+Exemple complet — le futur widget du projet **Pilotage SAV** :
+
+```tsx
+savTickets: {
+  key: "savTickets",
+  label: "Dossiers SAV",
+  icon: "Wrench",
+  fields: {
+    ident:    { label: "N° dossier", kind: "text" },
+    client:   { label: "Client",     kind: "text" },
+    statut:   { label: "Statut",     kind: "badge",
+                options: ["Nouveau", "En cours", "En attente tiers", "Clos"],
+                variants: { "Nouveau": "info", "En cours": "warning",
+                            "En attente tiers": "neutral", "Clos": "success" } },
+    priorite: { label: "Priorité",   kind: "number" },
+    debut:    { label: "Début",      kind: "date" },
+    fait:     { label: "Fait",       kind: "bool", writable: true },
+  },
+  defaultSort: { by: "debut", dir: "desc" },
+  presets: [
+    { label: "SAV en cours", icon: "Wrench",
+      cfg: { source: "savTickets",
+             query: { filter: [{ field: "statut", op: "neq", value: "Clos" }], limit: 12 },
+             view:  { kind: "list", map: { title: "client", sub: "ident", date: "debut", badge: "statut" } },
+             actions: { use: ["clore", "detail"] } } },
+    { label: "SAV ouverts (KPI)", icon: "Gauge",
+      cfg: { source: "savTickets",
+             query: { filter: [{ field: "statut", op: "neq", value: "Clos" }] },
+             view:  { kind: "kpi", agg: "count", compareDays: 30 } } },
+  ],
+  actions: [
+    { id: "clore",  label: "Clore",  kind: "set", set: { statut: "Clos" },
+      confirm: "Clore ce dossier ?" },
+    { id: "fait",   label: "Fait",   kind: "toggle", field: "fait" },
+    { id: "detail", label: "Détail", kind: "link",
+      href: "https://sunlibcrm2.softr.app/sav?recordId={id}", target: "_top" },
+  ],
+  create: { label: "Nouveau dossier",
+            fields: [{ field: "client", required: true },
+                     { field: "statut", default: "Nouveau" }] },
+},
+```
+
+**Note icônes** : un JSON ne peut pas contenir un composant. Le descripteur
+stocke une *clé* (`"Wrench"`) résolue par une map de code
+`const ICONS: Record<string, LucideIcon> = { Wrench, Bell, Gauge, … }` —
+illustration du principe « clés en JSON, implémentations en code ».
+
+**Presets : copie, pas référence.** À la pose d'un preset, sa `cfg` est
+**copiée** dans l'instance. L'instance est autoportante : elle survit aux
+évolutions du catalogue, et modifier un preset ne réécrit pas les accueils
+existants (compromis assumé — c'est aussi l'esprit « maximum d'infos dans le
+JSON » de l'utilisateur).
+
+---
+
+## 4. Le type générique `data` — la grammaire d'instance
+
+Un **seul** type générique remplace les `list`/`kpi` séparés de la rév. 1 :
 
 ```tsx
 type WidgetTypeKey =
-  /* Types « legacy » = les Cards actuelles, rebaptisées. Contrat de persistance :
-     ces clés reprennent les WidgetId v1 et ne seront JAMAIS renommées. */
   | "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
-  | "linkedin" | "linkedinBanner"
-  /* Types GÉNÉRIQUES pilotés par cfg — le cœur de la v2. */
-  | "list" | "kpi";
-
-type WidgetTypeDef<C> = {
-  label: string;                      // libellé galerie / menu Personnaliser
-  icon: LucideIcon;
-  defaults: () => C;
-  coerce: (raw: unknown) => C;        // merge défauts + clamp — ne throw JAMAIS
-  Render: FC<{ id: string; cfg: C }>; // libre d'utiliser <SourceFeed> et <Widget>
-  Options?: FC<{ cfg: C; onChange: (c: C) => void }>;  // contenu du ⋮ « Options »
-};
-
-const WIDGET_TYPES: { [K in WidgetTypeKey]: WidgetTypeDef<any> } = { /* … */ };
+  | "linkedin" | "linkedinBanner"     // legacy — clés figées (contrat)
+  | "data";                            // LE type générique piloté par cfg
 ```
 
-Deux libertés importantes : un `Render` **peut** être sur-mesure (les deux
-LinkedIn, le journal des tâches qui fusionne deux sources avec ses onglets —
-il monte simplement deux adapters statiques côte à côte). Le système n'impose
-pas la généricité, il la rend *possible*. Et l'implémentation d'un `Render`
-peut évoluer librement : seule la **clé** de type est un contrat (comme les
-`WidgetId` avant elle). Exemple : `notesInstallateurs` garde sa clé mais son
-`Render` deviendra en phase 2 un simple `GenericList` avec une cfg figée.
-
-### 2.1 Le type `list` — le widget générique qui débloque tout
+Pourquoi un seul : le `type` est un **contrat de persistance** (jamais
+renommé), alors que la **vue** doit rester librement modifiable. En mettant la
+vue dans la cfg, un widget passe de liste à tableau à KPI **dans le panneau
+Options, sans changer de type** — donc sans migration.
 
 ```tsx
-type ListMap = { title: string; sub?: string; date?: string; badge?: string };
-type ListFilter = {
-  field: string;
-  op: "eq" | "neq" | "contains" | "lastDays" | "isEmpty" | "notEmpty";
-  value?: string | number;
-};
-type ListCfg = {
-  title: string;
+type Filter = { field: string;
+                op: "eq" | "neq" | "contains" | "gt" | "lt" | "lastDays" | "isEmpty" | "notEmpty";
+                value?: string | number };
+
+type InstanceCfg = {
+  title?: string;                       // défaut : label du descripteur
   source: SourceKey;
-  map: ListMap;                        // alias de champs → rôles d'affichage
-  filter?: ListFilter;
-  sort: { by: string; dir: "asc" | "desc" };
-  limit: number;                       // défaut RECENT (12)
+  query: { filter?: Filter[];           // combinés en ET
+           sort?: { by: string; dir: "asc" | "desc" };
+           limit?: number };            // défaut RECENT (12)
+  view:
+    | { kind: "list";  map: { title: string; sub?: string; date?: string; badge?: string };
+        density?: "cozy" | "dense" }
+    | { kind: "table"; columns: { field: string; width?: number }[] }
+    | { kind: "kpi";   agg: "count" | "sum" | "avg"; field?: string;
+        compareDays?: number; goal?: number };
+  actions?: { use: string[] };          // ids d'ActionDesc du descripteur, activés ici
+  create?: boolean;                     // afficher le bouton « + » (quickCreate du descripteur)
 };
-
-/* Transformations CLIENT, fonctions PURES — identiques en mock et en live. */
-function applyView(rows: Row[], cfg: ListCfg): Row[] {
-  let out = cfg.filter ? rows.filter((r) => matchFilter(r[cfg.filter!.field], cfg.filter!)) : rows;
-  out = [...out].sort(compareBy(cfg.sort, SOURCES[cfg.source].fields));  // tri typé par kind
-  return out.slice(0, Math.max(1, cfg.limit || RECENT));
-}
 ```
 
-Le `Render` du type `list` :
+Le `Render` du type `data` est le seul « aiguillage » d'affichage :
 
 ```tsx
-Render: ({ id, cfg }: { id: string; cfg: ListCfg }) => (
-  <SourceFeed source={cfg.source}>
-    {(s) => (
-      <Widget icon={iconOf(cfg)} title={cfg.title || SOURCES[cfg.source].label} /* … */>
-        <GenericList rows={applyView(s.rows, cfg)} map={cfg.map}
-                     kinds={SOURCES[cfg.source].fields} loading={s.loading} error={s.error} />
-      </Widget>
-    )}
+Render: ({ id, cfg }: { id: string; cfg: InstanceCfg }) => (
+  <SourceFeed source={cfg.source} key={cfg.source}>
+    {(s) => {
+      const rows = applyView(s.rows, cfg, CATALOG[cfg.source]);   // filtres/tri/limite — PURE
+      const V = cfg.view.kind === "table" ? GenericTable
+              : cfg.view.kind === "kpi"   ? GenericKpi
+              : GenericList;
+      return (
+        <Widget icon={ICONS[CATALOG[cfg.source].icon]}
+                title={cfg.title || CATALOG[cfg.source].label} /* … */>
+          <V rows={rows} cfg={cfg} desc={CATALOG[cfg.source]} api={s} />
+        </Widget>
+      );
+    }}
   </SourceFeed>
 ),
 ```
 
-`GenericList` est un présentiel unique (ligne avatar/titre/sous-titre/date/badge,
-même gabarit que `NoteRow`), qui rend chaque rôle selon le `kind` du champ mappé
-(`date` → `fmtRel` + `title` absolu, `badge` → `Badge`/`statusVariant`, etc.).
+Les renderers (`GenericList`, `GenericTable`, `GenericKpi`) formatent chaque
+champ selon son `kind` (date → `fmtRel` + absolu en `title`, badge →
+`variants` du descripteur avec repli `statusVariant`, bool → coche, etc.).
+Toutes les transformations (`applyView`, `matchFilter`, `compareBy`,
+`aggregate`) sont des **fonctions pures**, identiques en mock et en live.
 
-### 2.2 Le type `kpi` — le raccord avec le projet Pilotage SAV
-
-```tsx
-type KpiCfg = {
-  title: string;
-  source: SourceKey;
-  filter?: ListFilter;      // ex. statut = "En cours", ou lastDays 30
-  compareDays?: number;     // delta vs période précédente (optionnel)
-};
-```
-
-Rendu : gros chiffre + libellé + delta, dans la coquille `Widget` en `h:"sm"`.
-**Limite assumée et documentée** : le compte porte sur les lignes *chargées*
-(pattern actuel : les N récentes), pas sur le total serveur. Pour un vrai total
-sur grosse table, deux voies plus tard : adapter variante sans limite, ou champ
-rollup côté Airtable lu en 1 ligne. Pour les volumes actuels (SAV : dizaines de
-dossiers), le compte client est exact.
+**Limite KPI assumée** : les agrégats portent sur les lignes *chargées*
+(pattern actuel : les N récentes) — exact pour les volumes SAV/notes/tâches.
+Pour un vrai total sur grosse table : variante d'adapter sans limite, ou
+rollup côté Airtable lu en une ligne.
 
 ---
 
-## 3. INSTANCES & le JSON v2 — le nouveau `layout_json`
+## 5. ACTIONS — écrire en base depuis un widget, déclarativement
 
-### 3.1 Le schéma
-
-```tsx
-type Instance = {
-  id: string;            // CONTRAT DE PERSISTANCE — jamais renommé.
-                         // Migrés v1 = l'ancien WidgetId ; nouveaux = "w_" + aléa base36.
-  type: WidgetTypeKey;   // contrat aussi : une clé de type livrée ne se renomme jamais
-  cfg: unknown;          // interprété par WIDGET_TYPES[type].coerce AU RENDU (jamais stocké "réparé")
-  w: "half" | "full";    // ex-`wide`
-  h: WidgetSize;         // ex-`sizes` — "md" désormais stocké explicitement (plus simple)
-};
-
-type Layout = {
-  v: 2;
-  items:  Instance[];    // visibles — l'ordre du tableau EST l'ordre d'affichage
-  hidden: Instance[];    // masqués, cfg CONSERVÉE (réaffichables tels quels)
-  parked: Instance[];    // types inconnus du code courant : ni rendus, ni perdus
-  seeded: string[];      // ids d'instances par défaut déjà injectées (anti-résurrection)
-};
-```
-
-Ce que chaque champ règle :
-
-| Champ | Limite v1 qu'il résout |
-|---|---|
-| `items[].id ≠ type` | n°2 — multi-instances : deux « Notes » avec deux filtres différents, duplication d'un widget |
-| `items[].cfg` | n°3 — la personnalisation fine a enfin un domicile (et le ⋮ Options a un contenu) |
-| `w`/`h` embarqués dans l'instance | plus de 3 tableaux parallèles (`order`/`wide`/`sizes`) à garder cohérents |
-| `parked` | compat **descendante** : un layout écrit par un code plus récent (type inconnu) survit à un retour arrière *au sein de la v2* |
-| `seeded` | remplace « tout id du registre absent → réapparaît » : un widget par défaut **supprimé** par l'utilisateur ne ressuscite pas à chaque chargement |
-
-### 3.2 Seeding — livraison de nouveaux widgets par défaut
+L'exécuteur est générique, minuscule, écrit une fois :
 
 ```tsx
-const DEFAULT_INSTANCES: Instance[] = [
-  { id: "notifs",             type: "notifs",             cfg: {}, w: "half", h: "md" },
-  { id: "taches",             type: "taches",             cfg: {}, w: "half", h: "md" },
-  { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: "md" },
-  { id: "notesProspects",     type: "notesProspects",     cfg: {}, w: "half", h: "md" },
-  { id: "linkedin",           type: "linkedin",           cfg: {}, w: "half", h: "md" },
-  { id: "linkedinBanner",     type: "linkedinBanner",     cfg: {}, w: "half", h: "md" },
-];
-
-/* Toute instance par défaut jamais vue par cet utilisateur → ajoutée en fin
-   d'items, visible, et marquée seeded. Vue une fois = plus jamais imposée. */
-function seed(l: Layout): Layout {
-  const known = new Set([
-    ...l.items.map(i => i.id), ...l.hidden.map(i => i.id),
-    ...l.parked.map(i => i.id), ...l.seeded,
-  ]);
-  const missing = DEFAULT_INSTANCES.filter(d => !known.has(d.id));
-  if (!missing.length) return l;
-  return { ...l,
-    items:  [...l.items, ...missing.map(d => ({ ...d }))],
-    seeded: [...l.seeded, ...missing.map(d => d.id)],
-  };
+async function runAction(a: ActionDesc, row: Row, api: SourceApi): Promise<boolean> {
+  if (a.kind === "link") { /* interpole {alias} depuis row, rend un <a target> */ return true; }
+  if (!api.write) { notify("Écriture indisponible (aperçu non connecté)"); return false; }
+  if (a.kind === "set") {
+    if (a.confirm && !(await confirmInline(a.confirm))) return false;   // jamais window.confirm
+    await api.write.update(row.id, a.set); return true;
+  }
+  if (a.kind === "toggle") { await api.write.update(row.id, { [a.field]: !row[a.field] }); return true; }
+  return false;
 }
 ```
 
-Livrer un nouveau widget par défaut = 1 entrée dans `DEFAULT_INSTANCES` : il
-apparaît chez tout le monde une fois, exactement comme aujourd'hui — mais reste
-supprimable définitivement.
+Retour visuel : optimisme **local** le temps du refetch (même pattern que les
+`readIds` actuels — la ligne est mise à jour/retirée d'un état local, la BDD
+reste source de vérité). Échec → toast avec « Réessayer », comme la
+persistance du layout.
 
-### 3.3 `normalizeLayout` v2 — mêmes principes, périmètre élargi
+**Sécurité — à graver** : tout JSON côté client (descripteur compris) est
+falsifiable par un utilisateur outillé. Le descripteur est de l'**UX**, jamais
+de la sécurité. Les vrais garde-fous sont : (1) la whitelist `SELECT_*_W` — un
+champ absent est inécrivable, point ; (2) la session obligatoire (email vide →
+aucune tentative) ; (3) les permissions de la datasource côté Softr ;
+(4) `confirm` pour les actions sensibles.
 
-Fonction pure, ne throw jamais, appliquée à toute lecture (BDD **et** cache
-localStorage — la migration du cache est donc transparente) :
+Ce que ça débloque immédiatement : la case **« Fait »** des tâches devient
+réelle ; **« Marquer comme lu »** devient persistant le jour où le champ/la
+table existe (limite n°6 — les deux pistes connues restent valables) ;
+**« Clore »** un dossier SAV ; **ajout rapide** d'une note depuis l'accueil.
 
-1. JSON invalide / non-objet / `v ∉ {1,2}` → `seed(cloneDefault())`.
-2. `v === 1` → `migrateV1` (§3.4).
-3. `v === 2` → assainissement : instances sans `id` string ou en doublon
-   (priorité `items` > `hidden` > `parked`) écartées ; `w`/`h` clampés ;
-   `type` inconnu → déplacé vers `parked` (jamais supprimé) ; `cfg` laissé
-   **brut** (c'est `coerce` du type qui l'interprète au rendu — on ne « répare »
-   jamais le stockage, on tolère à la lecture). Puis `seed()`.
+---
 
-### 3.4 Migration v1 → v2 — mécanique, sans perte
+## 6. INSTANCES & `layout_json` v2 — inchangé, cfg enrichie
+
+Schéma identique à la rév. 1 (seul `"data"` s'ajoute aux types) :
 
 ```tsx
-const V1_IDS = ["notifs","taches","notesInstallateurs","notesProspects","linkedin","linkedinBanner"];
-
-function migrateV1(v1: any): Layout {
-  const inst = (id: string): Instance => ({
-    id,
-    type: (V1_IDS.includes(id) ? id : "list") as WidgetTypeKey,  // ids v1 = clés de type legacy
-    cfg: {},
-    w: Array.isArray(v1.wide) && v1.wide.includes(id) ? "full" : "half",
-    h: v1.sizes?.[id] === "sm" || v1.sizes?.[id] === "lg" ? v1.sizes[id] : "md",
-  });
-  return seed({
-    v: 2,
-    items:  (Array.isArray(v1.order)  ? v1.order  : []).map(inst),
-    hidden: (Array.isArray(v1.hidden) ? v1.hidden : []).map(inst),
-    parked: [],
-    seeded: DEFAULT_INSTANCES.map(d => d.id),   // l'utilisateur v1 a déjà tout vu
-  });
-}
+type Instance = { id: string; type: WidgetTypeKey; cfg: unknown; w: "half" | "full"; h: WidgetSize };
+type Layout = { v: 2; items: Instance[]; hidden: Instance[]; parked: Instance[]; seeded: string[] };
 ```
 
-La migration s'effectue en mémoire à la lecture ; le document v2 n'est écrit
-qu'au prochain « Enregistrer » (fidèle à la règle « écriture uniquement à
-Enregistrer »). **Seul chemin destructif connu : un retour arrière vers le code
-v1 après qu'un utilisateur a sauvegardé en v2** (le normalize v1 verrait
-`v!==1` → défaut, puis écraserait au prochain save). Mitigation : valider la
-phase 0 sur ta propre ligne `Preferences` (le modèle 1 ligne/utilisateur isole
-naturellement les tests) avant d'ouvrir aux autres, et ne pas rollbacker
-au-delà.
+Rappels des règles (détaillées en rév. 1, toujours valables) :
 
----
+- `id` et `type` = contrats de persistance, jamais renommés. Migrés v1 →
+  `id` = ancien `WidgetId`, `type` du même nom ; nouveaux → `"w_" + aléa`.
+- `cfg` stockée **brute**, interprétée au rendu par `coerce` du type (merge
+  défauts + clamp, ne throw jamais). On tolère à la lecture, on ne « répare »
+  jamais le stockage. Avec la grammaire §4, `coerce` devient encore plus
+  central : c'est lui qui absorbe les cfg écrites par d'anciennes versions.
+- `parked` (types inconnus, jamais rendus ni perdus), `seeded`
+  (anti-résurrection des défauts supprimés), `seed()` et `migrateV1` :
+  identiques à la rév. 1.
+- Un exemple de ligne réelle en base, pour fixer les idées :
 
-## 4. Persistance — Option A confirmée, et pourquoi
-
-**Le document v2 entier continue de vivre dans le seul champ `layout_json`.**
-Rien ne change dans la mécanique : 1 ligne par utilisateur clé sur l'e-mail,
-optimiste + toast, cache `slb-home-layout:<email>`, last-write-wins, écriture
-seulement à « Enregistrer ».
-
-Arbitrage explicite contre l'éclatement dans les champs en réserve :
-
-- **Atomicité** : un document = un parse, un état, une écriture. (Nuance utile :
-  `updateM.mutateAsync({ recordId, fields: {…} })` écrit plusieurs alias en UN
-  appel — donc si un jour on veut isoler les `cfg` dans `widgets_config_json`,
-  ça resterait atomique. C'est une porte ouverte, pas un besoin : aujourd'hui ça
-  doublerait la logique de normalisation pour zéro gain.)
-- **Versionnage unique** : le `v` du JSON gouverne tout ; pas de matrice de
-  compatibilité entre champs.
-- **Taille** : ~20 instances avec cfg ≈ 3–5 Ko. Aucun risque sur un Long text.
-
-Champs écrits : `user_email` (création), `layout_json`, `updated_at` et
-**`schema_version = 2`** (coût nul, et permet de diagnostiquer l'état du parc
-sans parser du JSON).
-
-> **Mise à jour 2026-07-31 — la table de persistance est passée sur AIRTABLE.**
-> Elle vivait dans Softr Tables (`Preferences`, champs adressés par FIELD IDs) ;
-> elle est désormais la table **`Home Preferences`** de la base **`SunLib CRM —
-> Préférences`** (`appHZaD5BkDsWxR65`), pour que l'app n'ait qu'un seul système
-> de données. Conséquences : `SELECT_PREFS` utilise les **noms exacts** des champs
-> (règle Airtable) et non plus des FIELD IDs ; les 4 champs sont tous écrits, les
-> 5 champs « en réserve » de l'ancienne table sont abandonnés (sur Airtable, en
-> ajouter un prend dix secondes). L'Option A elle-même ne change pas : un seul
-> document dans `layout_json`. Détail complet dans `ARCHITECTURE.md` §4.
-
----
-
-## 5. UI — ce que la v2 débloque à l'écran
-
-**Le ⋮ « Options » du mode normal (TODO ligne 725) est enfin branché** : il
-ouvre `WIDGET_TYPES[type].Options` (petit formulaire : sélecteur de source
-limité aux `connected`, menus de mappage alimentés par `SOURCES[…].fields`,
-filtre, tri, limite). « Enregistrer » du panneau → même pipeline `persist`
-(optimiste + toast), en remplaçant la `cfg` de l'instance :
-
-```tsx
-const persistCfg = (id: string, cfg: unknown) =>
-  persist({ ...applied, items: applied.items.map(it => it.id === id ? { ...it, cfg } : it) });
+```json
+{ "v": 2,
+  "items": [
+    { "id": "notifs", "type": "notifs", "cfg": {}, "w": "half", "h": "md" },
+    { "id": "w_k3f9a2", "type": "data", "w": "half", "h": "sm",
+      "cfg": { "source": "savTickets",
+               "query": { "filter": [{ "field": "statut", "op": "neq", "value": "Clos" }] },
+               "view": { "kind": "kpi", "agg": "count", "compareDays": 30 },
+               "title": "SAV ouverts" } }
+  ],
+  "hidden": [], "parked": [], "seeded": ["notifs","taches","notesInstallateurs",
+  "notesProspects","linkedin","linkedinBanner"] }
 ```
 
-En mode **Personnaliser**, le menu ⋮ gagne deux actions à côté des existantes :
-**Dupliquer** (nouvel `id` généré, `cfg` copiée — c'est LE geste multi-instances)
-et **Supprimer** (retrait définitif ; les widgets par défaut restent
-re-ajoutables via la galerie). Et un panneau **« Ajouter un widget »** apparaît
-à côté de « Widgets masqués » : une galerie de *presets* —
-`{ label, icon, type, cfg() }` — générée automatiquement : un preset `list` par
-source connectée (avec son `defaultMap`), un `kpi` vierge, les embeds.
+---
 
-Le moteur ne bouge presque pas : DnD, FLIP, poignées, container query, toasts
-sont inchangés ; seules les clés passent de `WidgetId` à `instance.id`.
+## 7. Persistance — Option A confirmée, rien ne bouge
+
+Tout le document v2 dans le seul `layout_json` ; champs écrits :
+`user_email` (création), `layout_json`, `updated_at`, plus
+**`schema_version = 2`** (coût nul, diagnostic direct dans la grille). 1 ligne
+par utilisateur, optimiste + toast, cache `slb-home-layout:<email>`,
+last-write-wins, écriture uniquement à « Enregistrer ». Le `CATALOG`, lui,
+n'est **pas** persisté : il voyage avec le code (§11 pour l'option table).
+
+> Mise à jour 2026-07-31 : la table de persistance est passée de **Softr Tables
+> à AIRTABLE** — base `SunLib CRM — Préférences` (`appHZaD5BkDsWxR65`), table
+> `Home Preferences`, datasource `dcc7928c-3906-4807-8224-0532c3e30fc5`, 4 champs
+> tous écrits, adressés par **noms exacts** (les FIELD IDs étaient une obligation
+> propre aux tables Softr natives). Détail : `ARCHITECTURE.md` §4.
 
 ---
 
-## 6. LA RECETTE — « j'ai une table, j'en veux un widget »
+## 8. UI — Options générées par la grammaire, galerie générée par le catalogue
 
-C'est la section à donner telle quelle à une future session Claude Code.
+Le ⋮ **Options** devient **un seul formulaire générique** pour toutes les
+instances `data`, entièrement alimenté par le descripteur :
 
-### Cas A — la table doit s'afficher en liste ou en KPI (zéro rendu sur-mesure)
+1. **Source** — sélecteur limité aux `connected` ; changer de source propose
+   les presets de la nouvelle source (remontage via `key={cfg.source}`).
+2. **Vue** — segments Liste / Tableau / KPI, puis les réglages de la vue :
+   menus de mappage ou de colonnes nourris par `descripteur.fields`
+   (libellés + kinds), agrégat/comparaison pour KPI.
+3. **Données** — filtres combinables (champ / opérateur selon le `kind` /
+   valeur, avec `options` en menu pour les badges), tri, limite.
+4. **Actions** — cases à cocher parmi les `ActionDesc` de la source ;
+   toggle du bouton « + » si `create` existe.
+
+« Enregistrer » du panneau → même pipeline `persist` (optimiste + toast), en
+remplaçant la `cfg` de l'instance. En mode **Personnaliser** : Dupliquer /
+Supprimer (rév. 1), et la galerie **« Ajouter un widget »** est la
+concaténation des `presets` de tous les descripteurs connectés + les legacy.
+Le moteur (DnD, FLIP, poignées, grille) ne bouge pas.
+
+---
+
+## 9. L'expérience « select dynamique » — repousser la dernière frontière
+
+La seule information encore en code qui *pourrait* passer en JSON : les noms
+de champs exacts (`SELECT_*`). Rien dans les contraintes documentées
+n'interdit `q.select(obj)` avec un objet construit à l'exécution — seul `from`
+est explicitement verrouillé. **Mais** l'éditeur Softr fait de l'analyse du
+bloc (l'erreur « Remap the fields » le prouve), donc c'est à tester, pas à
+supposer.
+
+Protocole (15 min, sur UNE source secondaire) :
+
+1. Dans le descripteur, ajouter `at:` à chaque champ
+   (`client: { at: "Client", … }`) et générer
+   `q.select(Object.fromEntries(Object.entries(desc.fields).map(([a, f]) => [a, f.at])))`.
+2. Coller, **rouvrir l'onglet Sources** (vérifier le comportement du remap),
+   publier, tester **lecture ET écriture** connecté.
+3. ✅ → v3 : les noms de champs migrent dans le descripteur, la recette perd
+   une étape. ❌ (« Remap the fields », 400, lecture vide) → on reste sur
+   `SELECT_*` en code : coût 6 lignes/source, chemin éprouvé.
+
+Ne pas généraliser avant ce test : les contraintes Softr ont déjà surpris.
+
+---
+
+## 10. LA RECETTE mise à jour — « nouveau projet → widget »
+
+À donner telle quelle à une future session Claude Code.
 
 | # | Où | Quoi | Volume |
 |---|---|---|---|
-| 1 | Softr Studio | Page `/home-copy` → bloc → onglet **Sources** : connecter la table, récupérer l'ID datasource | 0 ligne |
-| 2 | `Block.tsx` §6 | Ajouter le littéral dans `datasource.define` | 1 ligne |
-| 3 | `Block.tsx` §6 | Écrire `SELECT_X` — ⚠️ noms Airtable **EXACTS** (espaces finaux compris) ; FIELD IDs si table Softr native | ~6 lignes |
-| 4 | Couche Sources | Copier-coller un adapter `XSource` + ajouter le `case` dans `SourceFeed` | ~6 lignes |
-| 5 | Couche Sources | Entrée `SOURCES.x` : label, `connected:true`, catalogue `fields`, `defaultMap` | ~10 lignes |
-| 6 | (option) | `MOCK.x` : 3–5 lignes fictives à la forme des alias | ~8 lignes |
+| 1 | Softr Studio | `/home-copy` → bloc → onglet **Sources** : connecter la/les table(s) du projet, noter les IDs | 0 ligne |
+| 2 | `Block.tsx` | Littéral(aux) dans `datasource.define` | 1 ligne |
+| 3 | `Block.tsx` | `SELECT_X` lecture (+ `SELECT_X_W` si écriture) — noms exacts / FIELD IDs | 6–10 lignes |
+| 4 | Couche Sources | Adapter `XSource` (copier-coller) + `case` dans `SourceFeed` | ~12 lignes |
+| 5 | `CATALOG` | **Le descripteur : pur JSON** — champs, kinds, options, variants, defaultSort, presets, actions, create | ~35 lignes |
+| 6 | (option) | `MOCK.x` à la forme des alias | ~8 lignes |
 
-**≈ 30 lignes, aucun toucher au layout, aux types, à la persistance.** La source
-apparaît immédiatement dans le sélecteur des widgets `list`/`kpi` et dans la
-galerie (preset auto). Vérifications de fin : `npm run build` passe ; la page
-**publiée, connecté** (l'aperçu « œil » n'a pas de session) ; le widget mock
-s'affiche à l'identique avant branchement.
+**≈ 50 lignes, dont ~35 de pur JSON descriptif. Zéro toucher au moteur, aux
+renderers, à la persistance.** La source apparaît dans le sélecteur, ses
+presets dans la galerie, ses actions dans Options. Vérifications : `npm run
+build` ; page **publiée, connecté** (l'aperçu « œil » n'a pas de session —
+indispensable pour tester les écritures) ; parité mock/live.
 
-### Cas B — la table mérite un rendu spécifique
-
-Cas A (étapes 1–6) **plus** un `WidgetTypeDef` : `Render` (qui consomme
-`<SourceFeed>` et la coquille `<Widget>`), `defaults`, `coerce`, `Options` si
-configurable, et une entrée `PRESETS` pour la galerie. Toujours zéro toucher au
-moteur.
+Cas B (rare désormais) : rendu vraiment spécifique → un `WidgetTypeDef` dédié
+en plus, qui consomme le même `SourceFeed`.
 
 ### Prompt-type pour la future session
 
 > Nouvelle source pour l'accueil : table Airtable « Dossiers SAV » (base SAV),
-> datasource ID `xxxx-…` (déjà connectée dans l'onglet Sources du bloc
-> `/home-copy`). Champs : ident `ID`, client `Client`, statut `Statut`,
-> priorite `Priorité`, debut `Date de début`. Applique la **recette §6 Cas A**
-> d'`ARCHITECTURE-V2.md` ; `defaultMap` = titre client, badge statut, date
-> debut. Puis ajoute un preset KPI « SAV en cours » (filtre statut ≠ « Clos »).
-
-Premier cas d'usage réel visé : la table du projet **Pilotage SAV** (dossiers +
-KPI déjà spécifiés dans son README) — bon test de bout en bout de la recette.
+> datasource ID `xxxx-…`, déjà connectée dans l'onglet Sources du bloc
+> `/home-copy`. Champs : ident `ID`, client `Client`, statut `Statut`
+> (valeurs : Nouveau / En cours / En attente tiers / Clos), priorite
+> `Priorité`, debut `Date de début`, fait `Fait` (inscriptible). Applique la
+> **recette §10** d'`ARCHITECTURE-V2.md` : SELECT lecture + écriture (statut,
+> fait), adapter, descripteur `CATALOG` complet avec le preset liste « SAV en
+> cours », le preset KPI « SAV ouverts », les actions clore / fait / détail,
+> et le formulaire de création rapide. MOCK : 5 dossiers.
 
 ---
 
-## 7. Plan de migration — phases courtes, chacune livrable
+## 11. Plus tard : le catalogue en table (édition sans recoller le bloc)
 
-| Phase | Contenu | Risque | Visible utilisateur |
+Le descripteur vit en constante dans `Block.tsx` — choix délibéré : **ajouter
+une source impose de toute façon un collage** (littéral `define` + adapter),
+donc le JSON voyage gratuitement avec, versionné par git et vérifié par
+TypeScript.
+
+Si un jour le besoin de retoucher *sans repaste* devient réel (libellés,
+couleurs, presets, actions), l'extension est prête : une table `Catalog`
+(comme `Home Preferences`), lignes `{ key, json }`, lue au boot et
+**deep-mergée par-dessus** le `CATALOG` code — repli intégral sur le code si
+vide/invalide (un JSON édité à la main ne doit jamais pouvoir casser l'accueil
+de tout le monde). À ne faire que si le besoin est mesuré.
+
+---
+
+## 12. Plan de migration — état réel au 2026-07-31
+
+Les phases 0 à 4 ci-dessous ont été livrées **dans leur forme rév. 1**. La
+colonne « reste à faire » dit ce que la rév. 2 y ajoute.
+
+| Phase | Contenu | État | Ce que la rév. 2 ajoute |
 |---|---|---|---|
-| **0** ✅ **livrée le 2026-07-31** | Schéma v2 + `migrateV1` + `normalizeLayout` v2 + `seeded`/`parked`. Le registre v1 est traduit mécaniquement en `DEFAULT_INSTANCES` + types legacy. Écarts assumés : `Instance.type` est un `string` (pour garder un type inconnu sans cast), `migrateV1` ne marque `seeded` que les ids réellement présents (sinon un widget par défaut livré après la dernière sauvegarde v1 n'apparaîtrait jamais), et `schema_version = 2` est écrit. | Faible (fonctions pures, testables en dev sur des JSON v1 réels) | Aucun |
-| **1** ✅ **livrée le 2026-07-31** | Couche Sources : `SOURCES`, adapters, `SourceFeed`, `MOCK_ROWS` re-clé par source. Les Cards restent les `Component` du registre de types mais consomment `<SourceFeed>`. Écarts assumés : ligne **aplatie** `{ id, …alias }` via `flattenRows` (mock et live traversent les mêmes mappers), état lu sur `res.isLoading`/`res.error` (l'API Softr n'a pas de `status` textuel), `loading`/`error` exposés mais pas encore affichés (phase 2). | Faible | Aucun |
-| **2** ✅ **livrée le 2026-07-31** | Type `list` + `GenericRow`/`GenericList` + `ListView` + `ListOptions`, ⋮ **Options** branché (`WidgetOptionsCtx` → `persistCfg`). `notesInstallateurs`/`notesProspects` deviennent des listes génériques à cfg par défaut figée (clés de type inchangées). Écarts assumés : `unit` ajouté à `ListCfg` (sous-titre « 7 notes ») ; sélecteur de source non limité aux `connected` (une source non branchée reste choisissable, mention « (non connectée) ») — sinon un widget existant ne serait plus éditable sans perdre sa source ; rôle vidé stocké en `""` (et non `undefined`, que `JSON.stringify` supprimerait) ; le pied « Voir toutes les notes » (bouton inerte) disparaît ; les types sur-mesure n'affichent plus de ⋮ décoratif. | Moyen | **Options enfin actif** |
-| **3** ✅ **livrée le 2026-07-31** | Multi-instances : `addInstance`/`duplicateInstance`/`removeInstance`, galerie « Ajouter un widget » (`PRESETS` **générés** : 1 par type sur-mesure + 1 liste par source), Dupliquer et Supprimer dans le ⋮ d'édition. `cfg` clonée en profondeur (`cloneCfg`), ids `w_xxxxxx` sans collision avec `seeded`. | Moyen | **La vraie personnalisation** |
-| **4** ✅ **type `kpi` livré le 2026-07-31** | `KpiCfg` (source, filtre, champ date, fenêtre), `kpiCount` pur (fenêtre courante + écart avec la précédente), `KpiView`, `KpiOptions`, preset de galerie en hauteur « petit ». Écarts assumés : `dateField` ajouté à la cfg (l'écart du doc n'était pas calculable sans champ date) et refusé s'il n'est pas de `kind: "date"` ; sans fenêtre, le chiffre est le total des lignes **chargées** (limite §2.2, affichée à l'utilisateur dans le panneau). **Reste à faire : le branchement des sources SAV/notes/tâches**, qui dépend des connexions Softr (recette §6) — hors code. | Faible | Widgets KPI |
+| **0** | Schéma v2 + `migrateV1` + `seeded`/`parked` | ✅ **livré** | rien |
+| **1** | `SourceFeed` + adapters + catalogue décrivant les sources ; Cards → `Render` des types legacy | ✅ **livré** (catalogue = `SOURCES`, minimal) | `CATALOG` enrichi : `options`, `variants`, `presets`, `actions`, `create`, `icon` en clé, `defaultSort` |
+| **2** | Type générique + Options branché | ✅ **livré** (types `list` + `kpi`, deux formulaires) | **unification en un type `data`** + grammaire `query`/`view` + Options **générique unique** |
+| **3** | Galerie de presets + multi-instances | ✅ **livré** (presets **générés en code**) | presets **déclarés dans le catalogue** |
+| **4** | Vues kpi et table + **actions d'écriture** | 🟡 **partiel** : `kpi` livré, `table` non, **aucune écriture** | vue `table`, `SELECT_*_W`, `SourceApi.write`, `runAction`, formulaire de création |
+| **5** | Nouveaux projets via la recette §10 ; expérience §9 | ⏳ à faire | — |
 
-Chaque phase se teste sur la page publiée avec ta propre ligne `Preferences`
-avant généralisation.
+Reste également, indépendant de la refonte : **brancher les 4 sources métier**
+(`notesIns`, `notesPro`, `tachesPa`, `tachesPr`) et passer `USE_MOCK` à `false`.
+
+## 12-bis. Écarts entre le code livré et cette cible
+
+À traiter en tête du chantier rév. 2 :
+
+1. **`list` et `kpi` existent déjà comme clés de type livrées.** La rév. 2 les
+   remplace par `data`. Comme une clé de type est un contrat de persistance,
+   elles ne doivent pas simplement disparaître : les garder en **types
+   dépréciés** dont le `coerce` traduit l'ancienne cfg vers la grammaire
+   `query`/`view` (sinon toute instance déjà posée par un utilisateur partirait
+   dans `parked`).
+2. **`SOURCES` → `CATALOG`.** Le catalogue livré porte `label`, `connected`,
+   `fields {label, kind}`, `defaultMap`. Il faut y ajouter `options`,
+   `variants`, `writable`, `icon`, `defaultSort`, `presets`, `actions`,
+   `create` — et remplacer `defaultMap` par le `view.map` des presets.
+3. **`ListCfg`/`KpiCfg` → `InstanceCfg`.** Les cfg livrées sont plates
+   (`source`, `map`, `filter` unique, `sort`, `limit`, `unit`, `dateField`,
+   `compareDays`). La grammaire cible imbrique `query`/`view` et passe le filtre
+   **unique** à une **liste** de filtres combinés en ET.
+4. **Presets générés en code → déclarés en JSON.** `PRESETS`/`CUSTOM_TYPES`
+   deviennent la concaténation des `presets` des descripteurs + les legacy.
+5. **`connected`** ne figure pas dans `SourceDesc` alors que le code s'en sert
+   (et que le §8 le mentionne) : à conserver.
+6. **Styles.** Rappel du terrain (cf. `ARCHITECTURE.md` §1) : dans le bloc
+   Softr, la feuille injectée peut ne pas s'appliquer. Tout nouveau renderer —
+   `GenericTable` en particulier — doit poser sa mise en page **en style
+   inline**, jamais via des classes.
+7. **Icônes en clé (`ICONS`)** : nouveau, à introduire ; le code livré passe
+   les composants d'icônes directement.
 
 ---
 
-## 8. Hors périmètre — assumé et documenté
+## 13. Hors périmètre — assumé
 
-- **Grille libre (x, y, w, h)** : non. L'ordre linéaire + moitié/pleine +
-  3 hauteurs couvre 90 % du besoin pour un coût 10 fois moindre (le DnD grille
-  libre sans lib externe, dans une iframe, en container query, est un projet en
-  soi). Le schéma reste extensible : des champs **additifs optionnels** sur
-  `Instance` (comme `wide`/`sizes` l'ont été en v1) permettront un `v:3` sans
-  casse si le besoin devient réel.
-- **`layout_mobile_json`** : la container query fait déjà le travail (1 colonne
-  sous 720 px de largeur de *bloc*). Le champ reste en réserve.
-- **État « lu » persistant des notifications** : orthogonal à cette refonte ;
-  les deux pistes connues restent valables (table `Notification Center` avec
-  `Statut de lecture` natif, ou champ `Lu` + automation).
-- **Pagination serveur** : `flatten().slice(0, N)` reste le pattern. Le jour
-  où une table l'exige, la porte est la variante d'adapter paramétrée
-  (`where`/`orderBy` dynamiques sont permis — seule `from` est verrouillée).
-- **Dédoublonnage des fetches** : `SourcesHost` + contexte, seulement si mesuré
-  nécessaire.
+Identique à la rév. 1 : grille libre (x, y) — le schéma `Instance` reste
+extensible par champs additifs ; `layout_mobile_json` — la grille responsive
+suffit ; pagination serveur — porte ouverte via `where`/`orderBy` dynamiques ;
+dédoublonnage des fetches (`SourcesHost`) — seulement si mesuré nécessaire.
