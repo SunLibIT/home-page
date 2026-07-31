@@ -4,6 +4,12 @@ Bloc de la **page d'accueil** du CRM SunLib, rendu dans le bloc *vibe coding* de
 (iframe), connecté à Airtable. Calqué sur les gabarits `abo-detail-inpage` et
 `partenaire-detail-inpage`.
 
+> 📐 **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — état des lieux détaillé : contraintes Softr,
+> mécanique des widgets (couches + registre des types + sources), modèle de layout,
+> **persistance** (table `Preferences` + field IDs) et limites connues.
+> 🎯 **[`ARCHITECTURE-V2.md`](ARCHITECTURE-V2.md)** — la cible du système de widgets et son
+> plan de migration en 5 phases, avec la **recette « j'ai une table, j'en veux un widget »**.
+
 > **Livrable unique : `Block.tsx`.** On copie-colle **uniquement** le contenu de ce
 > fichier dans le bloc vibe coding Softr. Le reste du repo (`src/`, `package.json`,
 > configs) est un **scaffold Vite de dev** qui simule Softr en local — il n'est

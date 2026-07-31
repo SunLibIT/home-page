@@ -1,0 +1,527 @@
+# Architecture — Page d'accueil du CRM SunLib
+
+> État des lieux du fonctionnement **actuel** du bloc : plateforme, anatomie du code,
+> mécanique des widgets, et surtout **où et comment la data est persistée**.
+> Document de référence destiné à préparer la refonte du système de widgets ;
+> la cible et son plan de migration vivent dans `ARCHITECTURE-V2.md`.
+> Dernière mise à jour : 2026-07-31 — **phases 0 à 3 de la v2 livrées** : modèle de
+> disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES (catalogue,
+> adapters, dispatch statique `SourceFeed`, mock par source) ; widget liste générique
+> piloté par `cfg` + ⋮ « Options » branché ; **multi-instances (galerie, Dupliquer,
+> Supprimer)**. Les contraintes Softr du §1 et la mécanique de persistance du §4 sont
+> inchangées. Reste la phase 4 (type `kpi`) et le branchement des 4 sources Softr.
+
+---
+
+## 1. Nature du projet et contraintes de plateforme
+
+**Livrable unique : `Block.tsx` (2507 lignes).** On copie-colle ce seul fichier dans un bloc
+« vibe coding » de Softr (`sunlibcrm2.softr.app`, page `/home-copy`). Le bloc s'exécute
+**dans une iframe** au sein de la page Softr. Tout le reste du repo (`src/`, `package.json`,
+`vite.config.ts`) est un **scaffold Vite de dev** qui *simule* l'environnement Softr en local
+et n'est **jamais livré** :
+
+```
+home-page/
+├─ Block.tsx                 ← LE LIVRABLE
+└─ src/                      ← DEV uniquement (mocks de l'API Softr)
+   ├─ App.tsx                barre de dev + rendu de Block
+   ├─ dev/seed.ts            données fictives
+   ├─ lib/datasource.tsx     MOCK de l'API datasource Softr + store réactif
+   ├─ lib/user.tsx           MOCK de useCurrentUser()
+   └─ components/ui/card.tsx MOCK du <Card> Softr
+```
+
+### Contraintes dures Softr (chèrement acquises — à ne pas transgresser dans la refonte)
+
+| Règle | Détail |
+|---|---|
+| **Imports autorisés** | UNIQUEMENT `react`, `lucide-react`, `@/components/ui/card`, `@/lib/datasource`, `@/lib/user`. Aucune lib externe, aucune Google Font. |
+| **`datasource.define`** | Un seul appel, IDs en **littéraux inline**. Ne doit contenir QUE des IDs réellement connectés dans l'onglet *Sources* du bloc — un ID placeholder fait planter le bloc (« New data source does not match / Remap the fields »). |
+| **`from` des hooks** | Doit être **directement** un membre du `define` (`DS.abonnes`) ou un littéral string. **Jamais** une prop, une variable ou un élément de tableau. → *Il est impossible d'écrire un composant générique `<Feed from={x}>`* (approche testée et abandonnée). C'est LA contrainte structurante. |
+| **`q.select({ alias: … })`** | Les **valeurs** sont soit les noms de champs Airtable exacts (tables Airtable), soit les **FIELD IDs Softr** (tables Softr natives). Pour les tables Softr natives, utiliser le nom de champ fait échouer l'écriture avec `Failed to add record: 400`. Filtres/tris se font par **alias**. |
+| **CREATE ≠ UPDATE** | `createM.mutateAsync({ alias: valeur })` **direct, sans enveloppe** · `updateM.mutateAsync({ recordId, fields: { alias: valeur } })` **enveloppé**. |
+| **Lecture paginée** | `res.data.pages.flatMap(p => p.items)` → helper `flatten()`. |
+| **Utilisateur** | `useCurrentUser()` (jamais `window.logged_in_user`) → renvoie `{ id, email, name }`, **pas** de `firstName`. Le prénom est dérivé de `name` avec repli sur l'e-mail. |
+| **Écriture impossible sans session** | L'aperçu « œil » de Softr n'est pas connecté → `email` vide → l'insert est refusé. Toute écriture est court-circuitée si `email` est vide. Il faut tester sur la page **publiée**, connecté. |
+| **Navigation** | Le bloc est en iframe → liens inter-pages en `<a target="_top">`. |
+| **Interrupteur global** | `const USE_MOCK: boolean = true` (`Block.tsx:72`). Seul commutateur mock ↔ live. |
+
+Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
+
+---
+
+## 2. Anatomie de `Block.tsx`
+
+| § | Contenu |
+|---|---|
+| 0 | `USE_MOCK` |
+| 1-2 | `IMG`, thème `T` (couleurs/rayons/ombres), styles constants (`CARD`, `WHEAD`, `TABBAR`…), `StyleInjector()` qui injecte une balise `<style>` unique `#slb-styles` |
+| 3 | `Badge` / `statusVariant` (statut métier → variante de couleur) |
+| 4 | `TabBar` (onglets réutilisables avec pastille compteur) |
+| 5 | Helpers de formatage : `fmtDate`, `relDays`, `fmtRel`, `fmtDue`, `dueVariant`, `initials`, `avatarBg`, `firstNameOf` |
+| **6** | **Données** : `DS = datasource.define({…})`, tous les `SELECT_*`, types de vue, `flatten`/`flattenRows`, `mapNotif`/`mapTask`/`mapNote`/`isDone`, `MOCK_USER` + `MOCK_ROWS` (indexé par source) |
+| **6-bis** | **Couche SOURCES** : `SourceKey`, catalogue `SOURCES`, `isLive`/`liveState`/`offlineState`, adapters (`AbonnesSource`) et dispatch statique **`SourceFeed`** |
+| 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
+| 8 | Composants de page : `EmptyState`, `WidgetChromeCtx`, `WidgetEditMenu`, **`Widget`** (la coquille), `PageNavBar`, `Hero`, `QuickLinks`, `EmbedTab` |
+| 9 | Composants **présentiels** des widgets sur-mesure : `NotifRow`/`NotifWidget`, `TaskRow`/`TasksWidget` |
+| **9-bis** | **Widget liste GÉNÉRIQUE** : `ListCfg`, `coerceListCfg`, `matchFilter`/`compareRows`/`applyView` (purs), `GenericRow`/`GenericList`, `ListView`, **`ListOptions`** (le formulaire du ⋮) |
+| 10 | Enveloppes **data** (une par widget) + **`WIDGET_REGISTRY`** (registre des *types*) + `typeDefOf` |
+| **10-bis** | **Modèle de disposition v2** : `Instance`, `Layout`, `DEFAULT_INSTANCES`, **`PRESETS`** (galerie), `seed`, `normalizeLayout`, `migrateV1` + fonctions pures (déplacer / masquer / largeur / hauteur / **ajouter / dupliquer / supprimer**) |
+| 11 | `useHeroCounts`, **`usePersistentLayout`**, `SkeletonCard`, **`Dashboard`** (grille, mode Personnaliser, DnD, FLIP, toast) |
+| 12 | `export default function Block()` |
+
+---
+
+## 3. Comment fonctionne un widget — les 3 couches
+
+Chaque widget est composé de **trois couches distinctes** ; c'est le cœur de l'architecture actuelle.
+Depuis la phase 1, une **quatrième couche transversale** les alimente : les *sources* (§6-bis,
+détaillée en fin de section).
+
+### Couche A — le composant présentiel (§9 / §9-bis)
+
+Pur affichage, reçoit ses données en props. Ex. `NotifWidget({ items, onRead, onReadAll })`,
+`TasksWidget({ prospects, partenaires })`. Chacun rend une coquille `<Widget>` dont la liste est
+enveloppée dans `<div className="slb-scrolly">` (scroll individuel du widget).
+
+Depuis la phase 2, les widgets « liste » n'ont plus de présentiel dédié : ils partagent
+**`GenericRow`/`GenericList`** (§9-bis), qui reprend exactement l'ancien gabarit `NoteRow`
+(pastille d'initiales, titre + date alignés, détail clampé sur 2 lignes) et rend chaque rôle selon
+le `kind` du champ mappé — `date` → `fmtSmart` + date absolue en `title`, `badge` → `StatusBadge`.
+`GenericList` gère aussi les états **chargement** (squelette de lignes) et **erreur**.
+
+### Couche B — l'enveloppe « data », consommatrice d'une SOURCE (§10)
+
+Un composant sans props par widget. Depuis la phase 1 il n'appelle plus `useRecords` lui-même :
+il consomme une **source** via `<SourceFeed>` (§6-bis) et mappe les lignes :
+
+```tsx
+function NotifsCard() {
+  const [readIds, setReadIds] = useState<string[]>([]);           // « lu » = masquage LOCAL
+  return (
+    <SourceFeed source="abonnes">
+      {(s) => {
+        const all = s.rows.slice(0, RECENT).map(mapNotif);
+        return <NotifWidget items={all.filter(n => !readIds.includes(n.id))} onRead={…} onReadAll={…} />;
+      }}
+    </SourceFeed>
+  );
+}
+```
+
+Un widget à **deux sources** (`TachesCard`) imbrique simplement deux `<SourceFeed>`.
+Un widget dont la source n'est pas connectée reçoit le mock (aperçu) ou une liste vide (live) —
+son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appelé.
+Les deux widgets LinkedIn sont des embeds Elfsight : `useElfsightPlatform()` injecte
+`static.elfsight.com/platform.js` une seule fois, puis un `<div className="elfsight-app-…">`
+est rendu tel quel (un `<script>` écrit en JSX ne s'exécuterait pas).
+
+### Couche C — l'entrée de registre (§10)
+
+```tsx
+type WidgetTypeKey = "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
+                   | "linkedin" | "linkedinBanner" | "list";
+
+type WidgetTypeDef = {
+  title: string; icon: LucideIcon;
+  Render: FC<{ id: string; cfg: any }>;          // reçoit l'id et la cfg de l'INSTANCE
+  defaults?: () => any;                          // cfg d'une instance neuve
+  coerce?: (raw: unknown) => any;                // cfg stockée (brute) → utilisable ; ne throw jamais
+  Options?: FC<{ cfg: any; onChange: (next: any) => void }>;   // contenu du ⋮ « Options »
+};
+
+const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
+  notifs:             { title: "Nouveaux dossiers Abonné", icon: Bell,          Render: NotifsCard },
+  taches:             { title: "Journal des tâches",       icon: CalendarClock, Render: TachesCard },
+  notesInstallateurs: listType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
+  notesProspects:     listType("Dernières notes — Prospects",     Target,  NOTES_PRO_CFG),
+  linkedin:           { title: "SunLib sur LinkedIn",      icon: Newspaper,     Render: LinkedinCard },
+  linkedinBanner:     { title: "À la une LinkedIn",        icon: Megaphone,     Render: LinkedinBannerCard },
+  list:               listType("Liste configurable",       LayoutGrid, LIST_CFG),
+};
+
+// `listType` = fabrique : même ListView générique, icône et cfg de départ propres au type.
+const cfgOf = (def, raw) => def.coerce ? def.coerce(raw) : def.defaults ? def.defaults() : {};
+```
+
+**Les clés de type sont un contrat de persistance : jamais les renommer** (les layouts sauvegardés
+en base y font référence via `instance.type`). Les 6 premières reprennent à l'identique les anciens
+`WidgetId` de la v1, ce qui rend la migration mécanique. L'*implémentation* d'un type peut changer
+librement ; seule sa clé est figée — `notesInstallateurs` en est la démonstration : **même clé,
+rendu désormais générique** (`ListView`), donc mêmes layouts sauvegardés, nouveau comportement.
+`typeDefOf(type)` indexe le registre sans crasher sur une clé inconnue (cf. `parked`), et `cfgOf`
+interprète la cfg **au rendu** (le stockage reste brut).
+
+Deux familles de types cohabitent volontairement :
+
+| | Types **sur-mesure** | Types **liste** |
+|---|---|---|
+| Exemples | `notifs`, `taches`, les 2 LinkedIn | `notesInstallateurs`, `notesProspects`, `list` |
+| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `listType(...)` |
+| Interactions propres | oui (marquer comme lu, onglets, embed) | non |
+| ⋮ Options | non (bouton non affiché) | **oui** |
+
+Ajouter un widget liste = 1 entrée de registre. Ajouter un widget sur-mesure = présentiel +
+enveloppe + entrée. Dans les deux cas, + 1 entrée `DEFAULT_INSTANCES` pour le livrer par défaut.
+
+### Couche transversale — les SOURCES (§6-bis)
+
+```tsx
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr";
+type Row = { id: string } & Record<string, unknown>;          // ligne APLATIE : { id, …alias }
+type SourceState = { rows: Row[]; loading: boolean; error: boolean };
+
+const SOURCES: Record<SourceKey, SourceMeta> = { … };         // label, connected, fields, defaultMap
+const isLive = (k) => !USE_MOCK && SOURCES[k].connected;
+
+function AbonnesSource({ children }) {                        // 1 adapter par source
+  const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
+  return <>{children(liveState(res))}</>;                      // `from` reste un membre littéral
+}
+
+function SourceFeed({ source, children }) {                   // dispatch STATIQUE
+  if (!isLive(source)) return <>{children(offlineState(source))}</>;
+  switch (source) { case "abonnes": return <AbonnesSource>{children}</AbonnesSource>;
+                    default: return <>{children(offlineState(source))}</>; }
+}
+```
+
+Ce que cette couche apporte :
+
+- **La contrainte `from` est canalisée, pas contournée** : un adapter par source, un `case` par
+  source. Aucun hook n'est appelé dans `SourceFeed` (monter/démonter des composants est légal).
+- **Une seule forme de ligne** : `flattenRows()` aplatit `{ id, fields }` en `{ id, …alias }`, donc
+  les lignes mock et live sont identiques et traversent les **mêmes** mappers (`mapNotif`,
+  `mapTask`, `mapNote`) — plus de double chemin `USE_MOCK ? … : …` dans chaque widget.
+- **Granularité mock/live gratuite** : `offlineState` sert le mock de toute source non connectée,
+  même avec `USE_MOCK = false`. Le `MOCK_ROWS` est indexé par `SourceKey` (plus par widget).
+- **Catalogue déclaratif** : `SOURCES[k].fields` (alias → `{ label, kind }`) et `defaultMap`
+  décrivent la source aux widgets configurables — c'est ce catalogue, et lui seul, qui alimente le
+  formulaire d'options (§9-bis). Il ne contient **aucun** nom de champ brut : les noms Airtable
+  exacts ne vivent que dans les `SELECT_*`.
+- Écart au doc cible : l'état de chargement se lit sur `res.isLoading` / `res.error` (l'API Softr
+  n'expose pas de `status` textuel).
+
+**Ajouter une source** = 6 gestes, ~30 lignes, sans toucher au moteur : recette `ARCHITECTURE-V2.md`
+§6 (connecter dans l'onglet *Sources* → membre du `define` → `SELECT_*` → adapter → `case` →
+entrée `SOURCES` avec `connected: true`). Elle est alors immédiatement disponible dans le sélecteur
+de source de tout widget liste.
+
+### Le widget liste générique et sa configuration (§9-bis)
+
+```ts
+type ListCfg = {
+  title: string;                 // vide → libellé de la source
+  unit: string;                  // « note » → sous-titre « 7 notes »
+  source: SourceKey;
+  map: FieldRoleMap;             // alias → rôle d'affichage (titre / détail / date / statut)
+  filter?: { field: string; op: "eq"|"neq"|"contains"|"lastDays"|"isEmpty"|"notEmpty"; value?: string };
+  sort: { by: string; dir: "asc" | "desc" };
+  limit: number;                 // 1 … 50
+};
+```
+
+- **`applyView(rows, cfg)`** = filtre → **tri typé** (par `kind` : dates en temps, nombres en
+  nombres, textes en `localeCompare` fr) → limite. Fonctions **pures**, donc identiques en mock et
+  en live.
+- **`coerceListCfg(raw, defauts)`** ne throw jamais et valide tout contre le catalogue de la
+  source : source inconnue → repli, alias inconnu → repli, opérateur inconnu → filtre ignoré,
+  `limit` clampée. Trois cas distincts pour un rôle d'affichage — **absent** → défaut du type,
+  **vide (`""`)** → choix explicite « aucun » respecté, **invalide** → repli. Le « aucun » est
+  stocké en chaîne vide et non en `undefined`, sinon `JSON.stringify` supprimerait la clé et le
+  défaut reviendrait au rechargement.
+
+### La coquille `Widget`, le contexte d'édition et le ⋮ « Options »
+
+`Widget({ icon, title, sub, solar, headActions, children, footer })` lit **deux** contextes :
+
+| Contexte | Quand | Effet |
+|---|---|---|
+| `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Dupliquer**/Masquer/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
+| `WidgetOptionsCtx` non-null | mode normal **et** type configurable | bouton ⋮ → `WidgetOptionsMenu` : le formulaire du type, brouillon local, « Annuler » / « Enregistrer » |
+
+Le chrome injecté est
+`{ index, total, isWide, size, onMoveUp, onMoveDown, onSetWide, onSetSize, onHide, onDuplicate,
+onRemove }` ; les options `{ cfg, Form, onSave }`. Le widget lui-même ne connaît **rien** du layout : c'est le `Dashboard` qui
+fournit tout via contexte. Un type sans `Options` n'affiche **aucun** bouton ⋮ en mode normal (plus
+de bouton décoratif sans action). « Enregistrer » appelle `persistCfg(id, cfg)` → même pipeline que
+la grille (optimiste + toast, un seul document `layout_json`).
+
+### Dimensionnement — 2 axes indépendants
+
+- **Largeur** : `instance.w: "half" | "full"` → moitié (1 colonne) ou pleine (`gridColumn: "1 / -1"`).
+  Poignées de bord gauche/droite (événements *pointer*, snap à ±56 px) + segments
+  « Moitié / Pleine » du menu ⋮.
+- **Hauteur** : `instance.h: "sm" | "md" | "lg"` (stockée explicitement) →
+  `WIDGET_HEIGHTS = { sm:168, md:340, lg:560 }`, posé en **CSS var `--slb-wh`** sur
+  `.slb-dragwrap`, lue par `.slb-scrolly { max-height: var(--slb-wh, 340px) }`.
+  Poignée du bas (pointer, snap ~70 px) + segments « Petit / Moyen / Grand ».
+- ⚠️ **La grille est une CONTAINER QUERY, pas une media query** :
+  `.slb-dash-wrap { container-type: inline-size }` +
+  `@container (min-width:720px) { .slb-dash { grid-template-columns: repeat(2, minmax(0,1fr)) } }`.
+  Indispensable : dans l'iframe Softr la fenêtre est large mais le **bloc** est étroit — avec une
+  media query, « pleine largeur » n'avait aucun effet visible.
+- **Animations FLIP** : à chaque changement d'ordre/largeur/hauteur, `useLayoutEffect` mesure les
+  `getBoundingClientRect` avant/après et anime `transform` (translate + scale, 340 ms), avec un div
+  interne contre-scalé pour éviter la distorsion. Respecte `prefers-reduced-motion`.
+- **DnD** : API HTML5 native (`draggable`, `onDragStart/Over/Drop`) ; le menu ⋮ est le chemin
+  **clavier et tactile** obligatoire (le DnD HTML5 ne marche pas au doigt).
+
+### Modèle de layout v2 + fonctions pures (§10-bis)
+
+Le layout porte des **instances**, pas des types : `instance.id` (clé de persistance) est
+distinct de `instance.type` (entrée de registre). C'est la phase 0 de `ARCHITECTURE-V2.md`.
+
+```ts
+type Instance = {
+  id: string;          // contrat de persistance ; migrés v1 = l'ancien WidgetId
+  type: string;        // clé de WIDGET_REGISTRY ; `string` pour pouvoir garder un type inconnu
+  cfg: unknown;        // options par widget — stockée BRUTE (interprétée au rendu, phase 2)
+  w: "half" | "full";
+  h: "sm" | "md" | "lg";
+};
+
+type Layout = {
+  v: 2;
+  items:  Instance[];  // visibles — l'ordre du tableau EST l'ordre d'affichage
+  hidden: Instance[];  // masqués (cfg et hauteur conservées)
+  parked: Instance[];  // types inconnus du code courant : ni rendus, ni perdus
+  seeded: string[];    // ids par défaut déjà injectés → pas de résurrection
+};
+```
+
+Toute la logique vit dans des fonctions **pures** (aucune logique dans les handlers) :
+`normalizeLayout(saved, knownTypes?)`, `migrateV1`, `seed`, `coerceInstance`, `cloneInstance`,
+`cloneCfg`, `reorder(list, from, to)`, `moveWidget`, `hideWidget`, `showWidget`, `setWidgetWide`,
+`setWidgetSize`, **`addInstance`, `duplicateInstance`, `removeInstance`**, `newInstanceId`,
+`takenIds`, `cloneDefault`, `emptyLayout`, `idxOf`, `uniqueStrings`.
+
+`normalizeLayout` est la brique de compatibilité, appliquée à **toute** lecture (BDD *et* cache
+localStorage — la migration du cache est donc transparente) :
+
+- JSON invalide / non-objet / `v ∉ {1,2}` → défaut semé ;
+- `v:1` → `migrateV1` : `order`/`hidden` → instances, `wide`→`w`, `sizes`→`h`, `type = id` ;
+- `v:2` → assainissement : instance sans `id`/`type` ou en doublon écartée (`items` prioritaire
+  sur `hidden` puis `parked`), `w`/`h` clampés, **`type` inconnu → `parked` (jamais supprimé)**,
+  `cfg` laissée **brute** (on ne « répare » jamais le stockage, on tolère à la lecture) ;
+- puis `seed()` : **toute instance de `DEFAULT_INSTANCES` jamais vue par cet utilisateur** est
+  ajoutée en fin d'`items`, visible, et marquée `seeded` — un widget nouvellement livré apparaît
+  donc chez tout le monde **une fois**, mais un widget supprimé ou masqué ne ressuscite plus.
+
+Comportement volontairement plus fin que le doc cible : `migrateV1` ne marque `seeded` que les ids
+**réellement présents** dans le layout v1, pour qu'un widget par défaut livré après la dernière
+sauvegarde v1 de l'utilisateur continue d'apparaître (comportement du normalize v1).
+
+Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au prochain « Enregistrer ».
+⚠️ Seul chemin destructif connu : revenir à un code v1 après une sauvegarde v2.
+
+### Multi-instances (phase 3)
+
+- **`addInstance(layout, type, cfg)`** — ajoute en fin de grille, id neuf `w_xxxxxx` (jamais en
+  collision avec un id d'`items`/`hidden`/`parked`/`seeded`, y compris supprimé mais mémorisé).
+- **`duplicateInstance(layout, id)`** — copie l'instance **juste après** l'originale, `cfg` clonée
+  en profondeur (`cloneCfg` via JSON : une cfg est par construction sérialisable), largeur et
+  hauteur reprises. C'est le geste « le même widget, filtré autrement ».
+- **`removeInstance(layout, id)`** — retire d'`items` **et** de `hidden`. `seeded` n'est pas touché,
+  donc pas de résurrection ; le widget reste re-ajoutable via la galerie.
+- **`PRESETS`** — modèles de la galerie, **générés** : un par type sur-mesure (pour ré-ajouter un
+  widget supprimé) + un `list` par source du catalogue, avec le `defaultMap` de la source. Brancher
+  une source la fait apparaître dans la galerie sans une ligne de code de plus.
+
+Comme le reste du mode Personnaliser, ces trois actions ne touchent que le **brouillon** : rien
+n'est écrit avant « Enregistrer », et « Annuler » restaure tout — y compris une suppression.
+
+Validé par un banc d'essai jetable (56 assertions : entrées invalides, migration v1 réelle,
+multi-instances, clamps, dédup, `parked`, idempotence de l'aller-retour, no-op des mutations).
+
+### Cycle du mode Personnaliser (dans `Dashboard`)
+
+`applied` (layout persisté) vs `draft` (brouillon d'édition). « Personnaliser » →
+`setDraft(current); setEditing(true)`. Toutes les manipulations modifient `draft` seul.
+« Annuler » jette le brouillon, « Réinitialiser » (confirmation inline, jamais `window.confirm`)
+remet `cloneDefault()`, « Enregistrer » appelle `persist(draft)` puis affiche un toast
+(succès auto-disparu à 2,6 s ; échec persistant avec bouton « Réessayer »).
+Deux panneaux n'apparaissent qu'en édition : **« Widgets masqués »** (réafficher) et **« Ajouter un
+widget »** (la galerie de `PRESETS`). Hors édition, le ⋮ de chaque widget configurable ouvre ses
+**Options**, qui persistent la `cfg` immédiatement (`persistCfg`) — c'est le seul chemin d'écriture
+en dehors de « Enregistrer », et il est explicite (bouton « Enregistrer » du panneau).
+
+---
+
+## 4. LA PERSISTANCE — où et comment la data est enregistrée
+
+**Deux étages : localStorage (cache) + une table Softr native (source de vérité).**
+
+### La table
+
+**Table Softr Tables natives `Preferences`**, tablespace **`Home-preferences`**, rattachée à la
+page `/home-copy` de l'app `sunlibcrm2.softr.app`.
+**Datasource ID : `96961120-3d05-4ccc-8a48-3640ee48b060`.**
+Ce n'est **pas** Airtable : c'est la base interne de Softr. Structure **figée** (confirmée), 9 champs :
+
+| Champ | Type | **FIELD ID Softr** | Alias code | Écrit ? |
+|---|---|---|---|---|
+| `Record ID` | auto | — | — | — |
+| `user_email` | Text | **`9M3Kb`** | `email` | ✅ à la création |
+| `layout_json` | Long text | **`lDOLl`** | `layout` | ✅ |
+| `widgets_config_json` | Long text | **`B2z4P`** | `widgetsConfig` | ⛔ réserve |
+| `visible_widgets` | Long text | **`erOm1`** | `visibleWidgets` | ⛔ réserve |
+| `layout_mobile_json` | Long text | **`eP2jf`** | `layoutMobile` | ⛔ réserve |
+| `updated_at` | DateTime | **`JAUJz`** | `updatedAt` | ✅ (ISO string) |
+| `schema_version` | Number | **`nNvK1`** | `schemaVersion` | ✅ (`LAYOUT_VERSION` = 2) |
+| `is_default` | Checkbox | **`1eOtL`** | `isDefault` | ⛔ réserve |
+
+```ts
+const SELECT_PREFS = q.select({
+  email: "9M3Kb", layout: "lDOLl", widgetsConfig: "B2z4P", visibleWidgets: "erOm1",
+  layoutMobile: "eP2jf", updatedAt: "JAUJz", schemaVersion: "nNvK1", isDefault: "1eOtL",
+});
+```
+
+⚠️ Les **valeurs sont les FIELD IDs**, pas les noms de champs — c'était la cause du
+`Failed to add record: 400`.
+
+### Décision « Option A » — stockage unique
+
+**Tout le layout est sérialisé dans le seul champ `layout_json`** :
+`JSON.stringify({ v:2, items, hidden, parked, seeded })`. Seuls **4 champs sur 9** sont écrits
+(`user_email`, `layout_json`, `updated_at`, `schema_version`). Les 4 autres sont mappés mais
+**volontairement vides, en réserve** — ce n'est pas un bug ni un TODO. Le `v` du JSON reste la
+version qui gouverne la lecture ; `schema_version` en est une recopie, pour diagnostiquer l'état
+du parc dans l'UI Softr Tables sans parser le JSON.
+
+### Modèle : 1 ligne par utilisateur
+
+```ts
+const bddRes  = useRecords({ from: DS.prefs, select: SELECT_PREFS, where: q.text("email").is(email) });
+const updateM = useRecordUpdate({ from: DS.prefs, fields: SELECT_PREFS });
+const createM = useRecordCreate({ from: DS.prefs, fields: SELECT_PREFS });
+```
+
+Lecture au montage filtrée sur `useCurrentUser().email` (trim + lowercase). Pas de ligne →
+**create** ; ligne existante → **update** sur son `recordId` (mémorisé dans un `useRef`).
+
+```ts
+const persist = async (next: Layout) => {
+  setLayout(next); writeLocalLayout(email, next);         // 1. optimiste : état + cache
+  if (!PREFS_ENABLED) return { ok: true };
+  if (!email) return { ok: true, note: "Aperçu non connecté…" };   // 2. pas de session → on ne tente rien
+  const layoutStr = JSON.stringify(next);
+  const stamp = new Date().toISOString();
+  if (recordId.current) {
+    await updateM.mutateAsync({ recordId: recordId.current,
+      fields: { layout: layoutStr, updatedAt: stamp, schemaVersion: LAYOUT_VERSION } });
+  } else {
+    const created = await createM.mutateAsync({ email, layout: layoutStr, updatedAt: stamp,
+      schemaVersion: LAYOUT_VERSION });  // DIRECT
+    if (created?.id) recordId.current = created.id;
+  }
+};
+```
+
+### Cache localStorage
+
+Clé **`slb-home-layout:<email>`**, écrite à chaque `persist` et à chaque réception BDD. Elle sert
+à l'**affichage instantané** (évite le squelette) et de **secours** si la BDD est injoignable.
+La **BDD reste la source de vérité** : dès qu'elle répond avec une ligne, elle écrase le cache.
+
+### Règles de comportement
+
+- `PREFS_ENABLED = !DS.prefs.startsWith("TODO")` → actuellement `true`.
+- Écriture **uniquement à « Enregistrer »**, jamais à chaque drop.
+- **Optimiste** : le layout reste appliqué localement même si la BDD échoue (le toast propose
+  « Réessayer »).
+- Conflits (2 onglets / 2 postes) : **last-write-wins assumé**, aucun merge.
+- Chargement : `status === "loading" && !applied` → 4 `SkeletonCard` (on n'affiche jamais le layout
+  par défaut en attendant, pour éviter le saut visuel).
+- **Aucun appel direct à l'API Airtable, aucune clé côté client.**
+
+### Limite MCP à connaître
+
+La table `Preferences` est exposée au MCP `sunlib-crm-2` avec `operations: []` (aucun bloc de page
+branché dessus) → **ses lignes ne sont ni lisibles ni modifiables via le MCP**. Ça n'empêche pas la
+persistance côté app (le front passe par les data sources de la page). Pour l'inspecter via MCP, il
+faudrait ajouter un bloc Liste + form Création + form Modif sur `/home-copy` et publier.
+
+---
+
+## 5. Les données métier des widgets (Airtable) — état du branchement
+
+Le contenu des widgets vit dans **Airtable**, pas dans `Preferences`.
+
+```ts
+const DS = datasource.define({
+  abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // ✅ connecté
+  prefs:   "96961120-3d05-4ccc-8a48-3640ee48b060", // ✅ connecté
+});
+```
+
+| Alias | Table Airtable | État | Champs (alias → nom exact) |
+|---|---|---|---|
+| `abonnes` | « Abonnés » (BDD Abonné) | ✅ **connecté** | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
+| `notesIns` | « Suivi client » (Installateurs) | ⏳ **non connecté** | nom `Installateur` · note `Notes` · date `Date `*(espace final)* |
+| `notesPro` | « Suivi propect » (BDD Propect) | ⏳ **non connecté** | nom `Nom` · note `Notes` · date `date `*(espace final)* |
+| `tachesPa` | « Taches » (Installateurs) | ⏳ **non connecté** | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` |
+| `tachesPr` | « Taches prospect » (Installateurs) | ⏳ **non connecté** | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
+
+⚠️ Les noms de champs comportent des **espaces finaux et des casses irrégulières** (`"Date "`,
+`"date "`, `"date de fin"` vs `"Date de fin"`) : ne jamais les normaliser. `RECENT = 12` lignes
+affichées par widget liste. Les `SELECT_*` des 4 sources non connectées sont déjà écrits, prêts à
+l'emploi ; ces sources sont catalogudées dans `SOURCES` avec `connected: false` → `SourceFeed` leur
+sert leur mock (aperçu) ou une liste vide (live), **sans jamais appeler `useRecords`** sur un id
+absent du `define`. Les brancher : recette `ARCHITECTURE-V2.md` §6.
+
+Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son côté (même contrainte
+`from` qu'un adapter) et calcule `unread` / `urgent` (< 3 j, tâches non « Fait ») indépendamment.
+
+---
+
+## 6. Navigation et reste de la page
+
+- **`NAV_TABS`** — barre d'onglets **in-block** (bascule de contenu, plus de `target=_top` pour ces
+  onglets) : `Accueil` (dashboard) + 3 apps Vercel publiques **embarquées en iframe** via
+  `EmbedTab` — Formulaire de contact `formulairedecontact.vercel.app`, Simulateur Grille
+  `simulateur-grille-v2.vercel.app`, Bibliothèque `documentation-interne.vercel.app` (toutes
+  vérifiées iframables). ⚠️ la CSP de l'iframe Softr doit autoriser `frame-src https://*.vercel.app`.
+- **`QUICK_LINKS`** (section Outils) — raccourcis pages d'espace en `target=_top` (Prospects,
+  Partenaires, Contact Partenaire, Abonnés, KPI) + outils externes (You Sign, Calculette, Sellsy,
+  Tik&Lib). **Toutes les URLs sont encore `#`** — à compléter.
+- **`Hero`** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée à la charte),
+  « Bienvenue {prénom} ! », date, 2 chips, logo forcé blanc via `filter: brightness(0) invert(1)`.
+
+---
+
+## 7. Limites connues de l'architecture actuelle
+
+Les points qui bloquent l'objectif « widgets complètement indépendants et personnalisables » :
+
+1. **Pas encore de widget paramétrable par source — mais la couche est posée.** La contrainte Softr
+   sur `from` interdit toujours un composant générique ; depuis la phase 1 elle est *canalisée* par
+   les adapters + le dispatch statique `SourceFeed` (§6-bis). Ce qui manque est le **type de widget
+   générique** (`list`/`kpi` piloté par `cfg`) et son formulaire d'options : phase 2.
+   Coût marginal d'une nouvelle source aujourd'hui : ~30 lignes, zéro toucher au moteur.
+2. ~~**Une seule instance par widget**~~ **résolu (phases 0 et 3)** : `instance.id` est distinct de
+   `instance.type`, et l'UI suit — « Dupliquer », « Supprimer », galerie « Ajouter un widget ». Deux
+   « Notes » avec deux filtres différents sont possibles.
+3. **`widgets_config_json` inutilisé — et il le restera.** Décision Option A : la `cfg` par instance
+   vit dans le document `layout_json` (champ `cfg`), désormais **réellement écrite** pour les widgets
+   liste (titre, source, mappage, filtre, tri, limite). Le champ reste en réserve.
+4. **`layout_mobile_json` inutilisé** : pas de layout distinct par breakpoint.
+5. **Grille limitée** : ordre linéaire + largeur binaire (moitié/pleine) + 3 hauteurs discrètes.
+   Pas de grille libre (x, y, w, h) — alors que le nom du champ `layout_json` documentait à
+   l'origine « grille i,x,y,w,h ».
+6. **État « lu » des notifications non persistant** : la table `Abonnés` n'a pas de champ `Lu` →
+   masquage purement local, réapparaît au rechargement. Deux voies : basculer sur la table
+   `Notification Center` (case native `Statut de lecture`), ou ajouter un champ `Lu` coché par une
+   automation.
+7. ~~**Bouton ⋮ « Options » du mode normal non branché**~~ **résolu (phase 2)** : il ouvre le
+   formulaire du type (`WidgetOptionsMenu` + `ListOptions`) et persiste la `cfg` de l'instance.
+   Reste ouvert : les types sur-mesure (`notifs`, `taches`, LinkedIn) n'ont pas d'options — c'est
+   un choix, pas un oubli (leurs réglages utiles n'existent pas encore).
+8. ~~**`USE_MOCK` est global**~~ **résolu (phase 1)** : `USE_MOCK` reste l'interrupteur global, mais
+   la granularité vient de `SOURCES[k].connected` — toute source non connectée sert son mock même
+   avec `USE_MOCK = false` (`offlineState`), sans interrupteur supplémentaire.
+9. **Pas de pagination réelle** : `flatten().slice(0, 12)` côté client, pas de `fetchNextPage`.
+10. **`USE_MOCK` est encore à `true`** : rien ne tourne en live aujourd'hui, sauf la persistance
+    (qui est branchée et fonctionnelle).

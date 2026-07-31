@@ -39,7 +39,6 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -48,7 +47,7 @@ import {
   type ReactNode,
 } from "react";
 import {
-  UserPlus, Handshake, BookUser, Users, Library, BarChart3,
+  UserPlus, Handshake, BookUser, Users, Library, BarChart3, Copy, Trash2,
   FileSignature, Calculator, LayoutGrid, Briefcase, Ticket, Mail,
   ChevronRight, Bell,
   CheckCheck, Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
@@ -125,6 +124,8 @@ const WTITLE: CSSProperties = { fontSize: "13.5px", fontWeight: 700, letterSpaci
 const WSUB: CSSProperties = { fontSize: "11.5px", color: T.ink3, fontWeight: 500, marginTop: "1px" };
 const icoPillSm = (solar?: boolean): CSSProperties => ({ ...icoPill(solar), width: 28, height: 28, borderRadius: "8px" });
 const NBTN_SM: CSSProperties = { ...NBTN, width: 28, height: 28 };
+// Primitive du kit (pied de widget). Sans usage depuis le passage des widgets notes
+// au type liste ; conservée telle quelle — les primitives ne se réécrivent pas.
 const FOOT_LINK: CSSProperties = { background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: 700, color: T.brand700, padding: "2px 6px" };
 
 /* ============================================================================
@@ -455,80 +456,90 @@ const SELECT_TACHE_PR = q.select({
 // ⚠️ Les VALEURS sont les FIELD IDs Softr Tables (PAS les noms de champs) — c'est
 // obligatoire pour l'écriture, sinon « Failed to add record: 400 ». IDs fournis par
 // l'onglet Chat du bloc (2026-07-24). L'appli n'écrit que email/layout/updatedAt
-// (Plan A : tout le layout dans layout_json) ; les autres sont mappés pour l'avenir.
+// (Plan A : tout le layout dans layout_json) + schema_version ; les autres sont
+// mappés pour l'avenir.
 const SELECT_PREFS = q.select({
   email: "9M3Kb",           // user_email — clé logique (email de useCurrentUser())
-  layout: "lDOLl",          // layout_json — {v,order,hidden,wide} sérialisé (Plan A)
+  layout: "lDOLl",          // layout_json — document v2 {v,items,hidden,parked,seeded} sérialisé (Plan A)
   widgetsConfig: "B2z4P",   // widgets_config_json (réserve)
   visibleWidgets: "erOm1",  // visible_widgets (réserve)
   layoutMobile: "eP2jf",    // layout_mobile_json (réserve)
   updatedAt: "JAUJz",       // updated_at — DATETIME (chaîne ISO)
-  schemaVersion: "nNvK1",   // schema_version (réserve)
+  schemaVersion: "nNvK1",   // schema_version — Number, recopie de LAYOUT_VERSION (diagnostic du parc)
   isDefault: "1eOtL",       // is_default (réserve)
 });
 
 // Modèles de vue — mêmes formes pour le mock et le mapping Airtable.
 type Notif = { id: string; nom: string; societe?: string; partenaire: string; statut: string; offre: string; creeLe: string };
 type Task = { id: string; desc: string; associe: string; fin: string };
-type Note = { id: string; nom: string; date: string; note: string };
+/* (Le modèle de vue « Note » a disparu avec le passage des widgets notes au type
+   liste générique : ces widgets lisent désormais les alias directement.) */
 
 const flatten = (res: { data?: { pages?: { items: any[] }[] } } | undefined): Rec[] =>
   (res?.data?.pages ?? []).flatMap((p) => p.items) as Rec[];
 
-const mapNotif = (r: Rec): Notif => ({
+/* --- Forme de ligne UNIQUE (§6-bis) : `{ id, …alias }` — l'enregistrement Softr
+   est APLATI dès la lecture, si bien que les lignes mock et les lignes live ont
+   exactement la même forme (clés = alias du SELECT_*). Toutes les transformations
+   en aval (mappers ci-dessous, filtres/tris à venir) s'écrivent donc UNE fois. --- */
+type Row = { id: string } & Record<string, unknown>;
+
+const flattenRows = (res: { data?: { pages?: { items: any[] }[] } } | undefined): Row[] =>
+  flatten(res).map((r) => ({ id: r.id, ...r.fields }));
+
+const mapNotif = (r: Row): Notif => ({
   id: r.id,
-  nom: [asText(r.fields.prenom), asText(r.fields.nom)].filter(Boolean).join(" "),
-  societe: asText(r.fields.partenaire), // repli d'affichage si nom/prénom absents
-  partenaire: asText(r.fields.partenaire),
-  statut: asText(r.fields.statut),
-  offre: asText(r.fields.offre),
-  creeLe: asText(r.fields.creeLe),
+  nom: [asText(r.prenom), asText(r.nom)].filter(Boolean).join(" "),
+  societe: asText(r.partenaire), // repli d'affichage si nom/prénom absents
+  partenaire: asText(r.partenaire),
+  statut: asText(r.statut),
+  offre: asText(r.offre),
+  creeLe: asText(r.creeLe),
 });
-const mapTask = (r: Rec): Task => ({
+const mapTask = (r: Row): Task => ({
   id: r.id,
-  desc: asText(r.fields.desc),
-  associe: asText(r.fields.associe),
-  fin: asText(r.fields.fin),
+  desc: asText(r.desc),
+  associe: asText(r.associe),
+  fin: asText(r.fin),
 });
-const mapNote = (r: Rec): Note => ({
-  id: r.id,
-  nom: asText(r.fields.nom),
-  date: asText(r.fields.date),
-  note: asText(r.fields.note),
-});
+/* NB : plus de `mapNote` — les widgets « notes » sont devenus des listes génériques
+   (§9-bis) qui lisent les alias directement, sans modèle de vue intermédiaire. */
+
+// Une tâche « Fait » (checkbox Airtable) ne doit pas rester au journal.
+const isDone = (r: Row): boolean => r.fait === true || asText(r.fait).toLowerCase() === "true";
 
 /* --- Données mock d'aperçu (identiques au prototype validé) --- */
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
 const inDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
 
-const MOCK: {
-  user: { firstName: string };
-  notifs: Notif[];
-  tachesProspects: Task[];
-  tachesPartenaires: Task[];
-  notesInstallateurs: Note[];
-  notesProspects: Note[];
-} = {
-  user: { firstName: "Frédéric" },
+const MOCK_USER = { firstName: "Frédéric" };
 
-  notifs: [
-    { id: "n1", nom: "Nicolas Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "Duo", creeLe: daysAgo(1) },
-    { id: "n2", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "Pro", creeLe: daysAgo(2) },
-    { id: "n3", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier incomplet pour instruction", offre: "Pro", creeLe: daysAgo(2) },
-    { id: "n4", nom: "Salvatore Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "Duo", creeLe: daysAgo(15) },
-    { id: "n5", nom: "Jocelyne Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Solo", creeLe: daysAgo(15) },
-    { id: "n6", nom: "Julian Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Duo", creeLe: daysAgo(15) },
+/* Mock indexé par SOURCE (§6-bis) et non par widget : les lignes ont la forme des
+   ALIAS du SELECT_* correspondant, donc elles traversent les mêmes mappers que le
+   live. Conséquence utile : une source non connectée sert automatiquement son mock,
+   même quand USE_MOCK=false (granularité mock/live gratuite, cf. offlineState). */
+const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
+  // ← SELECT_ABONNE : nom / prenom / partenaire / statut / offre / creeLe
+  abonnes: [
+    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "Duo", creeLe: daysAgo(1) },
+    { id: "n2", prenom: "", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "Pro", creeLe: daysAgo(2) },
+    { id: "n3", prenom: "", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier incomplet pour instruction", offre: "Pro", creeLe: daysAgo(2) },
+    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "Duo", creeLe: daysAgo(15) },
+    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Solo", creeLe: daysAgo(15) },
+    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Duo", creeLe: daysAgo(15) },
   ],
 
-  tachesProspects: [],
-  tachesPartenaires: [
-    { id: "t1", desc: "Relancer pour les pièces du dossier RGE", associe: "MC ENERGY", fin: inDays(-2) },
-    { id: "t2", desc: "Envoyer la grille tarifaire 2026", associe: "FLG SOLAR", fin: inDays(1) },
-    { id: "t3", desc: "Point mensuel pipeline", associe: "Neosoleil", fin: inDays(6) },
-    { id: "t4", desc: "Préparer la formation financement", associe: "Mandat Energie", fin: inDays(21) },
+  // ← SELECT_TACHE_PR / SELECT_TACHE_PA : desc / associe / fin / fait
+  tachesPr: [],
+  tachesPa: [
+    { id: "t1", desc: "Relancer pour les pièces du dossier RGE", associe: "MC ENERGY", fin: inDays(-2), fait: false },
+    { id: "t2", desc: "Envoyer la grille tarifaire 2026", associe: "FLG SOLAR", fin: inDays(1), fait: false },
+    { id: "t3", desc: "Point mensuel pipeline", associe: "Neosoleil", fin: inDays(6), fait: false },
+    { id: "t4", desc: "Préparer la formation financement", associe: "Mandat Energie", fin: inDays(21), fait: false },
   ],
 
-  notesInstallateurs: [
+  // ← SELECT_NOTE_INS / SELECT_NOTE_PRO : nom / note / date
+  notesIns: [
     { id: "i1", nom: "WattElse Energies SAS", date: "2025-05-19", note: "Contact via LinkedIn, en attente de retour sur la présentation." },
     { id: "i2", nom: "3J Environnement", date: "2025-11-25", note: "Dossier admin à jour, RGE renouvelé." },
     { id: "i3", nom: "Louiseco", date: "2025-08-26", note: "26/08 → présentation faite, très intéressés par l'offre Duo." },
@@ -537,7 +548,7 @@ const MOCK: {
     { id: "i6", nom: "renov&sun VIP Montpellier", date: "2025-11-24", note: "RGE et décennale reçus, dossier complet." },
     { id: "i7", nom: "Gaïa l'Énergie de Demain", date: "2025-05-16", note: "Nouvel email pour la mise en relation avec le pôle études." },
   ],
-  notesProspects: [
+  notesPro: [
     { id: "p1", nom: "JS Energies", date: "2026-03-25", note: "Tentative d'appel, laissé message, à relancer semaine prochaine." },
     { id: "p2", nom: "Mon Poseur Energie", date: "2025-09-26", note: "Rappel ce jour d'un autre gérant, intéressé par le modèle abonnement." },
     { id: "p3", nom: "Aurora Energie", date: "2025-07-08", note: "laurent@aurora-energie.fr — envoi de la plaquette et de la grille." },
@@ -547,6 +558,130 @@ const MOCK: {
     { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib." },
   ],
 };
+
+/* ============================================================================
+   6-bis. COUCHE SOURCES — le registre de données (phase 1 de la cible v2)
+   ----------------------------------------------------------------------------
+   Un widget ne lit plus une table : il consomme une SOURCE. Trois pièces par
+   source — le littéral dans `datasource.define` (§6), le `SELECT_*` (§6), et un
+   ADAPTER de 5 lignes ci-dessous — plus une entrée du catalogue `SOURCES` qui la
+   décrit (label, champs, mappage proposé) aux widgets configurables à venir.
+
+   ⚠️ La contrainte Softr sur `from` n'est pas contournée, elle est CANALISÉE :
+   on n'écrit JAMAIS `<Feed from={x}>`. Chaque adapter appelle `useRecords` avec
+   `from = DS.membre` en DIRECT, et `SourceFeed` fait un **dispatch statique**
+   (switch) qui monte le bon adapter. Ajouter une source = 1 `case`.
+   Monter/démonter des composants entiers est légal pour React : aucun hook n'est
+   appelé dans `SourceFeed` lui-même.
+   ============================================================================ */
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr";
+
+// Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
+type FieldKind = "text" | "date" | "badge" | "number" | "bool";
+// Champ (par ALIAS) proposé pour chaque rôle d'affichage d'un widget liste.
+type FieldRoleMap = { title?: string; sub?: string; date?: string; badge?: string };
+
+type SourceMeta = {
+  label: string;        // libellé humain (sélecteur de source)
+  connected: boolean;   // false tant que l'ID n'est pas un membre de DS (§6)
+  fields: Record<string, { label: string; kind: FieldKind }>;  // clés = ALIAS du SELECT_*
+  defaultMap?: FieldRoleMap;
+};
+
+/* Catalogue déclaratif. Il ne contient JAMAIS de nom de champ brut : uniquement
+   des alias — les noms Airtable exacts ne vivent que dans les `SELECT_*` (§6). */
+const SOURCES: Record<SourceKey, SourceMeta> = {
+  abonnes: {
+    label: "Abonnés — BDD Abonné",
+    connected: true,
+    fields: {
+      nom: { label: "Nom", kind: "text" },
+      prenom: { label: "Prénom", kind: "text" },
+      partenaire: { label: "Installateur", kind: "text" },
+      statut: { label: "Statut dossier", kind: "badge" },
+      offre: { label: "Type d'installation", kind: "badge" },
+      creeLe: { label: "Créé le", kind: "date" },
+    },
+    defaultMap: { title: "nom", sub: "partenaire", date: "creeLe", badge: "statut" },
+  },
+  notesIns: {
+    label: "Notes installateurs — Suivi client",
+    connected: false,   // ⚠️ passer à true UNIQUEMENT avec l'id dans DS + un adapter
+    fields: {
+      nom: { label: "Installateur", kind: "text" },
+      note: { label: "Note", kind: "text" },
+      date: { label: "Date", kind: "date" },
+    },
+    defaultMap: { title: "nom", sub: "note", date: "date" },
+  },
+  notesPro: {
+    label: "Notes prospects — Suivi propect",
+    connected: false,
+    fields: {
+      nom: { label: "Prospect", kind: "text" },
+      note: { label: "Note", kind: "text" },
+      date: { label: "Date", kind: "date" },
+    },
+    defaultMap: { title: "nom", sub: "note", date: "date" },
+  },
+  tachesPa: {
+    label: "Tâches partenaires — Taches",
+    connected: false,
+    fields: {
+      desc: { label: "Description", kind: "text" },
+      associe: { label: "Partenaire associé", kind: "text" },
+      fin: { label: "Date de fin", kind: "date" },
+      fait: { label: "Fait", kind: "bool" },
+    },
+    defaultMap: { title: "desc", sub: "associe", date: "fin" },
+  },
+  tachesPr: {
+    label: "Tâches prospects — Taches prospect",
+    connected: false,
+    fields: {
+      desc: { label: "Description", kind: "text" },
+      associe: { label: "Prospect associé", kind: "text" },
+      fin: { label: "Date de fin", kind: "date" },
+      fait: { label: "Fait", kind: "bool" },
+    },
+    defaultMap: { title: "desc", sub: "associe", date: "fin" },
+  },
+};
+
+type SourceState = { rows: Row[]; loading: boolean; error: boolean };
+type SourceChildren = (s: SourceState) => ReactNode;
+
+// Une source est lue en base seulement si le mock global est coupé ET qu'elle est
+// réellement connectée (sinon : mock, ou rien — jamais d'appel sur un id absent).
+const isLive = (k: SourceKey): boolean => !USE_MOCK && SOURCES[k].connected;
+
+/* NB : l'API Softr expose `isLoading` / `error` (comme le reste du fichier, cf.
+   §11 `bddRes.isLoading`) — pas de `status` textuel. */
+const liveState = (res: { data?: { pages?: { items: any[] }[] }; isLoading?: boolean; error?: unknown }): SourceState =>
+  ({ rows: flattenRows(res), loading: !!res.isLoading, error: !!res.error });
+
+const offlineState = (k: SourceKey): SourceState =>
+  ({ rows: USE_MOCK ? MOCK_ROWS[k] ?? [] : [], loading: false, error: false });
+
+/* --- Adapters : le SEUL endroit du fichier où une table métier est lue. --- */
+function AbonnesSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
+  return <>{children(liveState(res))}</>;
+}
+
+/* POUR CONNECTER une source (recette complète : ARCHITECTURE-V2.md §6) :
+   1) la connecter dans l'onglet Sources du bloc, récupérer son id (onglet Chat) ;
+   2) l'ajouter comme membre de `datasource.define` (§6) ;
+   3) copier AbonnesSource en changeant `from`/`select`/`orderBy` ;
+   4) ajouter son `case` ci-dessous ; 5) passer `connected: true` dans SOURCES. */
+function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
+  if (!isLive(source)) return <>{children(offlineState(source))}</>;
+  switch (source) {
+    case "abonnes": return <AbonnesSource>{children}</AbonnesSource>;
+    // case "notesIns": return <NotesInsSource>{children}</NotesInsSource>;
+    default: return <>{children(offlineState(source))}</>;
+  }
+}
 
 /* ============================================================================
    7. NAV & OUTILS — [À COMPLÉTER B] URLs réelles
@@ -619,8 +754,63 @@ type WidgetChrome = {
   onSetWide: (value: boolean) => void;
   onSetSize: (size: WidgetSize) => void;
   onHide: () => void;
+  onDuplicate: () => void;
+  onRemove: () => void;
 };
 const WidgetChromeCtx = createContext<WidgetChrome | null>(null);
+
+/* --- Contexte d'OPTIONS (mode normal) : le Dashboard injecte, par instance, sa
+      configuration courante, le formulaire du type et le callback de sauvegarde.
+      `null` = ce widget n'est pas configurable → le bouton ⋮ reste inerte.
+      `any` assumé : chaque type définit SA forme de cfg et son propre formulaire ;
+      le contexte est volontairement agnostique. --- */
+type WidgetOptions = {
+  cfg: any;
+  Form: FC<{ cfg: any; onChange: (next: any) => void }>;
+  onSave: (next: any) => void;
+};
+const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
+
+/* --- Menu ⋮ du mode normal : ouvre le formulaire d'options du widget. Édition
+      LOCALE (brouillon) jusqu'à « Enregistrer » — même règle que la grille : on
+      n'écrit jamais en base à chaque frappe. Fermeture Échap / clic extérieur. --- */
+function WidgetOptionsMenu({ opts, title }: { opts: WidgetOptions; title: string }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<any>(opts.cfg);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  const start = () => { setDraft(opts.cfg); setOpen(true); };   // brouillon toujours frais à l'ouverture
+  const save = () => { opts.onSave(draft); setOpen(false); };
+  const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
+  const Form = opts.Form;
+  return (
+    <div ref={ref} style={{ position: "relative", flex: "none" }}>
+      <button className="slb-nbtn" style={NBTN_SM} aria-haspopup="dialog" aria-expanded={open}
+        onClick={() => (open ? setOpen(false) : start())} aria-label={`Options — ${title}`} title="Options">
+        <MoreVertical aria-hidden style={{ width: 15, height: 15 }} />
+      </button>
+      {open && (
+        <div role="dialog" aria-label={`Options — ${title}`}
+          style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, width: 292, maxHeight: "min(70vh, 460px)", overflowY: "auto", padding: "12px", backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" }}>
+          <Form cfg={draft} onChange={setDraft} />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${T.line}` }}>
+            <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
+            <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
+              <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* --- Menu ⋮ d'édition — chemin CLAVIER et TACTILE (le DnD HTML5 ne fonctionne
       pas au doigt : ce menu n'est donc pas optionnel). Boutons focusables,
@@ -669,8 +859,16 @@ function WidgetEditMenu({ chrome, title }: { chrome: WidgetChrome; title: string
             <button style={seg(chrome.size === "lg")} onClick={() => chrome.onSetSize("lg")} aria-pressed={chrome.size === "lg"} aria-label={`Grand — ${title}`}>Grand</button>
           </div>
           <div style={sep} />
-          <button role="menuitem" className="slb-menu-item" style={{ ...item, color: T.dangerInk }} onClick={run(chrome.onHide)} aria-label={`Masquer — ${title}`}>
+          <button role="menuitem" className="slb-menu-item" style={item} onClick={run(chrome.onDuplicate)} aria-label={`Dupliquer — ${title}`}>
+            <Copy aria-hidden style={{ width: 16, height: 16 }} />Dupliquer
+          </button>
+          <button role="menuitem" className="slb-menu-item" style={item} onClick={run(chrome.onHide)} aria-label={`Masquer — ${title}`}>
             <EyeOff aria-hidden style={{ width: 16, height: 16 }} />Masquer
+          </button>
+          {/* Suppression définitive — réversible tant que « Annuler » n'a pas été
+              quitté : rien n'est écrit en base avant « Enregistrer ». */}
+          <button role="menuitem" className="slb-menu-item" style={{ ...item, color: T.dangerInk }} onClick={run(chrome.onRemove)} aria-label={`Supprimer — ${title}`}>
+            <Trash2 aria-hidden style={{ width: 16, height: 16 }} />Supprimer
           </button>
         </div>
       )}
@@ -701,6 +899,7 @@ function Widget({
   footer?: ReactNode;
 }) {
   const chrome = useContext(WidgetChromeCtx);
+  const opts = useContext(WidgetOptionsCtx);
   const editing = chrome !== null;
   return (
     <Card style={CARD}>
@@ -721,10 +920,9 @@ function Widget({
         ) : (
           <>
             {headActions}
-            {/* TODO : brancher le menu du widget (options, lien vers la page complète…) */}
-            <button className="slb-nbtn" style={NBTN_SM} aria-label={`Options — ${title}`} title="Options">
-              <MoreVertical aria-hidden style={{ width: 15, height: 15 }} />
-            </button>
+            {/* ⋮ affiché SEULEMENT si le type expose des options : plus de bouton
+                décoratif sans action (c'était le TODO de la v1). */}
+            {opts && <WidgetOptionsMenu opts={opts} title={title} />}
           </>
         )}
       </div>
@@ -958,109 +1156,392 @@ function TasksWidget({ prospects, partenaires }: { prospects: Task[]; partenaire
   );
 }
 
-/* --- Widgets « Dernières notes » (Installateurs / Prospects) --- */
-function NoteRow({ n }: { n: Note }) {
+/* NB : les widgets « Dernières notes » n'ont plus de présentiel dédié — leur ligne
+   (pastille d'initiales + titre + date + détail clampé) est devenue le gabarit du
+   présentiel GÉNÉRIQUE `GenericRow` (§9-bis), partagé par tous les widgets liste. */
+
+/* ============================================================================
+   9-bis. LE WIDGET LISTE GÉNÉRIQUE — piloté par `cfg` (phase 2 de la cible v2)
+   ----------------------------------------------------------------------------
+   Un seul type de widget capable d'afficher N'IMPORTE QUELLE source catalogudée
+   (§6-bis) : la source, le mappage champ → rôle d'affichage, le filtre, le tri et
+   la limite vivent dans la `cfg` de l'INSTANCE (§10-bis), donc dans le layout
+   persisté. C'est ce qui donne enfin un contenu au ⋮ « Options ».
+
+   Découpage : `applyView` (filtre/tri/limite — fonctions PURES, identiques en mock
+   et en live), `GenericList` (présentiel, même gabarit de ligne que NoteRow),
+   `ListView` (coquille + branchement de la source), `ListOptions` (formulaire).
+   ============================================================================ */
+
+type ListFilterOp = "eq" | "neq" | "contains" | "lastDays" | "isEmpty" | "notEmpty";
+const FILTER_OPS: { op: ListFilterOp; label: string; needsValue: boolean }[] = [
+  { op: "eq", label: "est", needsValue: true },
+  { op: "neq", label: "n'est pas", needsValue: true },
+  { op: "contains", label: "contient", needsValue: true },
+  { op: "lastDays", label: "dans les N derniers jours", needsValue: true },
+  { op: "isEmpty", label: "est vide", needsValue: false },
+  { op: "notEmpty", label: "n'est pas vide", needsValue: false },
+];
+
+type ListFilter = { field: string; op: ListFilterOp; value?: string };
+type ListCfg = {
+  title: string;                        // titre affiché ; vide → libellé de la source
+  unit: string;                         // nom de l'élément au singulier (sous-titre : « 7 notes »)
+  source: SourceKey;
+  map: FieldRoleMap;                    // alias de champ → rôle d'affichage
+  filter?: ListFilter;
+  sort: { by: string; dir: "asc" | "desc" };
+  limit: number;
+};
+
+const LIST_LIMIT_MAX = 50;
+
+/* --- Coercition : merge des défauts + validation contre le CATALOGUE de la source
+   (alias inconnus ignorés) + clamps. Ne throw JAMAIS — une cfg corrompue en base
+   doit dégrader l'affichage, pas casser la page. Le stockage n'est jamais
+   « réparé » : on tolère à la lecture (cf. normalizeLayout, §10-bis). --- */
+function coerceListCfg(raw: unknown, fallback: ListCfg): ListCfg {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
+  const source: SourceKey = o.source in SOURCES ? o.source : fallback.source;
+  const known = (alias: unknown): string | undefined =>
+    typeof alias === "string" && alias in SOURCES[source].fields ? alias : undefined;
+
+  /* Mappage. Trois cas DISTINCTS, et cette distinction compte : sans elle, retirer
+     un champ dans le formulaire serait impossible (le défaut reviendrait aussitôt).
+       · rôle absent de la cfg          → défaut du type (ou du catalogue)
+       · rôle présent et VIDE ("")      → choix explicite « aucun », respecté
+       · rôle présent et invalide       → repli sur le défaut (cfg corrompue ou
+                                          champ disparu du catalogue)
+     Le « aucun » est stocké en chaîne vide, et non en `undefined` : JSON.stringify
+     supprimerait la clé, et le défaut reviendrait au rechargement. */
+  const base: FieldRoleMap = source === fallback.source ? fallback.map : SOURCES[source].defaultMap ?? {};
+  const rawMap = (o.map && typeof o.map === "object" ? o.map : {}) as Record<string, unknown>;
+  const roleOf = (role: keyof FieldRoleMap): string => {
+    if (!(role in rawMap)) return known(base[role]) ?? "";
+    const raw = rawMap[role];
+    if (raw === "" || raw == null) return "";
+    return known(raw) ?? known(base[role]) ?? "";
+  };
+  const map: FieldRoleMap = { title: roleOf("title"), sub: roleOf("sub"), date: roleOf("date"), badge: roleOf("badge") };
+
+  const rawFilter = (o.filter && typeof o.filter === "object" ? o.filter : null) as any;
+  const filterField = rawFilter ? known(rawFilter.field) : undefined;
+  const filterOp = FILTER_OPS.find((f) => f.op === rawFilter?.op)?.op;
+  const filter: ListFilter | undefined =
+    filterField && filterOp ? { field: filterField, op: filterOp, value: asText(rawFilter.value) } : undefined;
+
+  // `||` et non `??` : un repli doit aussi s'appliquer à une chaîne vide.
+  const sortBy = known(o.sort?.by) || known(fallback.sort.by) || map.date || map.title || "";
+  return {
+    title: asText(o.title ?? fallback.title),
+    unit: asText(o.unit || fallback.unit) || "élément",
+    source,
+    map,
+    filter,
+    sort: { by: sortBy, dir: o.sort?.dir === "asc" ? "asc" : "desc" },
+    limit: Math.max(1, Math.min(LIST_LIMIT_MAX, Number(o.limit) > 0 ? Math.floor(Number(o.limit)) : fallback.limit)),
+  };
+}
+
+/* --- Vue : filtre → tri → limite. PURE. --- */
+function matchFilter(v: unknown, f: ListFilter): boolean {
+  const text = asText(v);
+  const target = asText(f.value);
+  switch (f.op) {
+    case "eq": return text.toLowerCase() === target.toLowerCase();
+    case "neq": return text.toLowerCase() !== target.toLowerCase();
+    case "contains": return target === "" ? true : text.toLowerCase().includes(target.toLowerCase());
+    case "lastDays": {
+      const days = Number(target);
+      if (!(days > 0) || Number.isNaN(new Date(text).getTime())) return false;
+      const d = relDays(text);            // ≤ 0 pour une date passée
+      return d <= 0 && -d <= days;
+    }
+    case "isEmpty": return text.trim() === "";
+    case "notEmpty": return text.trim() !== "";
+    default: return true;
+  }
+}
+
+// Tri TYPÉ par la nature du champ (dates comparées en temps, nombres en nombres).
+function compareRows(a: Row, b: Row, alias: string, kind: FieldKind | undefined, dir: "asc" | "desc"): number {
+  const sign = dir === "desc" ? -1 : 1;
+  const av = a[alias], bv = b[alias];
+  if (kind === "date") {
+    const at = new Date(asText(av)).getTime() || 0;
+    const bt = new Date(asText(bv)).getTime() || 0;
+    return (at - bt) * sign;
+  }
+  if (kind === "number") return (Number(av) - Number(bv) || 0) * sign;
+  if (kind === "bool") return ((av === true ? 1 : 0) - (bv === true ? 1 : 0)) * sign;
+  return asText(av).localeCompare(asText(bv), "fr", { numeric: true }) * sign;
+}
+
+function applyView(rows: Row[], cfg: ListCfg): Row[] {
+  const f = cfg.filter;
+  let out = f ? rows.filter((r) => matchFilter(r[f.field], f)) : rows;
+  const alias = cfg.sort.by;
+  if (alias) {
+    const kind = SOURCES[cfg.source].fields[alias]?.kind;
+    out = [...out].sort((a, b) => compareRows(a, b, alias, kind, cfg.sort.dir));
+  }
+  return out.slice(0, Math.max(1, Math.min(LIST_LIMIT_MAX, cfg.limit)));
+}
+
+/* --- Présentiel générique. MÊME gabarit de ligne que NoteRow (§9) : pastille
+   d'initiales, titre + date alignés, sous-titre clampé sur 2 lignes ; le rôle
+   `badge` est rendu par le Badge de statut du gabarit (§3). --- */
+function GenericRow({ row, map, kinds }: { row: Row; map: FieldRoleMap; kinds: Record<string, { kind: FieldKind }> }) {
+  const title = map.title ? asText(row[map.title]) : "";
+  const sub = map.sub ? asText(row[map.sub]) : "";
+  const dateVal = map.date ? asText(row[map.date]) : "";
+  const badge = map.badge ? asText(row[map.badge]) : "";
+  const dateIsDate = map.date ? kinds[map.date]?.kind === "date" : false;
+  const label = title || DASH;
   return (
     <div className="slb-row" style={{ display: "flex", alignItems: "flex-start", gap: "11px", padding: "10px 16px" }}>
-      <span aria-hidden style={{ width: 30, height: 30, borderRadius: "8px", flex: "none", display: "grid", placeItems: "center", color: "#fff", fontSize: "11px", fontWeight: 700, background: avatarBg(n.nom) }}>
-        {initials(n.nom)}
+      <span aria-hidden style={{ width: 30, height: 30, borderRadius: "8px", flex: "none", display: "grid", placeItems: "center", color: "#fff", fontSize: "11px", fontWeight: 700, background: avatarBg(label) }}>
+        {initials(label)}
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-          <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.nom}</span>
-          <span style={{ flex: "none", fontSize: "11px", fontWeight: 500, color: T.ink4 }} title={fmtDate(n.date)}>{fmtSmart(n.date)}</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+          {dateVal && (
+            <span style={{ flex: "none", fontSize: "11px", fontWeight: 500, color: T.ink4 }} title={dateIsDate ? fmtDate(dateVal) : undefined}>
+              {dateIsDate ? fmtSmart(dateVal) : dateVal}
+            </span>
+          )}
         </div>
-        <div className="slb-clamp2" style={{ marginTop: "3px", fontSize: "12px", fontWeight: 500, lineHeight: 1.45, color: T.ink2 }}>{n.note}</div>
+        {(sub || badge) && (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", minWidth: 0 }}>
+            {badge && <StatusBadge value={badge} />}
+            {sub && <span className="slb-clamp2" style={{ flex: 1, minWidth: 0, fontSize: "12px", fontWeight: 500, lineHeight: 1.45, color: T.ink2 }}>{sub}</span>}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function NotesWidget({ icon, title, items }: { icon: LucideIcon; title: string; items: Note[] }) {
+function GenericList({ rows, map, kinds, loading, error, unit }: {
+  rows: Row[]; map: FieldRoleMap; kinds: Record<string, { kind: FieldKind }>;
+  loading: boolean; error: boolean; unit: string;
+}) {
+  if (error) return <EmptyState dense icon={XCircle} title="Données indisponibles" hint="La source n'a pas répondu. Réessayez plus tard." />;
+  if (loading) {
+    // Squelette de lignes (mêmes métriques que le gabarit) — pas de saut visuel.
+    return (
+      <div aria-busy="true" style={{ padding: "4px 0" }}>
+        {[0, 1, 2].map((k) => (
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: "11px", padding: "10px 16px" }}>
+            <span className="slb-skel" style={{ width: 30, height: 30, borderRadius: 8, background: T.neutral050, flex: "none" }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="slb-skel" style={{ height: 10, width: "62%", borderRadius: 6, background: T.neutral050 }} />
+              <div className="slb-skel" style={{ height: 9, width: "38%", borderRadius: 6, background: T.neutral050, marginTop: 6 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (!rows.length) return <EmptyState dense icon={Inbox} title={`Aucun ${unit}`} hint="Aucune ligne ne correspond à ce réglage." />;
   return (
-    <Widget icon={icon} title={title} sub={`${items.length} note${items.length > 1 ? "s" : ""} récente${items.length > 1 ? "s" : ""}`}
-      footer={
-        // TODO : lien vers la vue complète des notes
-        <button style={FOOT_LINK}>Voir toutes les notes</button>
-      }>
-      {items.length === 0 ? (
-        <EmptyState dense icon={Inbox} title="Aucune note récente" hint="Les dernières notes apparaîtront ici." />
-      ) : (
-        <div className="slb-scrolly">
-          {items.map((n) => <NoteRow key={n.id} n={n} />)}
+    <div className="slb-scrolly">
+      {rows.map((r) => <GenericRow key={r.id} row={r} map={map} kinds={kinds} />)}
+    </div>
+  );
+}
+
+/* --- Le widget complet : coquille + source + vue. Utilisé par TOUS les types
+   « liste » (le type générique `list` comme les types legacy convertis), chacun
+   fournissant simplement son icône. --- */
+function ListView({ icon, cfg }: { icon: LucideIcon; cfg: ListCfg }) {
+  const meta = SOURCES[cfg.source];
+  const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+  return (
+    <SourceFeed source={cfg.source}>
+      {(s) => {
+        const rows = applyView(s.rows, cfg);
+        return (
+          <Widget icon={icon} title={cfg.title || meta.label} sub={s.loading ? "Chargement…" : plural(rows.length, cfg.unit)}>
+            <GenericList rows={rows} map={cfg.map} kinds={meta.fields} loading={s.loading} error={s.error} unit={cfg.unit} />
+          </Widget>
+        );
+      }}
+    </SourceFeed>
+  );
+}
+
+/* --- Formulaire d'options (contenu du ⋮ « Options »). Entièrement alimenté par le
+   catalogue `SOURCES` : aucune connaissance d'un champ Airtable en dur. --- */
+function ListOptions({ cfg, onChange }: { cfg: ListCfg; onChange: (next: ListCfg) => void }) {
+  const meta = SOURCES[cfg.source];
+  const aliases = Object.keys(meta.fields);
+  const set = (patch: Partial<ListCfg>) => onChange(coerceListCfg({ ...cfg, ...patch }, cfg));
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "10px 0 4px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  const roleRow = (role: keyof FieldRoleMap, label: string) => (
+    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
+      <span style={{ flex: "none", width: 72, fontSize: "12px", fontWeight: 600, color: T.ink3 }}>{label}</span>
+      <select style={{ ...field, flex: 1 }} value={cfg.map[role] ?? ""}
+        onChange={(e) => set({ map: { ...cfg.map, [role]: e.target.value } })}
+        aria-label={`Champ affiché — ${label}`}>
+        <option value="">— aucun —</option>
+        {aliases.map((a) => <option key={a} value={a}>{meta.fields[a].label}</option>)}
+      </select>
+    </div>
+  );
+  const opDef = FILTER_OPS.find((f) => f.op === cfg.filter?.op);
+  return (
+    <div>
+      <label style={lbl} htmlFor="slb-opt-title">Titre</label>
+      <input id="slb-opt-title" style={field} value={cfg.title} placeholder={meta.label}
+        onChange={(e) => set({ title: e.target.value })} />
+
+      <label style={lbl} htmlFor="slb-opt-src">Source de données</label>
+      <select id="slb-opt-src" style={field} value={cfg.source}
+        onChange={(e) => set({ source: e.target.value as SourceKey, map: {}, filter: undefined, sort: { by: "", dir: cfg.sort.dir } })}>
+        {(Object.keys(SOURCES) as SourceKey[]).map((k) => (
+          <option key={k} value={k}>{SOURCES[k].label}{SOURCES[k].connected ? "" : " (non connectée)"}</option>
+        ))}
+      </select>
+      {!meta.connected && (
+        <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+          Source pas encore branchée : données d'exemple en aperçu, liste vide en production.
+        </p>
+      )}
+
+      <div style={lbl}>Champs affichés</div>
+      {roleRow("title", "Titre")}
+      {roleRow("sub", "Détail")}
+      {roleRow("date", "Date")}
+      {roleRow("badge", "Statut")}
+
+      <label style={lbl} htmlFor="slb-opt-sort">Tri</label>
+      <div style={{ display: "flex", gap: "8px" }}>
+        <select id="slb-opt-sort" style={{ ...field, flex: 1 }} value={cfg.sort.by}
+          onChange={(e) => set({ sort: { ...cfg.sort, by: e.target.value } })}>
+          {aliases.map((a) => <option key={a} value={a}>{meta.fields[a].label}</option>)}
+        </select>
+        <select style={{ ...field, width: 116 }} value={cfg.sort.dir}
+          onChange={(e) => set({ sort: { ...cfg.sort, dir: e.target.value as "asc" | "desc" } })} aria-label="Sens du tri">
+          <option value="desc">Décroissant</option>
+          <option value="asc">Croissant</option>
+        </select>
+      </div>
+
+      <label style={lbl} htmlFor="slb-opt-filter">Filtre</label>
+      <select id="slb-opt-filter" style={field} value={cfg.filter?.field ?? ""}
+        onChange={(e) => set({ filter: e.target.value ? { field: e.target.value, op: cfg.filter?.op ?? "eq", value: cfg.filter?.value } : undefined })}>
+        <option value="">— aucun filtre —</option>
+        {aliases.map((a) => <option key={a} value={a}>{meta.fields[a].label}</option>)}
+      </select>
+      {cfg.filter && (
+        <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
+          <select style={{ ...field, flex: 1 }} value={cfg.filter.op} aria-label="Opérateur du filtre"
+            onChange={(e) => set({ filter: { ...cfg.filter!, op: e.target.value as ListFilterOp } })}>
+            {FILTER_OPS.map((f) => <option key={f.op} value={f.op}>{f.label}</option>)}
+          </select>
+          {opDef?.needsValue && (
+            <input style={{ ...field, width: 104 }} value={cfg.filter.value ?? ""} aria-label="Valeur du filtre"
+              placeholder={cfg.filter.op === "lastDays" ? "30" : "valeur"}
+              onChange={(e) => set({ filter: { ...cfg.filter!, value: e.target.value } })} />
+          )}
         </div>
       )}
-    </Widget>
+
+      <label style={lbl} htmlFor="slb-opt-limit">Nombre de lignes (1 – {LIST_LIMIT_MAX})</label>
+      <input id="slb-opt-limit" type="number" min={1} max={LIST_LIMIT_MAX} style={field} value={cfg.limit}
+        onChange={(e) => set({ limit: Number(e.target.value) })} />
+    </div>
   );
 }
 
 /* ============================================================================
-   10. ARCHITECTURE DES WIDGETS — autonomie, registre, layout (fonctions pures)
+   10. ARCHITECTURE DES WIDGETS — autonomie, registre des TYPES
    ----------------------------------------------------------------------------
-   Chaque widget est AUTONOME : il embarque son propre hook de données et ses
-   états (chargement / vide / erreur, scroll interne). La grille ne connaît que
-   des ids ordonnés — elle instancie WIDGET_REGISTRY[id].Component SANS props.
+   Chaque widget est AUTONOME : il embarque sa source et ses états (chargement /
+   vide / erreur, scroll interne). La grille ne connaît que des INSTANCES
+   ordonnées (§10-bis) — elle rend `WIDGET_REGISTRY[instance.type].Render` en lui
+   passant l'id et la cfg de l'instance.
 
-   Les composants « …Card » ci-dessous sont les enveloppes autonomes : elles
-   lisent la datasource (ou le mock) et rendent le composant présentiel du §9,
-   INCHANGÉ visuellement. Ajouter un widget = 1 entrée de registre + 1 Card.
+   Deux familles de types cohabitent, et c'est volontaire :
+   · les types SUR-MESURE (« …Card » ci-dessous) — interactions propres (marquer
+     comme lu, onglets, embeds) ; ils ignorent la cfg ;
+   · les types LISTE, qui n'ont aucun code dédié : ce sont des `ListView` (§9-bis)
+     configurés par leur cfg, et ce sont eux qui ont un ⋮ « Options ».
+   Ajouter un widget liste = 1 entrée de registre (`listType(...)`), zéro composant.
    ============================================================================ */
 
 // Nb de lignes récentes affichées par widget liste (« Abonnés » ~1700 lignes).
 const RECENT = 12;
 
 /* --- Enveloppes autonomes (une par widget) ------------------------------------
-   ⚠️ CONTRAINTE SOFTR : dans `useRecords({ from })`, `from` doit être DIRECTEMENT
-   un membre de datasource.define (ex. DS.abonnes) — jamais une prop/variable
-   dynamique, jamais un id non connecté (Softr valide statiquement le bloc). On
-   appelle donc useRecords EN DIRECT, uniquement pour les sources connectées. Un
-   widget dont la source n'est pas encore branchée N'APPELLE PAS useRecords : il
-   rend une liste vide (l'état vide guidant). Mock ↔ live à un seul endroit. --- */
+   Elles ne lisent plus une table : elles consomment une SOURCE via `<SourceFeed>`
+   (§6-bis), qui se charge du dispatch statique mock ↔ live. Une source non
+   connectée sert son mock (aperçu) ou une liste vide (live) — l'état vide guidant
+   du présentiel s'affiche alors. Les mappers sont les mêmes dans les deux cas,
+   puisque les lignes ont la même forme (alias du SELECT_*). --- */
 function NotifsCard() {
-  const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  const all = USE_MOCK ? MOCK.notifs : flatten(res).slice(0, RECENT).map(mapNotif);
   // « Marquer comme lue » = masquage LOCAL (la table « Abonnés » n'a pas de champ
   // « Lu », choix validé, README §4-D) → non persistant, réapparaît au rechargement.
   const [readIds, setReadIds] = useState<string[]>([]);
-  const items = useMemo(() => all.filter((n) => !readIds.includes(n.id)), [all, readIds]);
   return (
-    <NotifWidget
-      items={items}
-      onRead={(id) => setReadIds((r) => [...r, id])}
-      onReadAll={() => setReadIds(all.map((n) => n.id))}
-    />
+    <SourceFeed source="abonnes">
+      {(s) => {
+        const all = s.rows.slice(0, RECENT).map(mapNotif);
+        return (
+          <NotifWidget
+            items={all.filter((n) => !readIds.includes(n.id))}
+            onRead={(id) => setReadIds((r) => [...r, id])}
+            onReadAll={() => setReadIds(all.map((n) => n.id))}
+          />
+        );
+      }}
+    </SourceFeed>
   );
 }
 
-/* Tâches — sources « Taches » / « Taches prospect » PAS ENCORE connectées → listes
-   vides en live (mock en aperçu). POUR CONNECTER : ajouter tachesPr/tachesPa comme
-   membres du define (id réel via l'onglet Chat), puis, dans ce widget, lire chaque
-   source par un appel direct au hook de lecture (from = le membre, select =
-   SELECT_TACHE_PA / SELECT_TACHE_PR, tri croissant sur « fin »), filtrer les
-   enregistrements non « Fait » et mapper via mapTask. */
+/* Tâches — widget à DEUX sources : il monte simplement deux adapters côte à côte
+   (imbriqués), ce que le dispatch statique autorise sans rien assouplir. */
 function TachesCard() {
-  const prospects = USE_MOCK ? MOCK.tachesProspects : [];
-  const partenaires = USE_MOCK ? MOCK.tachesPartenaires : [];
-  return <TasksWidget prospects={prospects} partenaires={partenaires} />;
+  const openTasks = (rows: Row[]) => rows.filter((r) => !isDone(r)).slice(0, RECENT).map(mapTask);
+  return (
+    <SourceFeed source="tachesPa">
+      {(pa) => (
+        <SourceFeed source="tachesPr">
+          {(pr) => <TasksWidget prospects={openTasks(pr.rows)} partenaires={openTasks(pa.rows)} />}
+        </SourceFeed>
+      )}
+    </SourceFeed>
+  );
 }
 
-/* Notes installateurs — source « Suivi client » PAS ENCORE connectée → vide en
-   live. POUR CONNECTER : ajouter notesIns comme membre du define, puis dans ce
-   widget lire la source par un appel direct au hook de lecture (from = le membre,
-   select = SELECT_NOTE_INS, tri décroissant sur « date »), garder les RECENT
-   premières et mapper via mapNote. */
-function NotesInstallateursCard() {
-  const items = USE_MOCK ? MOCK.notesInstallateurs : [];
-  return <NotesWidget icon={HardHat} title="Dernières notes — Installateurs" items={items} />;
-}
+/* --- Les deux widgets « notes » n'ont plus d'enveloppe dédiée : ce sont des LISTES
+   GÉNÉRIQUES (§9-bis) à configuration par défaut figée. Leur clé de type ne change
+   pas (contrat de persistance) mais leur rendu est désormais `ListView`, ce qui leur
+   donne gratuitement le ⋮ Options (titre, source, champs, filtre, tri, limite).
+   Écart visuel assumé : le sous-titre devient un compteur générique (« 7 notes ») et
+   le pied « Voir toutes les notes » disparaît (c'était un bouton inerte, TODO). --- */
+const NOTES_INS_CFG: ListCfg = {
+  title: "Dernières notes — Installateurs",
+  unit: "note",
+  source: "notesIns",
+  map: { title: "nom", sub: "note", date: "date" },
+  sort: { by: "date", dir: "desc" },
+  limit: RECENT,
+};
+const NOTES_PRO_CFG: ListCfg = { ...NOTES_INS_CFG, title: "Dernières notes — Prospects", source: "notesPro" };
 
-/* Notes prospects — source « Suivi propect » PAS ENCORE connectée → vide en live.
-   POUR CONNECTER : ajouter notesPro à datasource.define puis lire EN DIRECT (cf.
-   NotesInstallateursCard) avec SELECT_NOTE_PRO. */
-function NotesProspectsCard() {
-  const items = USE_MOCK ? MOCK.notesProspects : [];
-  return <NotesWidget icon={Target} title="Dernières notes — Prospects" items={items} />;
-}
+// Configuration de départ d'un widget liste créé de zéro (galerie, phase 3).
+const LIST_CFG: ListCfg = {
+  title: "",
+  unit: "élément",
+  source: "abonnes",
+  map: SOURCES.abonnes.defaultMap ?? {},
+  sort: { by: "creeLe", dir: "desc" },
+  limit: RECENT,
+};
 
 /* --- Widgets LinkedIn (embeds Elfsight). platform.js est chargé UNE seule fois
       (nouveau domaine static.elfsight.com) ; il observe le DOM et monte chaque
@@ -1101,109 +1582,263 @@ function LinkedinBannerCard() {
   );
 }
 
-/* --- Registre. Les IDS SONT UN CONTRAT DE PERSISTANCE : une fois livrés, ne
-      JAMAIS les renommer (les layouts sauvegardés y font référence). `title` =
-      libellé du menu « Personnaliser » (le titre affiché dans l'en-tête du
-      widget vit dans le composant présentiel). --- */
-type WidgetId =
+/* --- Registre des TYPES de widget. Les CLÉS SONT UN CONTRAT DE PERSISTANCE :
+      une fois livrées, ne JAMAIS les renommer (les layouts sauvegardés y font
+      référence). `title` = libellé du menu « Personnaliser » (le titre affiché
+      dans l'en-tête du widget vit dans le composant présentiel).
+      Les 6 premières clés « legacy » reprennent à l'identique les WidgetId de la
+      v1 : un layout v1 se migre donc sans perte (§10-bis, migrateV1).
+      L'IMPLÉMENTATION d'un type peut changer librement ; seule sa clé est figée
+      (`notesInstallateurs` en est l'exemple : même clé, rendu désormais générique).
+
+      Un type déclare : son `Render` (qui reçoit l'id et la cfg de l'INSTANCE),
+      et — s'il est configurable — `defaults`/`coerce`/`Options`. Un type sans
+      `Options` a un ⋮ inerte ; un type sans `coerce` ignore simplement sa cfg. --- */
+type WidgetTypeKey =
   | "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
-  | "linkedin" | "linkedinBanner";
+  | "linkedin" | "linkedinBanner"
+  | "list";   // ← type GÉNÉRIQUE piloté par cfg (§9-bis)
 
-const WIDGET_REGISTRY: Record<WidgetId, { title: string; icon: LucideIcon; Component: FC }> = {
-  notifs: { title: "Nouveaux dossiers Abonné", icon: Bell, Component: NotifsCard },
-  taches: { title: "Journal des tâches", icon: CalendarClock, Component: TachesCard },
-  notesInstallateurs: { title: "Dernières notes — Installateurs", icon: HardHat, Component: NotesInstallateursCard },
-  notesProspects: { title: "Dernières notes — Prospects", icon: Target, Component: NotesProspectsCard },
-  // Titres modifiables librement (les IDS, eux, sont figés : contrat de persistance).
-  linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Component: LinkedinCard },
-  linkedinBanner: { title: "À la une LinkedIn", icon: Megaphone, Component: LinkedinBannerCard },
+type WidgetTypeDef = {
+  title: string;                                  // libellé du menu « Personnaliser » / galerie
+  icon: LucideIcon;
+  Render: FC<{ id: string; cfg: any }>;
+  defaults?: () => any;                           // cfg d'une instance neuve
+  coerce?: (raw: unknown) => any;                 // cfg stockée (brute) → cfg utilisable ; ne throw JAMAIS
+  Options?: FC<{ cfg: any; onChange: (next: any) => void }>;
 };
 
-const REGISTRY_IDS = Object.keys(WIDGET_REGISTRY) as WidgetId[];
-
-/* --- Modèle de disposition + fonctions PURES : SEULES à porter la logique de
-      layout (aucune logique dans les handlers d'événements). --- */
-// `wide` = widgets en PLEINE LARGEUR (span 2 col). `sizes` = hauteur par widget
-// ("sm"|"md"|"lg" ; absent = "md"). Champs additifs rétro-compatibles : un layout
-// sauvegardé sans wide/sizes → wide=[], sizes={} (cf. normalizeLayout).
-type Layout = { v: 1; order: WidgetId[]; hidden: WidgetId[]; wide: WidgetId[]; sizes: Partial<Record<WidgetId, WidgetSize>> };
-
-const DEFAULT_LAYOUT: Layout = {
-  v: 1,
-  order: ["notifs", "taches", "notesInstallateurs", "notesProspects", "linkedin", "linkedinBanner"],
-  hidden: [],
-  wide: [],
-  sizes: {},
-};
-
-// Copie défensive : ne jamais renvoyer la constante partagée (mutation accidentelle).
-const cloneDefault = (): Layout => ({
-  v: 1,
-  order: [...DEFAULT_LAYOUT.order],
-  hidden: [...DEFAULT_LAYOUT.hidden],
-  wide: [...DEFAULT_LAYOUT.wide],
-  sizes: { ...DEFAULT_LAYOUT.sizes },
+// Fabrique d'un type « liste » : même rendu générique, icône propre à chaque type.
+const listType = (title: string, icon: LucideIcon, base: ListCfg): WidgetTypeDef => ({
+  title,
+  icon,
+  Render: ({ cfg }) => <ListView icon={icon} cfg={cfg} />,
+  defaults: () => ({ ...base, map: { ...base.map } }),
+  coerce: (raw) => coerceListCfg(raw, base),
+  Options: ListOptions,
 });
 
-// Taille effective d'un widget (défaut "md" si non réglée).
-const sizeOf = (layout: Layout, id: WidgetId): WidgetSize => layout.sizes[id] ?? "md";
+const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
+  notifs: { title: "Nouveaux dossiers Abonné", icon: Bell, Render: NotifsCard },
+  taches: { title: "Journal des tâches", icon: CalendarClock, Render: TachesCard },
+  notesInstallateurs: listType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
+  notesProspects: listType("Dernières notes — Prospects", Target, NOTES_PRO_CFG),
+  // Titres modifiables librement (les CLÉS, elles, sont figées : contrat de persistance).
+  linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Render: LinkedinCard },
+  linkedinBanner: { title: "À la une LinkedIn", icon: Megaphone, Render: LinkedinBannerCard },
+  list: listType("Liste configurable", LayoutGrid, LIST_CFG),
+};
 
-/** Garde uniquement des WidgetId connus, dédupliqués (via `seen` partagé), en
- *  préservant l'ordre d'apparition. */
-function keepKnown(list: unknown, valid: Set<string>, seen: Set<string>): WidgetId[] {
-  const out: WidgetId[] = [];
-  if (Array.isArray(list)) {
-    for (const it of list) {
-      if (typeof it === "string" && valid.has(it) && !seen.has(it)) {
-        seen.add(it);
-        out.push(it as WidgetId);
-      }
-    }
-  }
-  return out;
+/** cfg utilisable d'une instance : `coerce` de son type appliqué à la cfg stockée
+ *  (brute), ou `defaults()`, ou `{}` pour un type non configurable. PURE. */
+const cfgOf = (def: WidgetTypeDef, raw: unknown): any =>
+  def.coerce ? def.coerce(raw) : def.defaults ? def.defaults() : {};
+
+const TYPE_KEYS = Object.keys(WIDGET_REGISTRY) as WidgetTypeKey[];
+
+/** Définition d'un type de widget, ou `undefined` si la clé est inconnue du code
+ *  courant (instance « garée », cf. `parked`). Indexation sûre : jamais de crash
+ *  au rendu sur un layout écrit par une version plus récente. */
+const typeDefOf = (type: string): WidgetTypeDef | undefined =>
+  (WIDGET_REGISTRY as Record<string, WidgetTypeDef | undefined>)[type];
+
+/* ============================================================================
+   10-bis. MODÈLE DE DISPOSITION v2 — instances, seeding, migration
+   ----------------------------------------------------------------------------
+   Trois concepts SÉPARÉS (cf. ARCHITECTURE-V2.md §0) :
+     · le TYPE   → ce qu'on affiche          → WIDGET_REGISTRY[type]
+     · l'INSTANCE→ ce que CET utilisateur a posé sur SON accueil → Layout.items[]
+     · la SOURCE → d'où viennent les données (phase 1, pas encore introduite)
+   Une instance porte son `id` (clé de persistance), son `type`, sa `cfg` (réservée
+   aux options par widget — phase 2), sa largeur `w` et sa hauteur `h`. Plus de
+   tableaux parallèles order/wide/sizes à garder cohérents.
+
+   Toute la logique de layout vit dans les fonctions PURES ci-dessous (aucune
+   logique dans les handlers d'événements du §11).
+   ============================================================================ */
+
+type WidgetWidth = "half" | "full";
+
+/** `id`  : CONTRAT DE PERSISTANCE — jamais renommé (migrés v1 = l'ancien WidgetId).
+ *  `type`: volontairement `string` (et non WidgetTypeKey) pour pouvoir CONSERVER
+ *          sans perte une instance dont le type est inconnu du code courant.
+ *  `cfg` : laissée BRUTE en stockage ; c'est le type qui l'interprète au rendu. */
+type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize };
+
+/** `items` : visibles — l'ordre du tableau EST l'ordre d'affichage.
+ *  `hidden`: masqués, cfg CONSERVÉE (réaffichables tels quels).
+ *  `parked`: types inconnus du code courant — ni rendus, ni perdus (compat descendante).
+ *  `seeded`: ids d'instances par défaut DÉJÀ injectées → un widget par défaut
+ *            supprimé/masqué ne ressuscite pas à chaque chargement. */
+type Layout = { v: 2; items: Instance[]; hidden: Instance[]; parked: Instance[]; seeded: string[] };
+
+/** Version du document de disposition. Portée par le JSON (`v`) ET recopiée dans
+ *  le champ `schema_version` de la table (diagnostic du parc sans parser le JSON). */
+const LAYOUT_VERSION = 2;
+
+/* Instances livrées par défaut. Ajouter une entrée = le widget apparaît UNE fois
+   chez tout le monde (puis reste supprimable définitivement, cf. seed()). */
+const DEFAULT_INSTANCES: Instance[] = [
+  { id: "notifs", type: "notifs", cfg: {}, w: "half", h: "md" },
+  { id: "taches", type: "taches", cfg: {}, w: "half", h: "md" },
+  { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: "md" },
+  { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: "md" },
+  { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: "md" },
+  { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: "md" },
+];
+
+/* --- GALERIE « Ajouter un widget » : les modèles proposés en mode Personnaliser.
+   La liste est GÉNÉRÉE : un modèle par type sur-mesure (pour ré-ajouter un widget
+   supprimé) + un modèle liste par SOURCE du catalogue (§6-bis), avec le mappage
+   proposé par la source. Brancher une nouvelle source la fait donc apparaître ici
+   sans écrire une ligne de plus. --- */
+type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown };
+
+// cfg de départ d'une liste sur une source donnée : mappage et tri déduits du catalogue.
+const listCfgFor = (s: SourceKey): ListCfg =>
+  coerceListCfg({ source: s, map: {}, sort: { by: "", dir: "desc" } }, LIST_CFG);
+
+const CUSTOM_TYPES: WidgetTypeKey[] = ["notifs", "taches", "linkedin", "linkedinBanner"];
+
+const PRESETS: Preset[] = [
+  ...CUSTOM_TYPES.map((t) => ({
+    key: t,
+    label: WIDGET_REGISTRY[t].title,
+    icon: WIDGET_REGISTRY[t].icon,
+    type: t,
+    cfg: () => ({}),
+  })),
+  ...(Object.keys(SOURCES) as SourceKey[]).map((s) => ({
+    key: `list:${s}`,
+    label: `Liste — ${SOURCES[s].label}`,
+    hint: SOURCES[s].connected ? undefined : "source non connectée",
+    icon: LayoutGrid,
+    type: "list" as WidgetTypeKey,
+    cfg: () => listCfgFor(s),
+  })),
+];
+
+/* Copie défensive d'une instance. La cfg est clonée EN PROFONDEUR (elle contient
+   des objets imbriqués : `map`, `sort`) : deux instances issues d'un même modèle,
+   ou une duplication, ne doivent jamais partager de référence. Le passage par JSON
+   est légitime ici — une cfg est par construction sérialisable (elle vit dans
+   `layout_json`) — et retombe sur `{}` si elle ne l'est pas. */
+const cloneCfg = (cfg: unknown): unknown => {
+  if (cfg === undefined || cfg === null) return {};
+  try { return JSON.parse(JSON.stringify(cfg)); } catch { return {}; }
+};
+const cloneInstance = (i: Instance): Instance => ({ ...i, cfg: cloneCfg(i.cfg) });
+
+const emptyLayout = (): Layout => ({ v: 2, items: [], hidden: [], parked: [], seeded: [] });
+
+// Layout par défaut = les instances par défaut, semées. Copie défensive garantie.
+const cloneDefault = (): Layout => seed(emptyLayout());
+
+const idxOf = (list: Instance[], id: string): number => list.findIndex((i) => i.id === id);
+
+/** Injecte les instances par défaut JAMAIS VUES par cet utilisateur (en fin
+ *  d'`items`, visibles) et les marque `seeded`. PURE. Vue une fois = plus jamais
+ *  imposée : masquer ou supprimer un widget par défaut est définitif. */
+function seed(l: Layout): Layout {
+  const known = new Set<string>([
+    ...l.items.map((i) => i.id), ...l.hidden.map((i) => i.id),
+    ...l.parked.map((i) => i.id), ...l.seeded,
+  ]);
+  const missing = DEFAULT_INSTANCES.filter((d) => !known.has(d.id));
+  if (!missing.length) return l;
+  return {
+    ...l,
+    items: [...l.items, ...missing.map(cloneInstance)],
+    seeded: [...l.seeded, ...missing.map((d) => d.id)],
+  };
 }
 
+/** Assainit une instance issue du stockage. `seen` déduplique les ids entre
+ *  items/hidden/parked (priorité à l'ordre d'appel). PURE ; ne throw jamais. */
+function coerceInstance(raw: unknown, seen: Set<string>): Instance | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const id = typeof o.id === "string" ? o.id : "";
+  const type = typeof o.type === "string" ? o.type : "";
+  if (!id || !type || seen.has(id)) return null;
+  seen.add(id);
+  return {
+    id, type,
+    cfg: o.cfg ?? {},                                            // BRUTE : jamais « réparée » en stockage
+    w: o.w === "full" ? "full" : "half",                         // clamp
+    h: o.h === "sm" || o.h === "lg" ? o.h : "md",                // clamp ("md" par défaut)
+  };
+}
+
+// Liste de chaînes uniques et non vides (pour `seeded`).
+const uniqueStrings = (list: unknown): string[] =>
+  Array.isArray(list) ? Array.from(new Set(list.filter((x): x is string => typeof x === "string" && !!x))) : [];
+
 /**
- * Réconcilie un layout sauvegardé avec le registre courant. Fonction PURE.
- * · JSON invalide / non-objet / version inconnue → DEFAULT_LAYOUT
- * · ids inconnus → supprimés ; doublons → dédupliqués (`order` prioritaire sur `hidden`)
- * · ids du registre absents du layout → ajoutés en fin d'`order`, VISIBLES
- *   (un nouveau widget livré apparaît pour tout le monde).
+ * Réconcilie un layout sauvegardé (BDD **ou** cache local) avec le code courant.
+ * Fonction PURE, ne throw JAMAIS.
+ * · JSON invalide / non-objet / version ∉ {1,2} → défaut semé
+ * · v1 → migration mécanique (migrateV1), sans perte
+ * · v2 → assainissement : instance sans id/type ou en doublon écartée, w/h clampés,
+ *        `type` inconnu → déplacé vers `parked` (JAMAIS supprimé), `cfg` laissée brute
+ * · puis seed() : les instances par défaut jamais vues sont ajoutées, visibles.
  */
-function normalizeLayout(saved: unknown, registryIds: WidgetId[]): Layout {
+function normalizeLayout(saved: unknown, knownTypes: readonly string[] = TYPE_KEYS): Layout {
   let obj: any = saved;
   if (typeof saved === "string") {
     try { obj = JSON.parse(saved); } catch { return cloneDefault(); }
   }
-  if (!obj || typeof obj !== "object" || obj.v !== 1) return cloneDefault();
+  if (!obj || typeof obj !== "object") return cloneDefault();
+  if (obj.v === 1) return migrateV1(obj, knownTypes);
+  if (obj.v !== 2) return cloneDefault();
 
-  const valid = new Set<string>(registryIds);
+  const valid = new Set<string>(knownTypes);
   const seen = new Set<string>();
-  const order = keepKnown(obj.order, valid, seen);
-  const hidden = keepKnown(obj.hidden, valid, seen);
-  for (const id of registryIds) {
-    if (!seen.has(id)) { seen.add(id); order.push(id); }
-  }
-  // `wide` : ids valides, dédupliqués, ET visibles (présents dans order).
-  const wideSeen = new Set<string>();
-  const wide: WidgetId[] = [];
-  if (Array.isArray(obj.wide)) {
-    for (const it of obj.wide) {
-      if (typeof it === "string" && valid.has(it) && order.includes(it as WidgetId) && !wideSeen.has(it)) {
-        wideSeen.add(it);
-        wide.push(it as WidgetId);
-      }
+  const items: Instance[] = [], hidden: Instance[] = [], parked: Instance[] = [];
+  const take = (list: unknown, dest: Instance[], forceHalf = false) => {
+    if (!Array.isArray(list)) return;
+    for (const raw of list) {
+      const inst = coerceInstance(raw, seen);
+      if (!inst) continue;
+      if (!valid.has(inst.type)) parked.push(inst);           // type inconnu : gardé au frigo
+      else dest.push(forceHalf ? { ...inst, w: "half" } : inst);
     }
-  }
-  // `sizes` : ids connus → taille "sm"/"lg" seulement ("md" = défaut, non stocké).
-  const sizes: Partial<Record<WidgetId, WidgetSize>> = {};
-  if (obj.sizes && typeof obj.sizes === "object") {
-    for (const id of [...order, ...hidden]) {
-      const s = (obj.sizes as any)[id];
-      if (s === "sm" || s === "lg") sizes[id] = s;
+  };
+  take(obj.items, items);
+  take(obj.hidden, hidden, true);   // un widget masqué ne reste pas « pleine largeur »
+  take(obj.parked, parked);
+  return seed({ v: 2, items, hidden, parked, seeded: uniqueStrings(obj.seeded) });
+}
+
+/**
+ * Migration v1 → v2. Mécanique, sans perte : les WidgetId v1 SONT les clés de
+ * type legacy, `wide`/`sizes` deviennent `w`/`h` de l'instance. PURE.
+ * `seeded` = les ids RÉELLEMENT PRÉSENTS dans le layout v1 (et non tous les
+ * défauts) : un widget par défaut livré après la dernière sauvegarde v1 de cet
+ * utilisateur continue donc d'apparaître, exactement comme le faisait le
+ * normalize v1. Écrit en base seulement au prochain « Enregistrer ».
+ */
+function migrateV1(v1: any, knownTypes: readonly string[] = TYPE_KEYS): Layout {
+  const valid = new Set<string>(knownTypes);
+  const seen = new Set<string>();
+  const items: Instance[] = [], hidden: Instance[] = [], parked: Instance[] = [];
+  const conv = (list: unknown, dest: Instance[], forceHalf = false) => {
+    if (!Array.isArray(list)) return;
+    for (const id of list) {
+      if (typeof id !== "string" || !id || seen.has(id)) continue;
+      seen.add(id);
+      const size = v1?.sizes?.[id];
+      const inst: Instance = {
+        id, type: id, cfg: {},
+        w: !forceHalf && Array.isArray(v1?.wide) && v1.wide.includes(id) ? "full" : "half",
+        h: size === "sm" || size === "lg" ? size : "md",
+      };
+      if (!valid.has(id)) parked.push(inst); else dest.push(inst);
     }
-  }
-  return { v: 1, order, hidden, wide, sizes };
+  };
+  conv(v1?.order, items);
+  conv(v1?.hidden, hidden, true);
+  return seed({ v: 2, items, hidden, parked, seeded: Array.from(seen) });
 }
 
 /** Déplace l'élément d'index `from` vers l'index `to`. Fonction PURE (copie).
@@ -1216,52 +1851,96 @@ function reorder<T>(list: T[], from: number, to: number): T[] {
   return next;
 }
 
-/** Monte (dir -1) ou descend (dir +1) un widget dans `order`. PURE. Bord → no-op. */
-function moveWidget(layout: Layout, id: WidgetId, dir: -1 | 1): Layout {
-  const from = layout.order.indexOf(id);
+/** Monte (dir -1) ou descend (dir +1) une instance visible. PURE. Bord → no-op. */
+function moveWidget(layout: Layout, id: string, dir: -1 | 1): Layout {
+  const from = idxOf(layout.items, id);
   if (from < 0) return layout;
-  return { ...layout, order: reorder(layout.order, from, from + dir) };
+  return { ...layout, items: reorder(layout.items, from, from + dir) };
 }
 
-/** Masque un widget : le retire d'`order` et de `wide`, l'ajoute à `hidden`. PURE.
- *  Sa taille reste dans `sizes` (réapparaît telle quelle via showWidget). */
-function hideWidget(layout: Layout, id: WidgetId): Layout {
-  if (!layout.order.includes(id)) return layout;
+/** Masque une instance : d'`items` vers `hidden`, cfg et hauteur CONSERVÉES.
+ *  PURE. Repasse en demi-largeur (un widget masqué ne reste pas pleine largeur). */
+function hideWidget(layout: Layout, id: string): Layout {
+  const i = idxOf(layout.items, id);
+  if (i < 0) return layout;
   return {
     ...layout,
-    order: layout.order.filter((x) => x !== id),
-    hidden: layout.hidden.includes(id) ? layout.hidden : [...layout.hidden, id],
-    wide: layout.wide.filter((x) => x !== id), // un widget masqué ne peut pas rester « pleine largeur »
+    items: layout.items.filter((x) => x.id !== id),
+    hidden: [...layout.hidden, { ...layout.items[i], w: "half" }],
   };
 }
 
-/** Réaffiche un widget masqué : le retire de `hidden`, l'ajoute en fin d'`order`. PURE. */
-function showWidget(layout: Layout, id: WidgetId): Layout {
-  if (!layout.hidden.includes(id)) return layout;
+/** Réaffiche une instance masquée : de `hidden` vers la fin d'`items`. PURE. */
+function showWidget(layout: Layout, id: string): Layout {
+  const i = idxOf(layout.hidden, id);
+  if (i < 0) return layout;
   return {
     ...layout,
-    order: layout.order.includes(id) ? layout.order : [...layout.order, id],
-    hidden: layout.hidden.filter((x) => x !== id),
+    items: [...layout.items, layout.hidden[i]],
+    hidden: layout.hidden.filter((x) => x.id !== id),
   };
 }
 
-/** Bascule la largeur d'un widget (pleine largeur ↔ moitié). PURE.
- *  Seul un widget VISIBLE (présent dans order) peut passer en pleine largeur. */
-function setWidgetWide(layout: Layout, id: WidgetId, value: boolean): Layout {
-  const isWide = layout.wide.includes(id);
-  if (value === isWide) return layout;
-  if (value && !layout.order.includes(id)) return layout;
-  return { ...layout, wide: value ? [...layout.wide, id] : layout.wide.filter((x) => x !== id) };
+/** Bascule la largeur d'une instance VISIBLE (pleine largeur ↔ moitié). PURE. */
+function setWidgetWide(layout: Layout, id: string, value: boolean): Layout {
+  const w: WidgetWidth = value ? "full" : "half";
+  const i = idxOf(layout.items, id);
+  if (i < 0 || layout.items[i].w === w) return layout;
+  return { ...layout, items: layout.items.map((it) => (it.id === id ? { ...it, w } : it)) };
 }
 
-/** Règle la HAUTEUR d'un widget visible. PURE. "md" = défaut → retiré de `sizes`
- *  pour garder l'objet minimal (rétro-compat). */
-function setWidgetSize(layout: Layout, id: WidgetId, size: WidgetSize): Layout {
-  if (!layout.order.includes(id)) return layout;
-  if (sizeOf(layout, id) === size) return layout;
-  const sizes = { ...layout.sizes };
-  if (size === "md") delete sizes[id]; else sizes[id] = size;
-  return { ...layout, sizes };
+/** Règle la HAUTEUR d'une instance visible. PURE. ("md" est désormais stocké
+ *  explicitement — plus de valeur implicite à reconstituer.) */
+function setWidgetSize(layout: Layout, id: string, h: WidgetSize): Layout {
+  const i = idxOf(layout.items, id);
+  if (i < 0 || layout.items[i].h === h) return layout;
+  return { ...layout, items: layout.items.map((it) => (it.id === id ? { ...it, h } : it)) };
+}
+
+/* --- MULTI-INSTANCES (phase 3) : ajouter, dupliquer, supprimer. Ces trois
+   fonctions sont ce qui rend le découplage id ≠ type réellement utile — deux
+   widgets du même type, réglés différemment, cohabitent sans rien de spécial. --- */
+
+/** Tous les ids déjà « pris » par cet utilisateur, y compris `seeded` et `parked` :
+ *  un id neuf ne doit jamais entrer en collision avec un id retiré mais mémorisé. */
+const takenIds = (l: Layout): Set<string> =>
+  new Set([...l.items, ...l.hidden, ...l.parked].map((i) => i.id).concat(l.seeded));
+
+/** Id d'instance neuf. Les ids par défaut sont des clés de type (« notifs ») ;
+ *  ceux créés à la main portent le préfixe `w_` — aucun risque de confusion. */
+function newInstanceId(taken: Set<string>): string {
+  let id = "";
+  do { id = `w_${Math.random().toString(36).slice(2, 8)}`; } while (!id || taken.has(id));
+  return id;
+}
+
+/** Ajoute une instance visible en fin de grille (galerie « Ajouter un widget »). PURE. */
+function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetSize = "md"): Layout {
+  const inst: Instance = { id: newInstanceId(takenIds(layout)), type, cfg, w: "half", h };
+  return { ...layout, items: [...layout.items, inst] };
+}
+
+/** Duplique une instance visible JUSTE APRÈS l'originale, cfg copiée, id neuf. PURE.
+ *  C'est LE geste multi-instances : « le même widget, mais filtré autrement ». */
+function duplicateInstance(layout: Layout, id: string): Layout {
+  const i = idxOf(layout.items, id);
+  if (i < 0) return layout;
+  const copy: Instance = { ...cloneInstance(layout.items[i]), id: newInstanceId(takenIds(layout)) };
+  const items = [...layout.items];
+  items.splice(i + 1, 0, copy);
+  return { ...layout, items };
+}
+
+/** Supprime définitivement une instance (visible ou masquée). PURE.
+ *  `seeded` n'est PAS touché : un widget par défaut supprimé ne réapparaîtra pas
+ *  au prochain chargement (il reste re-ajoutable via la galerie). */
+function removeInstance(layout: Layout, id: string): Layout {
+  if (idxOf(layout.items, id) < 0 && idxOf(layout.hidden, id) < 0) return layout;
+  return {
+    ...layout,
+    items: layout.items.filter((x) => x.id !== id),
+    hidden: layout.hidden.filter((x) => x.id !== id),
+  };
 }
 
 /* ============================================================================
@@ -1275,9 +1954,15 @@ function setWidgetSize(layout: Layout, id: WidgetId, size: WidgetSize): Layout {
    source des tâches partenaires sera connectée, la lire ici et calculer `urgent`
    à partir de ses enregistrements. --- */
 function useHeroCounts() {
-  const notifsRes = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  const unread = USE_MOCK ? MOCK.notifs.length : flatten(notifsRes).slice(0, RECENT).length;
-  const urgent = USE_MOCK ? MOCK.tachesPartenaires.filter((t) => relDays(t.fin) < 3).length : 0;
+  // Le héro n'est pas un widget : il lit ses sources lui-même. Comme un adapter, il
+  // appelle useRecords avec `from` en DIRECT (contrainte Softr) et retombe sur
+  // offlineState pour ce qui n'est pas connecté. À terme (phase 4), ces deux chips
+  // deviendront des mini-KPI, donc de simples consommateurs de <SourceFeed>.
+  const abonnesRes = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
+  const abonnes = isLive("abonnes") ? liveState(abonnesRes).rows : offlineState("abonnes").rows;
+  const taches = offlineState("tachesPa").rows;   // source pas encore connectée
+  const unread = abonnes.slice(0, RECENT).length;
+  const urgent = taches.filter((r) => !isDone(r) && relDays(asText(r.fin)) < 3).length;
   return { unread, urgent };
 }
 
@@ -1288,7 +1973,12 @@ function useHeroCounts() {
      elle écrase le cache.
    · ÉCRITURE : uniquement à « Enregistrer » (pas à chaque drop). Pas de record
      → création ; sinon mise à jour. Optimiste. Conflits (2 onglets/postes) :
-     last-write-wins, assumé (pas de merge).
+     last-write-wins, assumé (pas de merge). Champs écrits : user_email (création),
+     layout_json, updated_at, schema_version.
+   · MIGRATION : un document v1 est migré EN MÉMOIRE à la lecture (migrateV1) et
+     n'est réécrit en base qu'au prochain « Enregistrer ». ⚠️ Chemin destructif
+     connu : revenir à un code v1 après une sauvegarde v2 (le normalize v1 ne
+     reconnaîtrait pas `v:2` → défaut, puis écrasement au save suivant).
    · Jamais d'appel direct à l'API Airtable ni de clé côté client.
 
    ⚠️ Signature Softr réelle à CONFIRMER (onglet Chat du bloc) : ce code suppose
@@ -1306,7 +1996,8 @@ function readLocalLayout(email: string): Layout | null {
   if (!email) return null;
   try {
     const raw = window.localStorage.getItem(layoutKey(email));
-    return raw ? normalizeLayout(raw, REGISTRY_IDS) : null;
+    // Le cache passe par le MÊME normalize que la BDD → migration v1→v2 transparente.
+    return raw ? normalizeLayout(raw) : null;
   } catch { return null; }
 }
 function writeLocalLayout(email: string, layout: Layout): void {
@@ -1347,7 +2038,7 @@ function usePersistentLayout() {
     if (bddRes.isLoading) return;         // squelettes tant que la BDD répond
     recordId.current = bddId;
     if (bddId) {                          // BDD = SOURCE DE VÉRITÉ → écrase le cache
-      const next = normalizeLayout(bddLayoutStr, REGISTRY_IDS);
+      const next = normalizeLayout(bddLayoutStr);   // v1 → migré en mémoire (écrit au prochain « Enregistrer »)
       setLayout(next);
       writeLocalLayout(email, next);
     } else {
@@ -1372,9 +2063,9 @@ function usePersistentLayout() {
     const stamp = new Date().toISOString();
     try {
       if (recordId.current) {
-        await updateM.mutateAsync({ recordId: recordId.current, fields: { layout: layoutStr, updatedAt: stamp } });
+        await updateM.mutateAsync({ recordId: recordId.current, fields: { layout: layoutStr, updatedAt: stamp, schemaVersion: LAYOUT_VERSION } });
       } else {
-        const created: any = await createM.mutateAsync({ email, layout: layoutStr, updatedAt: stamp });
+        const created: any = await createM.mutateAsync({ email, layout: layoutStr, updatedAt: stamp, schemaVersion: LAYOUT_VERSION });
         if (created?.id) recordId.current = created.id;
       }
       return { ok: true };
@@ -1451,16 +2142,17 @@ function Dashboard() {
   // élargissement ; le voisin qui descend s'anime aussi). Mesure à chaque rendu
   // (prev toujours frais), animation seulement si la disposition a changé.
   // Contenu contre-scalé (innerRefs) → pas de distorsion. Respecte reduced-motion.
-  const wrapRefs = useRef(new Map<WidgetId, HTMLElement>());
-  const innerRefs = useRef(new Map<WidgetId, HTMLElement>());
-  const flipPrev = useRef(new Map<WidgetId, DOMRect>());
+  // Clés = ids d'INSTANCE (une même clé de type peut être posée plusieurs fois).
+  const wrapRefs = useRef(new Map<string, HTMLElement>());
+  const innerRefs = useRef(new Map<string, HTMLElement>());
+  const flipPrev = useRef(new Map<string, DOMRect>());
   const flipSig = useRef("");
   useLayoutEffect(() => {
-    const sig = `${shown.order.join(",")}|${shown.wide.join(",")}|${JSON.stringify(shown.sizes)}|${editing}|${loading}`;
+    const sig = `${shown.items.map((it) => `${it.id}:${it.w}:${it.h}`).join(",")}|${editing}|${loading}`;
     const changed = sig !== flipSig.current;
     flipSig.current = sig;
     const prev = flipPrev.current;
-    const next = new Map<WidgetId, DOMRect>();
+    const next = new Map<string, DOMRect>();
     wrapRefs.current.forEach((el, id) => next.set(id, el.getBoundingClientRect()));
     const reduce = typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (changed && !reduce) {
@@ -1503,25 +2195,37 @@ function Dashboard() {
   };
   const doReset = () => { setDraft(cloneDefault()); setConfirmReset(false); };
 
-  // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD.
-  const onMoveUp = (id: WidgetId) => setDraft((d) => moveWidget(d, id, -1));
-  const onMoveDown = (id: WidgetId) => setDraft((d) => moveWidget(d, id, 1));
-  const onHide = (id: WidgetId) => setDraft((d) => hideWidget(d, id));
-  const onShow = (id: WidgetId) => setDraft((d) => showWidget(d, id));
-  const onSetWide = (id: WidgetId, v: boolean) => setDraft((d) => setWidgetWide(d, id, v));
-  const onSetSize = (id: WidgetId, s: WidgetSize) => setDraft((d) => setWidgetSize(d, id, s));
+  /** Enregistre la cfg d'une instance depuis son ⋮ « Options » (mode normal).
+   *  Même pipeline que « Enregistrer » de la grille : optimiste + toast, écriture
+   *  d'un seul document `layout_json`. La cfg est stockée TELLE QUELLE (le rendu la
+   *  passe par `coerce`). Édition impossible en mode Personnaliser → pas de conflit
+   *  avec le brouillon `draft`. */
+  const persistCfg = (id: string, cfg: unknown) =>
+    void runSave({ ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) });
+
+  // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD. `id` = id d'INSTANCE.
+  const onMoveUp = (id: string) => setDraft((d) => moveWidget(d, id, -1));
+  const onMoveDown = (id: string) => setDraft((d) => moveWidget(d, id, 1));
+  const onHide = (id: string) => setDraft((d) => hideWidget(d, id));
+  const onShow = (id: string) => setDraft((d) => showWidget(d, id));
+  const onSetWide = (id: string, v: boolean) => setDraft((d) => setWidgetWide(d, id, v));
+  const onSetSize = (id: string, s: WidgetSize) => setDraft((d) => setWidgetSize(d, id, s));
+  // Multi-instances (mode Personnaliser) — tout reste dans le brouillon jusqu'à « Enregistrer ».
+  const onDuplicate = (id: string) => setDraft((d) => duplicateInstance(d, id));
+  const onRemove = (id: string) => setDraft((d) => removeInstance(d, id));
+  const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg()));
 
   // DnD HTML5 natif. Drop hors cible → no-op (seul onDragEnd nettoie l'état).
   const onDrop = (to: number) => {
-    if (dragIndex !== null && dragIndex !== to) setDraft((d) => ({ ...d, order: reorder(d.order, dragIndex, to) }));
+    if (dragIndex !== null && dragIndex !== to) setDraft((d) => ({ ...d, items: reorder(d.items, dragIndex, to) }));
     resetDrag();
   };
 
   // Redimensionnement en largeur (poignées de bord) — événements POINTER (souris
   // + tactile), PAS de DnD HTML5. On tire vers l'extérieur → pleine largeur, vers
   // l'intérieur → normale (snap au seuil). side=+1 poignée droite, -1 gauche.
-  const resizeRef = useRef<{ id: WidgetId; startX: number; side: 1 | -1 } | null>(null);
-  const onResizeDown = (id: WidgetId, side: 1 | -1) => (e: ReactPointerEvent<HTMLElement>) => {
+  const resizeRef = useRef<{ id: string; startX: number; side: 1 | -1 } | null>(null);
+  const onResizeDown = (id: string, side: 1 | -1) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     resizeRef.current = { id, startX: e.clientX, side };
@@ -1541,11 +2245,12 @@ function Dashboard() {
   // Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
   // plus grand, vers le haut = plus petit (snap sm→md→lg ~ tous les 70px).
   const SIZE_STEPS: WidgetSize[] = ["sm", "md", "lg"];
-  const sizeRef = useRef<{ id: WidgetId; startY: number; startIdx: number } | null>(null);
-  const onSizeDown = (id: WidgetId) => (e: ReactPointerEvent<HTMLElement>) => {
+  const sizeRef = useRef<{ id: string; startY: number; startIdx: number } | null>(null);
+  const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    sizeRef.current = { id, startY: e.clientY, startIdx: SIZE_STEPS.indexOf(draft.sizes[id] ?? "md") };
+    const h = draft.items[idxOf(draft.items, id)]?.h ?? "md";
+    sizeRef.current = { id, startY: e.clientY, startIdx: SIZE_STEPS.indexOf(h) };
   };
   const onSizeMove = (e: ReactPointerEvent<HTMLElement>) => {
     const r = sizeRef.current; if (!r) return;
@@ -1604,7 +2309,7 @@ function Dashboard() {
         <div className="slb-dash" aria-busy="true" aria-label="Chargement de votre disposition">
           {[0, 1, 2, 3].map((k) => <SkeletonCard key={k} />)}
         </div>
-      ) : shown.order.length === 0 ? (
+      ) : shown.items.length === 0 ? (
         <Card style={CARD}>
           <EmptyState icon={LayoutGrid} title="Aucun widget affiché"
             hint={editing ? "Réaffichez des widgets depuis « Widgets masqués » ci-dessous." : "Tous vos widgets sont masqués. Ouvrez « Personnaliser » pour en réafficher."} />
@@ -1618,12 +2323,19 @@ function Dashboard() {
         </Card>
       ) : (
         <div className="slb-dash">
-          {shown.order.map((id, i) => {
-            const { Component } = WIDGET_REGISTRY[id];
+          {shown.items.map((inst, i) => {
+            // Type inconnu du code courant : ne devrait pas arriver (normalizeLayout
+            // les met dans `parked`) — garde-fou pour ne jamais casser le rendu.
+            const def = typeDefOf(inst.type);
+            if (!def) return null;
+            const Render = def.Render;
+            // cfg interprétée AU RENDU (le stockage reste brut, cf. §10-bis).
+            const cfg = cfgOf(def, inst.cfg);
+            const id = inst.id;
             const isSource = editing && dragIndex === i;
             const isTarget = editing && overIndex === i && dragIndex !== null && dragIndex !== i;
-            const wide = shown.wide.includes(id);
-            const size = sizeOf(shown, id);
+            const wide = inst.w === "full";
+            const size = inst.h;
             return (
               <div key={id} className="slb-dragwrap"
                 ref={(el) => { if (el) wrapRefs.current.set(id, el); else wrapRefs.current.delete(id); }}
@@ -1635,8 +2347,12 @@ function Dashboard() {
                 onDrop={editing ? (e) => { e.preventDefault(); onDrop(i); } : undefined}
                 style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: editing ? "relative" : undefined, gridColumn: wide ? "1 / -1" : undefined, borderRadius: T.rXl, opacity: isSource ? 0.5 : 1, outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3, boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined }}>
                 <div ref={(el) => { if (el) innerRefs.current.set(id, el); else innerRefs.current.delete(id); }} style={{ borderRadius: T.rXl }}>
-                  <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.order.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onHide: () => onHide(id) } : null}>
-                    <Component />
+                  <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onHide: () => onHide(id), onDuplicate: () => onDuplicate(id), onRemove: () => onRemove(id) } : null}>
+                    {/* Options : mode NORMAL uniquement (en édition, le ⋮ porte les
+                        actions de disposition et le corps est inerte). */}
+                    <WidgetOptionsCtx.Provider value={!editing && def.Options ? { cfg, Form: def.Options, onSave: (c) => persistCfg(id, c) } : null}>
+                      <Render id={id} cfg={cfg} />
+                    </WidgetOptionsCtx.Provider>
                   </WidgetChromeCtx.Provider>
                 </div>
                 {editing && ([-1, 1] as const).map((side) => (
@@ -1673,13 +2389,15 @@ function Dashboard() {
             <p style={{ margin: 0, fontSize: "12.5px", fontWeight: 500, color: T.ink4 }}>Aucun widget masqué — tous vos widgets sont affichés.</p>
           ) : (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-              {shown.hidden.map((id) => {
-                const { title, icon: Icon } = WIDGET_REGISTRY[id];
+              {shown.hidden.map((inst) => {
+                const def = typeDefOf(inst.type);
+                if (!def) return null;                       // type inconnu : garde-fou (cf. `parked`)
+                const { title, icon: Icon } = def;
                 return (
-                  <div key={id} style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "7px 8px 7px 12px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
+                  <div key={inst.id} style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "7px 8px 7px 12px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
                     <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
                     <span style={{ fontSize: "12.5px", fontWeight: 600, color: T.ink2 }}>{title}</span>
-                    <button className="slb-btng" style={{ ...btn, padding: "5px 10px", fontSize: "12px" }} onClick={() => onShow(id)} aria-label={`Afficher — ${title}`}>
+                    <button className="slb-btng" style={{ ...btn, padding: "5px 10px", fontSize: "12px" }} onClick={() => onShow(inst.id)} aria-label={`Afficher — ${title}`}>
                       <Eye aria-hidden style={{ width: 14, height: 14 }} />Afficher
                     </button>
                   </div>
@@ -1687,6 +2405,37 @@ function Dashboard() {
               })}
             </div>
           )}
+        </Card>
+      )}
+
+      {/* Panneau « Ajouter un widget » — visible seulement en édition. La liste des
+          modèles est générée (types sur-mesure + une liste par source du catalogue) :
+          brancher une source la fait apparaître ici automatiquement. */}
+      {editing && (
+        <Card style={{ ...CARD, marginTop: "12px", padding: "14px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+            <Plus aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
+            <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>Ajouter un widget</span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+            {PRESETS.map((p) => {
+              const Icon = p.icon;
+              return (
+                <button key={p.key} className="slb-btng" onClick={() => onAdd(p)} aria-label={`Ajouter — ${p.label}`}
+                  style={{ ...btn, padding: "7px 12px", alignItems: "center" }}>
+                  <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
+                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
+                    <span style={{ fontSize: "12.5px", fontWeight: 600 }}>{p.label}</span>
+                    {p.hint && <span style={{ fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>{p.hint}</span>}
+                  </span>
+                  <Plus aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />
+                </button>
+              );
+            })}
+          </div>
+          <p style={{ margin: "12px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+            Le widget ajouté arrive en fin de grille. Réglez ensuite son contenu via le menu ⋮ « Options » (hors mode Personnaliser).
+          </p>
         </Card>
       )}
 
@@ -1725,7 +2474,7 @@ function Dashboard() {
    ============================================================================ */
 export default function Block() {
   const user = useCurrentUser(); // iframe Softr — jamais window.logged_in_user
-  const firstName = USE_MOCK ? MOCK.user.firstName : firstNameOf(user);
+  const firstName = USE_MOCK ? MOCK_USER.firstName : firstNameOf(user);
   const { unread, urgent } = useHeroCounts();
   const [tab, setTab] = useState<string>("accueil");
   const active = NAV_TABS.find((t) => t.id === tab) ?? NAV_TABS[0];
