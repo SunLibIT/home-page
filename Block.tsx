@@ -398,7 +398,12 @@ type Rec = { id: string; fields: Record<string, any> };
    match / Remap the fields »). */
 const DS = datasource.define({
   abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // ✅ BDD Abonné · « Abonnés »
-  prefs: "96961120-3d05-4ccc-8a48-3640ee48b060",   // ✅ « Preferences » (tablespace Home-preferences) — persistance layout, §11
+  // ⚠️ [À COMPLÉTER] Persistance du layout (§11) — MIGRÉE de Softr Tables vers AIRTABLE :
+  //    base « SunLib CRM — Préférences » (appHZaD5BkDsWxR65) · table « Home Preferences »
+  //    (tbl18J0zC47myPJLO). Connecter cette table dans l'onglet Sources du bloc, récupérer
+  //    son id de datasource (onglet Chat) et le coller ici. Tant que la valeur commence par
+  //    "TODO", PREFS_ENABLED=false → cache localStorage seul (la page fonctionne).
+  prefs: "TODO-airtable-home-preferences",
 });
 
 /* Sources PAS ENCORE connectées : notesIns (« Suivi client »), notesPro (« Suivi
@@ -452,21 +457,18 @@ const SELECT_TACHE_PR = q.select({
   fait: "Fait",
 });
 
-// Préférences d'accueil ← « Preferences » (tablespace Home-preferences) (persistance du layout par user)
-// ⚠️ Les VALEURS sont les FIELD IDs Softr Tables (PAS les noms de champs) — c'est
-// obligatoire pour l'écriture, sinon « Failed to add record: 400 ». IDs fournis par
-// l'onglet Chat du bloc (2026-07-24). L'appli n'écrit que email/layout/updatedAt
-// (Plan A : tout le layout dans layout_json) + schema_version ; les autres sont
-// mappés pour l'avenir.
+// Préférences d'accueil ← AIRTABLE, base « SunLib CRM — Préférences » · table
+// « Home Preferences » (persistance du layout par utilisateur, §11).
+// ⚠️ Table AIRTABLE (plus Softr Tables) → les VALEURS sont les NOMS EXACTS des champs,
+// pas des FIELD IDs. Ces noms ont été créés sans piège (aucun espace final, casse
+// régulière, sans accent) : ne les renommer NI ici NI dans Airtable.
+// Les 4 champs de la table sont tous écrits — plus de champs « en réserve » : sur
+// Airtable, en ajouter un prend dix secondes le jour où le besoin existe.
 const SELECT_PREFS = q.select({
-  email: "9M3Kb",           // user_email — clé logique (email de useCurrentUser())
-  layout: "lDOLl",          // layout_json — document v2 {v,items,hidden,parked,seeded} sérialisé (Plan A)
-  widgetsConfig: "B2z4P",   // widgets_config_json (réserve)
-  visibleWidgets: "erOm1",  // visible_widgets (réserve)
-  layoutMobile: "eP2jf",    // layout_mobile_json (réserve)
-  updatedAt: "JAUJz",       // updated_at — DATETIME (chaîne ISO)
-  schemaVersion: "nNvK1",   // schema_version — Number, recopie de LAYOUT_VERSION (diagnostic du parc)
-  isDefault: "1eOtL",       // is_default (réserve)
+  email: "user_email",           // clé logique (email de useCurrentUser(), en minuscules)
+  layout: "layout_json",         // document v2 {v,items,hidden,parked,seeded} sérialisé (Plan A)
+  updatedAt: "updated_at",       // DATETIME (chaîne ISO)
+  schemaVersion: "schema_version", // Number — recopie de LAYOUT_VERSION (diagnostic du parc)
 });
 
 // Modèles de vue — mêmes formes pour le mock et le mapping Airtable.
@@ -2196,10 +2198,13 @@ function useHeroCounts() {
    useRecordCreate({ from, fields }).mutateAsync({ fields }) → { id }, symétrique
    de useRecordUpdate. Si l'API diffère, seul l'intérieur de `persist` change.
 
+   La table de persistance est désormais une table AIRTABLE — base « SunLib CRM —
+   Préférences » · table « Home Preferences » (§6) — et non plus une table Softr
+   Tables : les alias du SELECT_PREFS pointent donc des NOMS de champs.
    Tant que DS.prefs vaut "TODO-…", PREFS_ENABLED=false → cache local SEUL
-   (l'aperçu fonctionne, la disposition se souvient par navigateur). Renseigner
-   l'id réel de « Preferences » (tablespace Home-preferences) (§6) + connecter la table (onglet
-   Sources) active la BDD. --- */
+   (la page fonctionne, la disposition se souvient par navigateur). La connecter
+   (onglet Sources) puis coller son id de datasource dans le define (§6) active
+   l'enregistrement en base. --- */
 const PREFS_ENABLED = !DS.prefs.startsWith("TODO");
 const layoutKey = (email: string) => `slb-home-layout:${email}`;
 
@@ -2261,7 +2266,7 @@ function usePersistentLayout() {
   /** Écrit le layout : optimiste (état + cache local), puis BDD Softr.
    *  · CREATE (aucun record) : mutateAsync DIRECT { alias: valeur } — forme Softr create.
    *  · UPDATE (record connu) : mutateAsync ENVELOPPÉ { recordId, fields:{ alias: valeur } }.
-   *  Clés = alias de SELECT_PREFS (mappés vers les field IDs Softr Tables). Le layout
+   *  Clés = alias de SELECT_PREFS (mappés vers les noms de champs Airtable). Le layout
    *  reste appliqué localement même si la BDD échoue. Conflits : last-write-wins. */
   const persist = async (next: Layout): Promise<{ ok: boolean; error?: string; note?: string }> => {
     setLayout(next);

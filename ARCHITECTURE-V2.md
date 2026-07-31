@@ -378,11 +378,19 @@ Arbitrage explicite contre l'éclatement dans les champs en réserve :
   compatibilité entre champs.
 - **Taille** : ~20 instances avec cfg ≈ 3–5 Ko. Aucun risque sur un Long text.
 
-Champs écrits : `user_email` (création), `layout_json`, `updated_at` — et
-désormais **`schema_version = 2`** (recommandé : coût nul, et permet de
-diagnostiquer l'état du parc directement dans l'UI Softr Tables sans parser du
-JSON). `widgets_config_json`, `visible_widgets`, `layout_mobile_json` restent
-en réserve, volontairement vides.
+Champs écrits : `user_email` (création), `layout_json`, `updated_at` et
+**`schema_version = 2`** (coût nul, et permet de diagnostiquer l'état du parc
+sans parser du JSON).
+
+> **Mise à jour 2026-07-31 — la table de persistance est passée sur AIRTABLE.**
+> Elle vivait dans Softr Tables (`Preferences`, champs adressés par FIELD IDs) ;
+> elle est désormais la table **`Home Preferences`** de la base **`SunLib CRM —
+> Préférences`** (`appHZaD5BkDsWxR65`), pour que l'app n'ait qu'un seul système
+> de données. Conséquences : `SELECT_PREFS` utilise les **noms exacts** des champs
+> (règle Airtable) et non plus des FIELD IDs ; les 4 champs sont tous écrits, les
+> 5 champs « en réserve » de l'ancienne table sont abandonnés (sur Airtable, en
+> ajouter un prend dix secondes). L'Option A elle-même ne change pas : un seul
+> document dans `layout_json`. Détail complet dans `ARCHITECTURE.md` §4.
 
 ---
 

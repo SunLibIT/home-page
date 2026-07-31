@@ -9,8 +9,11 @@
 > adapters, dispatch statique `SourceFeed`, mock par source) ; widget liste générique
 > piloté par `cfg` + ⋮ « Options » branché ; multi-instances (galerie, Dupliquer,
 > Supprimer) ; **widget indicateur (KPI)**. Les contraintes Softr du §1 et la mécanique de
-> persistance du §4 sont inchangées. Reste à faire, hors refonte : **brancher les 4 sources
-> Softr non connectées** (recette `ARCHITECTURE-V2.md` §6) et passer `USE_MOCK` à `false`.
+> persistance du §4 sont inchangées dans leur mécanique. **2026-07-31 (soir) : la table de
+> préférences quitte Softr Tables pour Airtable** — tout le stockage de l'app est désormais
+> sur Airtable (§4). Reste à faire, hors refonte : **connecter la nouvelle table de
+> préférences** puis les 4 sources métier (recette `ARCHITECTURE-V2.md` §6), et passer
+> `USE_MOCK` à `false`.
 
 ---
 
@@ -376,45 +379,55 @@ en dehors de « Enregistrer », et il est explicite (bouton « Enregistrer » du
 
 ## 4. LA PERSISTANCE — où et comment la data est enregistrée
 
-**Deux étages : localStorage (cache) + une table Softr native (source de vérité).**
+**Deux étages : localStorage (cache) + une table Airtable (source de vérité).**
 
-### La table
+### La table — **tout est sur Airtable** (décision 2026-07-31)
 
-**Table Softr Tables natives `Preferences`**, tablespace **`Home-preferences`**, rattachée à la
-page `/home-copy` de l'app `sunlibcrm2.softr.app`.
-**Datasource ID : `96961120-3d05-4ccc-8a48-3640ee48b060`.**
-Ce n'est **pas** Airtable : c'est la base interne de Softr. Structure **figée** (confirmée), 9 champs :
+La persistance vivait dans une table **Softr Tables natives** (`Preferences`, tablespace
+`Home-preferences`, datasource `96961120-3d05-4ccc-8a48-3640ee48b060`, champs adressés par
+**FIELD IDs**). Elle a été **migrée sur Airtable** pour que l'app n'ait qu'un seul système de
+données. L'ancienne table n'est plus lue ni écrite.
 
-| Champ | Type | **FIELD ID Softr** | Alias code | Écrit ? |
-|---|---|---|---|---|
-| `Record ID` | auto | — | — | — |
-| `user_email` | Text | **`9M3Kb`** | `email` | ✅ à la création |
-| `layout_json` | Long text | **`lDOLl`** | `layout` | ✅ |
-| `widgets_config_json` | Long text | **`B2z4P`** | `widgetsConfig` | ⛔ réserve |
-| `visible_widgets` | Long text | **`erOm1`** | `visibleWidgets` | ⛔ réserve |
-| `layout_mobile_json` | Long text | **`eP2jf`** | `layoutMobile` | ⛔ réserve |
-| `updated_at` | DateTime | **`JAUJz`** | `updatedAt` | ✅ (ISO string) |
-| `schema_version` | Number | **`nNvK1`** | `schemaVersion` | ✅ (`LAYOUT_VERSION` = 2) |
-| `is_default` | Checkbox | **`1eOtL`** | `isDefault` | ⛔ réserve |
+**Base `SunLib CRM — Préférences` (`appHZaD5BkDsWxR65`) · table `Home Preferences`
+(`tbl18J0zC47myPJLO`)**, workspace `Sunlib`. 4 champs, **tous écrits** :
+
+| Champ Airtable | Type | Alias code | Rôle |
+|---|---|---|---|
+| `user_email` | Single line text (primaire) | `email` | clé logique : 1 ligne par utilisateur |
+| `layout_json` | Long text | `layout` | tout le document de disposition sérialisé |
+| `updated_at` | Date + heure (ISO, Europe/Paris) | `updatedAt` | dernière sauvegarde |
+| `schema_version` | Number (0 décimale) | `schemaVersion` | recopie de `LAYOUT_VERSION` |
 
 ```ts
 const SELECT_PREFS = q.select({
-  email: "9M3Kb", layout: "lDOLl", widgetsConfig: "B2z4P", visibleWidgets: "erOm1",
-  layoutMobile: "eP2jf", updatedAt: "JAUJz", schemaVersion: "nNvK1", isDefault: "1eOtL",
+  email: "user_email", layout: "layout_json",
+  updatedAt: "updated_at", schemaVersion: "schema_version",
 });
 ```
 
-⚠️ Les **valeurs sont les FIELD IDs**, pas les noms de champs — c'était la cause du
-`Failed to add record: 400`.
+⚠️ Table **Airtable** → les valeurs sont les **NOMS EXACTS** des champs (les FIELD IDs étaient une
+obligation propre aux tables Softr natives ; c'était la cause du `Failed to add record: 400`).
+Ces noms ont été créés **sans piège** — aucun espace final, casse régulière, pas d'accent — à
+l'inverse des tables métier historiques (`"Date "`, `"date de fin"`). Ne les renommer ni dans le
+code ni dans Airtable. Chaque champ porte une description dans Airtable qui rappelle son rôle.
+
+Plus de champs « en réserve » (les 5 de l'ancienne table sont abandonnés) : sur Airtable, ajouter
+un champ prend dix secondes le jour où le besoin existe.
 
 ### Décision « Option A » — stockage unique
 
 **Tout le layout est sérialisé dans le seul champ `layout_json`** :
-`JSON.stringify({ v:2, items, hidden, parked, seeded })`. Seuls **4 champs sur 9** sont écrits
-(`user_email`, `layout_json`, `updated_at`, `schema_version`). Les 4 autres sont mappés mais
-**volontairement vides, en réserve** — ce n'est pas un bug ni un TODO. Le `v` du JSON reste la
-version qui gouverne la lecture ; `schema_version` en est une recopie, pour diagnostiquer l'état
-du parc dans l'UI Softr Tables sans parser le JSON.
+`JSON.stringify({ v:2, items, hidden, parked, seeded })`. Le `v` du JSON reste la version qui
+gouverne la lecture ; `schema_version` en est une recopie, pour diagnostiquer l'état du parc
+directement dans la grille Airtable sans parser le JSON.
+
+### Migration Softr → Airtable : ce qu'elle coûte
+
+Rien à migrer côté données : les layouts sauvegardés dans l'ancienne table sont abandonnés, et
+`normalizeLayout` régénère la disposition par défaut. Pour l'utilisateur, la transition est même
+invisible : le **cache localStorage** (`slb-home-layout:<email>`) conserve sa disposition et elle
+sera réécrite dans Airtable au prochain « Enregistrer ». Un utilisateur qui change de navigateur
+avant ce premier enregistrement repart, lui, sur la disposition par défaut.
 
 ### Modèle : 1 ligne par utilisateur
 
@@ -453,7 +466,10 @@ La **BDD reste la source de vérité** : dès qu'elle répond avec une ligne, el
 
 ### Règles de comportement
 
-- `PREFS_ENABLED = !DS.prefs.startsWith("TODO")` → actuellement `true`.
+- `PREFS_ENABLED = !DS.prefs.startsWith("TODO")` → actuellement **`false`** : la nouvelle table
+  Airtable doit d'abord être connectée dans l'onglet *Sources* du bloc et son id de datasource
+  collé dans le `define` (§6). En attendant, **cache local seul** — la page fonctionne, la
+  disposition se souvient par navigateur, rien n'est écrit en base.
 - Écriture **uniquement à « Enregistrer »**, jamais à chaque drop.
 - **Optimiste** : le layout reste appliqué localement même si la BDD échoue (le toast propose
   « Réessayer »).
@@ -462,28 +478,30 @@ La **BDD reste la source de vérité** : dès qu'elle répond avec une ligne, el
   par défaut en attendant, pour éviter le saut visuel).
 - **Aucun appel direct à l'API Airtable, aucune clé côté client.**
 
-### Limite MCP à connaître
+### Inspection et débogage
 
-La table `Preferences` est exposée au MCP `sunlib-crm-2` avec `operations: []` (aucun bloc de page
-branché dessus) → **ses lignes ne sont ni lisibles ni modifiables via le MCP**. Ça n'empêche pas la
-persistance côté app (le front passe par les data sources de la page). Pour l'inspecter via MCP, il
-faudrait ajouter un bloc Liste + form Création + form Modif sur `/home-copy` et publier.
+La table étant sur Airtable, ses lignes sont directement **lisibles et modifiables** — dans la
+grille Airtable comme via le MCP Airtable. C'est un gain net sur l'ancienne table Softr Tables, qui
+était exposée au MCP `sunlib-crm-2` avec `operations: []` (aucun bloc de page branché dessus) et
+donc **inspectable par aucun outil** : diagnostiquer un layout demandait d'ajouter des blocs Liste
+et formulaires sur `/home-copy`, puis de publier.
 
 ---
 
 ## 5. Les données métier des widgets (Airtable) — état du branchement
 
-Le contenu des widgets vit dans **Airtable**, pas dans `Preferences`.
+**Tout est sur Airtable** : le contenu des widgets comme les préférences (§4).
 
 ```ts
 const DS = datasource.define({
   abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // ✅ connecté
-  prefs:   "96961120-3d05-4ccc-8a48-3640ee48b060", // ✅ connecté
+  prefs:   "TODO-airtable-home-preferences",       // ⏳ à connecter (onglet Sources) puis coller l'id
 });
 ```
 
 | Alias | Table Airtable | État | Champs (alias → nom exact) |
 |---|---|---|---|
+| `prefs` | « Home Preferences » (SunLib CRM — Préférences) | ⏳ **à connecter** | email `user_email` · layout `layout_json` · updatedAt `updated_at` · schemaVersion `schema_version` |
 | `abonnes` | « Abonnés » (BDD Abonné) | ✅ **connecté** | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
 | `notesIns` | « Suivi client » (Installateurs) | ⏳ **non connecté** | nom `Installateur` · note `Notes` · date `Date `*(espace final)* |
 | `notesPro` | « Suivi propect » (BDD Propect) | ⏳ **non connecté** | nom `Nom` · note `Notes` · date `date `*(espace final)* |
