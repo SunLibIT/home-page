@@ -40,6 +40,9 @@ home-page/
 
 | Règle | Détail |
 |---|---|
+| **Styles : le fonctionnel en INLINE** | Softr style ses blocs avec **Tailwind** ; rien ne garantit qu'une balise `<style>` injectée dans `document.head` atteigne le bloc, ni que l'attribut `id` du conteneur survive. Constaté en collant le bloc : widgets **collés sans gouttière**, « pleine largeur » **sans effet**, corps de widget qui s'étire au lieu de scroller. → **Toute mise en page, dimension ou débordement doit être en style inline** (grille + `gap`, hauteur du corps scrollable, troncature, filets). `StyleInjector` ne garde que du cosmétique (hover, focus, scrollbars, keyframes) et ses sélecteurs de classe ne sont plus préfixés par `#slb`. |
+| **Container queries : non** | Le nombre de colonnes se mesure en JS (`ResizeObserver` sur la grille), pour la même raison. |
+| **Animations** | Une animation nécessaire doit passer par la **Web Animations API** (`element.animate()`), pas par des `@keyframes` injectés — c'est ainsi qu'est animé le dégradé du héro. Les `@keyframes` restants ne portent que des effets dont l'absence ne casse rien. |
 | **Imports autorisés** | UNIQUEMENT `react`, `lucide-react`, `@/components/ui/card`, `@/lib/datasource`, `@/lib/user`. Aucune lib externe, aucune Google Font. |
 | **`datasource.define`** | Un seul appel, IDs en **littéraux inline**. Ne doit contenir QUE des IDs réellement connectés dans l'onglet *Sources* du bloc — un ID placeholder fait planter le bloc (« New data source does not match / Remap the fields »). |
 | **`from` des hooks** | Doit être **directement** un membre du `define` (`DS.abonnes`) ou un littéral string. **Jamais** une prop, une variable ou un élément de tableau. → *Il est impossible d'écrire un composant générique `<Feed from={x}>`* (approche testée et abandonnée). C'est LA contrainte structurante. |
@@ -533,6 +536,12 @@ Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son cô
   Tik&Lib). **Toutes les URLs sont encore `#`** — à compléter.
 - **`Hero`** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée à la charte),
   « Bienvenue {prénom} ! », date, 2 chips, logo forcé blanc via `filter: brightness(0) invert(1)`.
+  Le dégradé est **animé en boucle très lente** (90 s par cycle) : une couche de fond large de
+  300 %, porteuse d'un motif teal→vert périodique (un cycle tous les 33,333 %), est translatée de
+  `-33,3333 %` — la boucle se referme donc sans couture ni changement de sens. L'animation est
+  déclarée via `element.animate()` (`useHeroPan`), pas en `@keyframes` : elle ne dépend d'aucune
+  feuille de style et respecte `prefers-reduced-motion`. Le dégradé fixe reste sous la couche, en
+  repli si l'animation ne démarre pas.
 
 ---
 

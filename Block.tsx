@@ -35,6 +35,7 @@
    ============================================================================ */
 
 import {
+  Children,
   createContext,
   useContext,
   useEffect,
@@ -124,12 +125,33 @@ const WTITLE: CSSProperties = { fontSize: "13.5px", fontWeight: 700, letterSpaci
 const WSUB: CSSProperties = { fontSize: "11.5px", color: T.ink3, fontWeight: 500, marginTop: "1px" };
 const icoPillSm = (solar?: boolean): CSSProperties => ({ ...icoPill(solar), width: 28, height: 28, borderRadius: "8px" });
 const NBTN_SM: CSSProperties = { ...NBTN, width: 28, height: 28 };
+// Troncature à 2 lignes — en objet inline (l'équivalent CSS `.slb-clamp2` peut ne
+// pas s'appliquer dans le bloc Softr, cf. §2). Le cast couvre les propriétés
+// préfixées -webkit- absentes du typage React.
+const CLAMP2 = { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" } as CSSProperties;
+
 // Primitive du kit (pied de widget). Sans usage depuis le passage des widgets notes
 // au type liste ; conservée telle quelle — les primitives ne se réécrivent pas.
 const FOOT_LINK: CSSProperties = { background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12px", fontWeight: 700, color: T.brand700, padding: "2px 6px" };
 
 /* ============================================================================
-   2. StyleInjector — focus, hover, scrollbars, animations (scopé #slb)
+   2. StyleInjector — UNIQUEMENT du COSMÉTIQUE (focus, hover, scrollbars, keyframes)
+   ----------------------------------------------------------------------------
+   ⚠️ RÈGLE, apprise en collant le bloc dans Softr : cette feuille peut ne PAS
+   s'appliquer (Softr style ses blocs avec Tailwind, rien ne garantit qu'une balise
+   <style> injectée atteigne le bloc, ni que l'attribut id du conteneur survive).
+   Symptômes observés quand elle ne s'applique pas : widgets collés sans gouttière,
+   « pleine largeur » sans effet, corps de widget qui s'étire au lieu de scroller.
+
+   Donc : **tout ce qui est FONCTIONNEL (mise en page, dimensions, débordement) vit
+   en style inline** — grille et gouttières (§11), hauteur du corps scrollable
+   (`ScrollBody`), troncature (`CLAMP2`), filets de séparation. Ici ne restent que
+   des embellissements dont l'absence ne casse rien.
+
+   Les sélecteurs de classe ne sont plus préfixés par `#slb` (ils ne matchaient plus
+   si l'id disparaissait) : toutes nos classes portent déjà le préfixe `slb-`, donc
+   aucun risque de fuite vers le reste de la page. Seules les deux règles vraiment
+   génériques restent scopées à `#slb`.
    ============================================================================ */
 function StyleInjector() {
   useEffect(() => {
@@ -139,57 +161,57 @@ function StyleInjector() {
     el.id = id;
     el.textContent = `
       #slb :focus-visible{ outline:2px solid ${T.brand}; outline-offset:2px; border-radius:6px; }
-      #slb .slb-tabs::-webkit-scrollbar{ display:none; }
-      #slb .slb-row{ transition:background .15s ease; }
-      #slb .slb-row + .slb-row{ border-top:1px solid ${T.line}; }
-      #slb .slb-row:hover{ background:${T.surface2}; }
-      #slb .slb-tab:hover{ color:${T.ink}; }
-      #slb .slb-nbtn{ transition:background .15s ease, color .15s ease; }
-      #slb .slb-nbtn:hover{ background:${T.neutral050} !important; color:${T.ink2} !important; }
+      .slb-tabs::-webkit-scrollbar{ display:none; }
+      .slb-row{ transition:background .15s ease; }
+      .slb-row + .slb-row{ border-top:1px solid ${T.line}; }
+      .slb-row:hover{ background:${T.surface2}; }
+      .slb-tab:hover{ color:${T.ink}; }
+      .slb-nbtn{ transition:background .15s ease, color .15s ease; }
+      .slb-nbtn:hover{ background:${T.neutral050} !important; color:${T.ink2} !important; }
       @keyframes slb-fade{ from{opacity:0} to{opacity:1} }
       @keyframes slb-panel-fwd{ from{opacity:0; transform:translate3d(22px,0,0)} to{opacity:1; transform:none} }
 
       /* Boutons + tuiles */
-      #slb .slb-btng{ transition:border-color .15s ease, color .15s ease, background .15s ease; }
-      #slb .slb-btng:hover{ border-color:${T.brand100}; color:${T.brand700}; background:${T.brand050}; }
-      #slb .slb-tile{ transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
-      #slb .slb-tile:hover{ border-color:${T.brand100}; box-shadow:${T.shMd}; transform:translateY(-1px); }
+      .slb-btng{ transition:border-color .15s ease, color .15s ease, background .15s ease; }
+      .slb-btng:hover{ border-color:${T.brand100}; color:${T.brand700}; background:${T.brand050}; }
+      .slb-tile{ transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+      .slb-tile:hover{ border-color:${T.brand100}; box-shadow:${T.shMd}; transform:translateY(-1px); }
       /* Micro-interaction flèche de la charte : glisse ~6px, ~0.5s */
-      #slb .slb-arrow{ transition:transform .5s ease, color .16s ease; }
-      #slb .slb-tile:hover .slb-arrow{ transform:translateX(6px); color:${T.brand600}; }
-      #slb .slb-clamp2{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+      .slb-arrow{ transition:transform .5s ease, color .16s ease; }
+      .slb-tile:hover .slb-arrow{ transform:translateX(6px); color:${T.brand600}; }
+      .slb-clamp2{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
       /* Widgets : corps scrollable individuellement (scrollbar fine) */
-      #slb .slb-scrolly{ overflow-y:auto; max-height:var(--slb-wh, 340px); scrollbar-width:thin; scrollbar-color:${T.line2} transparent; }
-      #slb .slb-scrolly::-webkit-scrollbar{ width:6px; }
-      #slb .slb-scrolly::-webkit-scrollbar-thumb{ background:${T.line2}; border-radius:999px; }
-      #slb .slb-scrolly::-webkit-scrollbar-track{ background:transparent; }
+      .slb-scrolly{ overflow-y:auto; max-height:var(--slb-wh, 340px); scrollbar-width:thin; scrollbar-color:${T.line2} transparent; }
+      .slb-scrolly::-webkit-scrollbar{ width:6px; }
+      .slb-scrolly::-webkit-scrollbar-thumb{ background:${T.line2}; border-radius:999px; }
+      .slb-scrolly::-webkit-scrollbar-track{ background:transparent; }
       /* Actions de ligne révélées au survol et au focus clavier */
-      #slb .slb-hact{ opacity:0; transition:opacity .15s ease; }
-      #slb .slb-row:hover .slb-hact, #slb .slb-row:focus-within .slb-hact{ opacity:1; }
-      #slb .slb-nbtn-ok:hover{ background:${T.ok050} !important; color:${T.okInk} !important; }
+      .slb-hact{ opacity:0; transition:opacity .15s ease; }
+      .slb-row:hover .slb-hact, .slb-row:focus-within .slb-hact{ opacity:1; }
+      .slb-nbtn-ok:hover{ background:${T.ok050} !important; color:${T.okInk} !important; }
 
       /* Mode Personnaliser : bouton primaire, items de menu ⋮, poignée, wrapper DnD */
-      #slb .slb-btnp{ transition:background .15s ease; }
-      #slb .slb-btnp:hover{ background:${T.brand600}; }
-      #slb .slb-menu-item{ transition:background .12s ease; }
-      #slb .slb-menu-item:hover:not(:disabled){ background:${T.surface2}; }
-      #slb .slb-menu-item:disabled{ opacity:.45; cursor:not-allowed; }
-      #slb .slb-grip{ cursor:grab; }
-      #slb .slb-grip:active{ cursor:grabbing; }
-      #slb .slb-dragwrap{ transition:opacity .15s ease, outline-color .15s ease; }
-      /* Grille dashboard : nb de colonnes selon la LARGEUR DU BLOC (container query,
-         PAS la fenêtre) → « pleine largeur » = span 2 col dès que le bloc ≥ 720px ;
-         1 col si le bloc est étroit. Corrige « agrandir sans effet » en iframe. */
-      #slb .slb-dash-wrap{ container-type:inline-size; }
-      #slb .slb-dash{ display:grid; gap:18px; align-items:start; grid-template-columns:1fr; }
-      @container (min-width:720px){ #slb .slb-dash{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+      .slb-btnp{ transition:background .15s ease; }
+      .slb-btnp:hover{ background:${T.brand600}; }
+      .slb-menu-item{ transition:background .12s ease; }
+      .slb-menu-item:hover:not(:disabled){ background:${T.surface2}; }
+      .slb-menu-item:disabled{ opacity:.45; cursor:not-allowed; }
+      .slb-grip{ cursor:grab; }
+      .slb-grip:active{ cursor:grabbing; }
+      .slb-dragwrap{ transition:opacity .15s ease, outline-color .15s ease; }
+      /* ⚠️ La GRILLE du dashboard n'est plus décrite ici : display:grid, gap et le
+         nombre de colonnes sont posés EN LIGNE par Dashboard (§11), qui mesure la
+         largeur du bloc avec un ResizeObserver. Raison : dans le bloc Softr, cette
+         feuille de style peut ne pas s'appliquer (cf. §2) — et sans display:grid,
+         les widgets se collent et « pleine largeur » n'a plus aucun effet. Tout ce
+         qui est FONCTIONNEL doit donc rester en style inline. */
       /* Poignées (mode Personnaliser) : .slb-rzh = largeur (bords G/D), .slb-rzv = hauteur (bas) */
-      #slb .slb-rzh > span{ transition:background .15s ease, height .15s ease; }
-      #slb .slb-rzh:hover > span, #slb .slb-rzh:active > span{ background:${T.brand}; height:48px; }
-      #slb .slb-rzv > span{ transition:background .15s ease, width .15s ease; }
-      #slb .slb-rzv:hover > span, #slb .slb-rzv:active > span{ background:${T.brand}; width:48px; }
+      .slb-rzh > span{ transition:background .15s ease, height .15s ease; }
+      .slb-rzh:hover > span, .slb-rzh:active > span{ background:${T.brand}; height:48px; }
+      .slb-rzv > span{ transition:background .15s ease, width .15s ease; }
+      .slb-rzv:hover > span, .slb-rzv:active > span{ background:${T.brand}; width:48px; }
       @keyframes slb-skel{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
-      #slb .slb-skel{ animation:slb-skel 1.3s ease-in-out infinite; }
+      .slb-skel{ animation:slb-skel 1.3s ease-in-out infinite; }
 
       @media (prefers-reduced-motion: reduce){ #slb *{ animation:none !important; transition:none !important; } }
     `;
@@ -741,6 +763,27 @@ function EmptyState({ icon: Icon, title, hint, dense }: { icon: LucideIcon; titl
 type WidgetSize = "sm" | "md" | "lg";
 const WIDGET_HEIGHTS: Record<WidgetSize, number> = { sm: 168, md: 340, lg: 560 };
 
+/* --- Corps scrollable d'un widget. La hauteur max vient du contexte (le Dashboard
+   la connaît : c'est `instance.h`), et elle est posée EN LIGNE — l'ancienne
+   variable CSS `--slb-wh` lue par une règle injectée ne s'appliquait pas dans le
+   bloc Softr, et les widgets s'étiraient alors sans jamais scroller. La classe
+   `slb-scrolly` reste, mais seulement pour l'habillage de la scrollbar. --- */
+const WidgetHeightCtx = createContext<number>(WIDGET_HEIGHTS.md);
+
+function ScrollBody({ children }: { children?: ReactNode }) {
+  const maxHeight = useContext(WidgetHeightCtx);
+  return (
+    <div className="slb-scrolly" style={{ overflowY: "auto", maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
+      {/* Le filet de séparation entre lignes était une règle injectée
+          (`.slb-row + .slb-row`) : il est posé ici, en ligne, autour de chaque
+          enfant — un seul endroit pour toutes les listes du bloc. */}
+      {Children.map(children, (child, i) => (
+        <div style={i > 0 ? { borderTop: `1px solid ${T.line}` } : undefined}>{child}</div>
+      ))}
+    </div>
+  );
+}
+
 /* --- Contexte d'édition : le mode Personnaliser injecte, PAR widget, sa position
       et ses actions (déplacer, largeur, taille, masquer). `null` = usage normal →
       aucune poignée, aucun menu d'édition, corps interactif. --- */
@@ -982,12 +1025,52 @@ function PageNavBar({ tabs, activeId, onSelect }: { tabs: NavTab[]; activeId: st
 /* --- Héro — dégradé SunLib + logo blanc rond à droite ----------------------
    Reprise du bandeau historique (demande explicite) : dégradé de marque
    #13A3AC → #3CAE68, logo_Blanc_rond.svg à droite. */
+/* --- Dégradé de marque ANIMÉ du héro -----------------------------------------
+   Le teal glisse vers la droite, le vert revient par la gauche, en boucle très
+   lente et sans couture. Trois décisions :
+   · On translate une COUCHE de fond au lieu d'animer `background-position` : un
+     `transform` est composité par le GPU, une position de fond repeint la surface
+     à chaque image (coûteux sur un bandeau aussi large).
+   · La couche fait 300 % de large et porte un motif teal→vert PÉRIODIQUE (un
+     cycle complet tous les 33,333 %). La translater d'exactement -33,3333 %
+     ramène un rendu identique à l'état de départ : la boucle se referme sans
+     saut de couleur, et le mouvement garde toujours le même sens.
+   · L'animation est déclarée en JS (Web Animations API) et NON en @keyframes :
+     le CSS injecté par StyleInjector peut ne pas s'appliquer dans le bloc Softr
+     (cf. §2), alors que `element.animate()` ne dépend d'aucune feuille de style.
+     Le dégradé fixe reste en repli sous la couche : si l'animation ne démarre
+     pas, le héro garde l'apparence d'origine. --- */
+const HERO_GRADIENT = "linear-gradient(90deg, #13A3AC 0%, #3CAE68 100%)";
+const HERO_LOOP = "linear-gradient(90deg, #13A3AC 0%, #3CAE68 16.6667%, #13A3AC 33.3333%, #3CAE68 50%, #13A3AC 66.6667%, #3CAE68 83.3333%, #13A3AC 100%)";
+const HERO_CYCLE_MS = 90000;   // durée d'un cycle : « très très lent » assumé
+
+function useHeroPan() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.animate !== "function") return;
+    // Respecte le réglage système « réduire les animations » (comme le FLIP, §11).
+    const reduce = !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;
+    const anim = el.animate(
+      [{ transform: "translate3d(0,0,0)" }, { transform: "translate3d(-33.3333%,0,0)" }],
+      { duration: HERO_CYCLE_MS, iterations: Infinity, easing: "linear" },
+    );
+    return () => anim.cancel();
+  }, []);
+  return ref;
+}
+
 function Hero({ firstName, unread, urgent }: { firstName: string; unread: number; urgent: number }) {
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const chip: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "7px", padding: "7px 13px", borderRadius: "999px", fontSize: "12.5px", fontWeight: 600, color: "#fff", backgroundColor: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.38)", backdropFilter: "blur(4px)" };
+  const panRef = useHeroPan();
   return (
-    <section aria-label="Bienvenue" style={{ borderRadius: T.rXl, overflow: "hidden", border: `1px solid ${T.line}`, boxShadow: T.shSm, background: "linear-gradient(90deg, #13A3AC 0%, #3CAE68 100%)" }}>
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "20px 28px", padding: "clamp(22px, 3.8vw, 38px) clamp(22px, 4.5vw, 46px)" }}>
+    <section aria-label="Bienvenue" style={{ position: "relative", isolation: "isolate", borderRadius: T.rXl, overflow: "hidden", border: `1px solid ${T.line}`, boxShadow: T.shSm, background: HERO_GRADIENT }}>
+      {/* Couche animée (décorative) : au-dessus du dégradé de repli, sous le contenu. */}
+      <div ref={panRef} aria-hidden
+        style={{ position: "absolute", top: -1, bottom: -1, left: 0, width: "300%", zIndex: 0, background: HERO_LOOP, willChange: "transform" }} />
+      <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", flexWrap: "wrap", gap: "20px 28px", padding: "clamp(22px, 3.8vw, 38px) clamp(22px, 4.5vw, 46px)" }}>
         <div style={{ flex: "1 1 320px", minWidth: 0 }}>
           <div style={{ fontSize: "12px", fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "rgba(255,255,255,.85)" }}>{today}</div>
           <h1 style={{ margin: "8px 0 6px", fontSize: "clamp(26px, 3.6vw, 36px)", fontWeight: 700, letterSpacing: "-.02em", color: "#fff", textShadow: "0 1px 2px rgba(16,26,40,.15)" }}>
@@ -1097,9 +1180,9 @@ function NotifWidget({ items, onRead, onReadAll }: { items: Notif[]; onRead: (id
       {items.length === 0 ? (
         <EmptyState dense icon={CheckCircle} title="Vous êtes à jour" hint="Les nouveaux dossiers abonnés créés par vos partenaires apparaîtront ici." />
       ) : (
-        <div className="slb-scrolly">
+        <ScrollBody>
           {items.map((n) => <NotifRow key={n.id} n={n} onRead={onRead} />)}
-        </div>
+        </ScrollBody>
       )}
     </Widget>
   );
@@ -1147,9 +1230,9 @@ function TasksWidget({ prospects, partenaires }: { prospects: Task[]; partenaire
             title={tab === "prospects" ? "Aucune tâche prospect en cours" : "Aucune tâche partenaire en cours"}
             hint={tab === "prospects" ? "Les tâches liées à vos prospects apparaîtront ici." : "Les tâches liées à vos partenaires apparaîtront ici."} />
         ) : (
-          <div className="slb-scrolly">
+          <ScrollBody>
             {rows.map((t) => <TaskRow key={t.id} t={t} />)}
-          </div>
+          </ScrollBody>
         )}
       </div>
     </Widget>
@@ -1315,7 +1398,7 @@ function GenericRow({ row, map, kinds }: { row: Row; map: FieldRoleMap; kinds: R
         {(sub || badge) && (
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "3px", minWidth: 0 }}>
             {badge && <StatusBadge value={badge} />}
-            {sub && <span className="slb-clamp2" style={{ flex: 1, minWidth: 0, fontSize: "12px", fontWeight: 500, lineHeight: 1.45, color: T.ink2 }}>{sub}</span>}
+            {sub && <span className="slb-clamp2" style={{ ...CLAMP2, flex: 1, minWidth: 0, fontSize: "12px", fontWeight: 500, lineHeight: 1.45, color: T.ink2 }}>{sub}</span>}
           </div>
         )}
       </div>
@@ -1346,9 +1429,9 @@ function GenericList({ rows, map, kinds, loading, error, unit }: {
   }
   if (!rows.length) return <EmptyState dense icon={Inbox} title={`Aucun ${unit}`} hint="Aucune ligne ne correspond à ce réglage." />;
   return (
-    <div className="slb-scrolly">
+    <ScrollBody>
       {rows.map((r) => <GenericRow key={r.id} row={r} map={map} kinds={kinds} />)}
-    </div>
+    </ScrollBody>
   );
 }
 
@@ -1747,26 +1830,61 @@ function useElfsightPlatform() {
   }, []);
 }
 
-function LinkedinCard() {
+/* --- Embed Elfsight avec DIAGNOSTIC. Dans le bloc Softr, l'embed restait vide et
+   silencieux ; deux corrections :
+   · plus de `data-elfsight-app-lazy` : le montage différé s'appuie sur la
+     visibilité, ce qui est fragile dans une iframe — l'embed monte immédiatement ;
+   · si rien n'est monté au bout de quelques secondes, on affiche un état guidant
+     au lieu d'un cadre vide. Les trois causes à vérifier dans cet ordre sont la
+     CSP de l'app Softr (`script-src`/`frame-src` doivent autoriser Elfsight), le
+     domaine autorisé côté Elfsight (la page vit sur sunlibcrm2.softr.app), et un
+     bloqueur de contenu dans le navigateur. --- */
+function ElfsightEmbed({ appClass, label }: { appClass: string; label: string }) {
   useElfsightPlatform();
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [stalled, setStalled] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const host = hostRef.current;
+      // platform.js injecte ses propres nœuds dans le conteneur : s'il est encore
+      // vide, l'embed n'a pas démarré.
+      if (host && host.childElementCount === 0) setStalled(true);
+    }, 6000);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <div style={{ padding: "10px 16px 16px" }}>
+      <div ref={hostRef} className={appClass} />
+      {stalled && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
+          <XCircle aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none", marginTop: 1 }} />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>{label} indisponible</div>
+            <div style={{ marginTop: 2, fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
+              L'embed Elfsight n'a pas démarré : vérifiez que la CSP de l'app autorise <code>static.elfsight.com</code>,
+              que le domaine <code>sunlibcrm2.softr.app</code> est autorisé côté Elfsight, et l'absence de bloqueur de contenu.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinkedinCard() {
   return (
     <Widget icon={Newspaper} title="SunLib sur LinkedIn" sub="Dernières publications">
-      {/* ▼ EMBED Elfsight — feed LinkedIn (rendu tel quel) ▼ */}
-      <div style={{ padding: "10px 16px 16px" }}>
-        <div className="elfsight-app-2df6db63-fd6e-498a-8a61-a97803d9d96f" data-elfsight-app-lazy="" />
-      </div>
+      {/* ▼ EMBED Elfsight — feed LinkedIn ▼ */}
+      <ElfsightEmbed appClass="elfsight-app-2df6db63-fd6e-498a-8a61-a97803d9d96f" label="Fil LinkedIn" />
     </Widget>
   );
 }
 
 function LinkedinBannerCard() {
-  useElfsightPlatform();
   return (
     <Widget icon={Megaphone} title="À la une LinkedIn" sub="Mise en avant SunLib">
-      {/* ▼ EMBED Elfsight — bannière SunLib (rendu tel quel) ▼ */}
-      <div style={{ padding: "10px 16px 16px" }}>
-        <div className="elfsight-app-488a28ed-f4b6-4f5b-af44-c16613885c98" data-elfsight-app-lazy="" />
-      </div>
+      {/* ▼ EMBED Elfsight — bannière SunLib ▼ */}
+      <ElfsightEmbed appClass="elfsight-app-488a28ed-f4b6-4f5b-af44-c16613885c98" label="Bannière LinkedIn" />
     </Widget>
   );
 }
@@ -2332,6 +2450,30 @@ function SkeletonCard() {
    « pleine largeur » occupe gridColumn 1/-1. --- */
 function Dashboard() {
   const { layout: applied, status, persist } = usePersistentLayout();
+  // Nombre de colonnes selon la largeur RÉELLE DU BLOC (et non de la fenêtre : le
+  // bloc vit dans une iframe étroite alors que la fenêtre est large). Mesuré en JS
+  // plutôt qu'en container query : le style inline qui en découle fonctionne même
+  // si la feuille injectée n'est pas appliquée dans Softr.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [twoCols, setTwoCols] = useState(true);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const measure = () => setTwoCols(el.getBoundingClientRect().width >= 720);
+    measure();
+    if (typeof ResizeObserver !== "function") {           // repli : redimensionnement fenêtre
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+  // Styles FONCTIONNELS de la grille — inline, jamais en CSS injecté.
+  const dashStyle: CSSProperties = {
+    display: "grid", gap: "18px", alignItems: "start",
+    gridTemplateColumns: twoCols ? "repeat(2, minmax(0, 1fr))" : "1fr",
+  };
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Layout>(() => cloneDefault());
   const [confirmReset, setConfirmReset] = useState(false);
@@ -2520,7 +2662,7 @@ function Dashboard() {
       )}
 
       {loading ? (
-        <div className="slb-dash" aria-busy="true" aria-label="Chargement de votre disposition">
+        <div ref={gridRef} className="slb-dash" style={dashStyle} aria-busy="true" aria-label="Chargement de votre disposition">
           {[0, 1, 2, 3].map((k) => <SkeletonCard key={k} />)}
         </div>
       ) : shown.items.length === 0 ? (
@@ -2536,7 +2678,7 @@ function Dashboard() {
           )}
         </Card>
       ) : (
-        <div className="slb-dash">
+        <div ref={gridRef} className="slb-dash" style={dashStyle}>
           {shown.items.map((inst, i) => {
             // Type inconnu du code courant : ne devrait pas arriver (normalizeLayout
             // les met dans `parked`) — garde-fou pour ne jamais casser le rendu.
@@ -2565,7 +2707,10 @@ function Dashboard() {
                     {/* Options : mode NORMAL uniquement (en édition, le ⋮ porte les
                         actions de disposition et le corps est inerte). */}
                     <WidgetOptionsCtx.Provider value={!editing && def.Options ? { cfg, Form: def.Options, onSave: (c) => persistCfg(id, c) } : null}>
-                      <Render id={id} cfg={cfg} />
+                      {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
+                      <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
+                        <Render id={id} cfg={cfg} />
+                      </WidgetHeightCtx.Provider>
                     </WidgetOptionsCtx.Provider>
                   </WidgetChromeCtx.Provider>
                 </div>
