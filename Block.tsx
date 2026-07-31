@@ -1458,6 +1458,186 @@ function ListOptions({ cfg, onChange }: { cfg: ListCfg; onChange: (next: ListCfg
 }
 
 /* ============================================================================
+   9-ter. LE WIDGET INDICATEUR (KPI) — piloté par `cfg` (phase 4 de la cible v2)
+   ----------------------------------------------------------------------------
+   Même moteur que le widget liste : une SOURCE du catalogue (§6-bis), un filtre
+   réutilisé tel quel (`matchFilter`), et un comptage PUR. Un gros chiffre, un
+   libellé, et — si un champ date et une fenêtre sont réglés — l'écart avec la
+   période précédente.
+
+   ⚠️ LIMITE ASSUMÉE ET DOCUMENTÉE : le compte porte sur les lignes CHARGÉES par la
+   source (le pattern du bloc : la première page renvoyée par Softr), pas sur le
+   total serveur. Pour les volumes actuels (dizaines de lignes par source métier)
+   le compte est exact ; pour un vrai total sur grosse table, deux voies connues :
+   une variante d'adapter sans limite, ou un champ rollup côté Airtable lu en une
+   ligne (cf. ARCHITECTURE-V2.md §2.2).
+   ============================================================================ */
+
+type KpiCfg = {
+  title: string;
+  source: SourceKey;
+  filter?: ListFilter;      // même forme et même moteur que le widget liste
+  dateField?: string;       // alias d'un champ `date` — requis pour l'écart
+  compareDays?: number;     // taille de la fenêtre en jours ; 0 = pas d'écart
+};
+
+const KPI_DAYS_MAX = 365;
+
+function coerceKpiCfg(raw: unknown, fallback: KpiCfg): KpiCfg {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, any>;
+  const source: SourceKey = o.source in SOURCES ? o.source : fallback.source;
+  const fields = SOURCES[source].fields;
+  const known = (alias: unknown): string | undefined =>
+    typeof alias === "string" && alias in fields ? alias : undefined;
+
+  const rawFilter = (o.filter && typeof o.filter === "object" ? o.filter : null) as any;
+  const filterField = rawFilter ? known(rawFilter.field) : undefined;
+  const filterOp = FILTER_OPS.find((f) => f.op === rawFilter?.op)?.op;
+  const filter: ListFilter | undefined =
+    filterField && filterOp ? { field: filterField, op: filterOp, value: asText(rawFilter.value) } : undefined;
+
+  // Le champ de comparaison DOIT être une date (l'écart n'a aucun sens sinon).
+  const rawDate = "dateField" in o ? o.dateField : fallback.dateField;
+  const dateAlias = known(rawDate);
+  const dateField = dateAlias && fields[dateAlias].kind === "date" ? dateAlias : undefined;
+
+  const days = Number("compareDays" in o ? o.compareDays : fallback.compareDays);
+  return {
+    title: asText(o.title ?? fallback.title),
+    source,
+    filter,
+    dateField,
+    compareDays: days > 0 ? Math.min(KPI_DAYS_MAX, Math.floor(days)) : 0,
+  };
+}
+
+/** Comptage PURE. Sans fenêtre : total des lignes retenues par le filtre. Avec
+ *  fenêtre + champ date : compte de la fenêtre courante, et écart avec la fenêtre
+ *  précédente de même durée (`null` si l'écart n'est pas calculable). */
+function kpiCount(rows: Row[], cfg: KpiCfg): { value: number; delta: number | null } {
+  const f = cfg.filter;
+  const base = f ? rows.filter((r) => matchFilter(r[f.field], f)) : rows;
+  const days = cfg.compareDays ?? 0;
+  const alias = cfg.dateField;
+  if (!alias || !(days > 0)) return { value: base.length, delta: null };
+  // relDays est ≤ 0 dans le passé : fenêtre courante ]-days ; 0], précédente ]-2j ; -days].
+  const inWindow = (r: Row, from: number, to: number) => {
+    const raw = asText(r[alias]);
+    if (Number.isNaN(new Date(raw).getTime())) return false;
+    const d = relDays(raw);
+    return d <= from && d > to;
+  };
+  const current = base.filter((r) => inWindow(r, 0, -days)).length;
+  const previous = base.filter((r) => inWindow(r, -days, -2 * days)).length;
+  return { value: current, delta: current - previous };
+}
+
+function KpiView({ icon, cfg }: { icon: LucideIcon; cfg: KpiCfg }) {
+  const meta = SOURCES[cfg.source];
+  return (
+    <SourceFeed source={cfg.source}>
+      {(s) => {
+        const { value, delta } = kpiCount(s.rows, cfg);
+        const window = cfg.compareDays && cfg.dateField ? `sur ${cfg.compareDays} j` : undefined;
+        return (
+          <Widget icon={icon} title={cfg.title || meta.label} sub={window ?? meta.label}>
+            <div style={{ padding: "14px 16px 18px", display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap" }}>
+              {s.error ? (
+                <span style={{ fontSize: "13px", fontWeight: 600, color: T.ink3 }}>Donnée indisponible</span>
+              ) : s.loading ? (
+                <span className="slb-skel" style={{ width: 84, height: 34, borderRadius: 8, background: T.neutral050 }} />
+              ) : (
+                <>
+                  <span style={{ fontSize: "34px", lineHeight: 1, fontWeight: 800, letterSpacing: "-.02em", color: T.ink }}>{value}</span>
+                  {delta !== null && (
+                    <>
+                      <Badge variant={delta > 0 ? "ok" : delta < 0 ? "danger" : "neutral"}
+                        icon={delta > 0 ? ChevronUp : delta < 0 ? ChevronDown : undefined}>
+                        {delta > 0 ? `+${delta}` : `${delta}`}
+                      </Badge>
+                      <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>vs période précédente</span>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </Widget>
+        );
+      }}
+    </SourceFeed>
+  );
+}
+
+function KpiOptions({ cfg, onChange }: { cfg: KpiCfg; onChange: (next: KpiCfg) => void }) {
+  const meta = SOURCES[cfg.source];
+  const aliases = Object.keys(meta.fields);
+  const dateAliases = aliases.filter((a) => meta.fields[a].kind === "date");
+  const set = (patch: Partial<KpiCfg>) => onChange(coerceKpiCfg({ ...cfg, ...patch }, cfg));
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "10px 0 4px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  const opDef = FILTER_OPS.find((f) => f.op === cfg.filter?.op);
+  return (
+    <div>
+      <label style={lbl} htmlFor="slb-kpi-title">Titre</label>
+      <input id="slb-kpi-title" style={field} value={cfg.title} placeholder={meta.label}
+        onChange={(e) => set({ title: e.target.value })} />
+
+      <label style={lbl} htmlFor="slb-kpi-src">Source de données</label>
+      <select id="slb-kpi-src" style={field} value={cfg.source}
+        onChange={(e) => set({ source: e.target.value as SourceKey, filter: undefined, dateField: undefined })}>
+        {(Object.keys(SOURCES) as SourceKey[]).map((k) => (
+          <option key={k} value={k}>{SOURCES[k].label}{SOURCES[k].connected ? "" : " (non connectée)"}</option>
+        ))}
+      </select>
+      {!meta.connected && (
+        <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+          Source pas encore branchée : données d'exemple en aperçu, zéro en production.
+        </p>
+      )}
+
+      <label style={lbl} htmlFor="slb-kpi-filter">Ne compter que si</label>
+      <select id="slb-kpi-filter" style={field} value={cfg.filter?.field ?? ""}
+        onChange={(e) => set({ filter: e.target.value ? { field: e.target.value, op: cfg.filter?.op ?? "eq", value: cfg.filter?.value } : undefined })}>
+        <option value="">— toutes les lignes —</option>
+        {aliases.map((a) => <option key={a} value={a}>{meta.fields[a].label}</option>)}
+      </select>
+      {cfg.filter && (
+        <div style={{ display: "flex", gap: "8px", marginTop: "6px" }}>
+          <select style={{ ...field, flex: 1 }} value={cfg.filter.op} aria-label="Opérateur du filtre"
+            onChange={(e) => set({ filter: { ...cfg.filter!, op: e.target.value as ListFilterOp } })}>
+            {FILTER_OPS.map((f) => <option key={f.op} value={f.op}>{f.label}</option>)}
+          </select>
+          {opDef?.needsValue && (
+            <input style={{ ...field, width: 104 }} value={cfg.filter.value ?? ""} aria-label="Valeur du filtre"
+              placeholder={cfg.filter.op === "lastDays" ? "30" : "valeur"}
+              onChange={(e) => set({ filter: { ...cfg.filter!, value: e.target.value } })} />
+          )}
+        </div>
+      )}
+
+      <div style={lbl}>Comparaison dans le temps</div>
+      {dateAliases.length === 0 ? (
+        <p style={{ margin: 0, fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>Cette source n'a aucun champ date : écart indisponible.</p>
+      ) : (
+        <div style={{ display: "flex", gap: "8px" }}>
+          <select style={{ ...field, flex: 1 }} value={cfg.dateField ?? ""} aria-label="Champ date de comparaison"
+            onChange={(e) => set({ dateField: e.target.value || undefined })}>
+            <option value="">— aucun écart —</option>
+            {dateAliases.map((a) => <option key={a} value={a}>{meta.fields[a].label}</option>)}
+          </select>
+          <input type="number" min={0} max={KPI_DAYS_MAX} style={{ ...field, width: 96 }} value={cfg.compareDays ?? 0}
+            aria-label="Fenêtre en jours" disabled={!cfg.dateField}
+            onChange={(e) => set({ compareDays: Number(e.target.value) })} />
+        </div>
+      )}
+      <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        Avec une fenêtre, le chiffre porte sur les N derniers jours et l'écart compare à la période précédente. Le compte porte sur les lignes chargées.
+      </p>
+    </div>
+  );
+}
+
+/* ============================================================================
    10. ARCHITECTURE DES WIDGETS — autonomie, registre des TYPES
    ----------------------------------------------------------------------------
    Chaque widget est AUTONOME : il embarque sa source et ses états (chargement /
@@ -1543,6 +1723,15 @@ const LIST_CFG: ListCfg = {
   limit: RECENT,
 };
 
+/* Configuration de départ d'un indicateur créé de zéro (§9-ter) : compte les
+   dossiers Abonné des 30 derniers jours, avec l'écart sur la période précédente. */
+const KPI_CFG: KpiCfg = {
+  title: "",
+  source: "abonnes",
+  dateField: "creeLe",
+  compareDays: 30,
+};
+
 /* --- Widgets LinkedIn (embeds Elfsight). platform.js est chargé UNE seule fois
       (nouveau domaine static.elfsight.com) ; il observe le DOM et monte chaque
       <div class="elfsight-app-…"> automatiquement, y compris après un remount
@@ -1597,7 +1786,8 @@ function LinkedinBannerCard() {
 type WidgetTypeKey =
   | "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
   | "linkedin" | "linkedinBanner"
-  | "list";   // ← type GÉNÉRIQUE piloté par cfg (§9-bis)
+  | "list"    // ← liste GÉNÉRIQUE pilotée par cfg (§9-bis)
+  | "kpi";    // ← indicateur GÉNÉRIQUE piloté par cfg (§9-ter)
 
 type WidgetTypeDef = {
   title: string;                                  // libellé du menu « Personnaliser » / galerie
@@ -1608,7 +1798,7 @@ type WidgetTypeDef = {
   Options?: FC<{ cfg: any; onChange: (next: any) => void }>;
 };
 
-// Fabrique d'un type « liste » : même rendu générique, icône propre à chaque type.
+// Fabriques de types génériques : même rendu, icône et cfg de départ par type.
 const listType = (title: string, icon: LucideIcon, base: ListCfg): WidgetTypeDef => ({
   title,
   icon,
@@ -1616,6 +1806,15 @@ const listType = (title: string, icon: LucideIcon, base: ListCfg): WidgetTypeDef
   defaults: () => ({ ...base, map: { ...base.map } }),
   coerce: (raw) => coerceListCfg(raw, base),
   Options: ListOptions,
+});
+
+const kpiType = (title: string, icon: LucideIcon, base: KpiCfg): WidgetTypeDef => ({
+  title,
+  icon,
+  Render: ({ cfg }) => <KpiView icon={icon} cfg={cfg} />,
+  defaults: () => ({ ...base }),
+  coerce: (raw) => coerceKpiCfg(raw, base),
+  Options: KpiOptions,
 });
 
 const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
@@ -1627,6 +1826,7 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Render: LinkedinCard },
   linkedinBanner: { title: "À la une LinkedIn", icon: Megaphone, Render: LinkedinBannerCard },
   list: listType("Liste configurable", LayoutGrid, LIST_CFG),
+  kpi: kpiType("Indicateur (KPI)", BarChart3, KPI_CFG),
 };
 
 /** cfg utilisable d'une instance : `coerce` de son type appliqué à la cfg stockée
@@ -1692,7 +1892,7 @@ const DEFAULT_INSTANCES: Instance[] = [
    supprimé) + un modèle liste par SOURCE du catalogue (§6-bis), avec le mappage
    proposé par la source. Brancher une nouvelle source la fait donc apparaître ici
    sans écrire une ligne de plus. --- */
-type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown };
+type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetSize };
 
 // cfg de départ d'une liste sur une source donnée : mappage et tri déduits du catalogue.
 const listCfgFor = (s: SourceKey): ListCfg =>
@@ -1716,6 +1916,17 @@ const PRESETS: Preset[] = [
     type: "list" as WidgetTypeKey,
     cfg: () => listCfgFor(s),
   })),
+  // Un seul modèle d'indicateur (vierge sur la source connectée) : sa source et son
+  // filtre se règlent ensuite dans ⋮ Options. Hauteur « petit » d'emblée.
+  {
+    key: "kpi",
+    label: WIDGET_REGISTRY.kpi.title,
+    hint: "chiffre + écart sur période",
+    icon: WIDGET_REGISTRY.kpi.icon,
+    type: "kpi" as WidgetTypeKey,
+    cfg: () => ({ ...KPI_CFG }),
+    h: "sm" as WidgetSize,
+  },
 ];
 
 /* Copie défensive d'une instance. La cfg est clonée EN PROFONDEUR (elle contient
@@ -2213,7 +2424,7 @@ function Dashboard() {
   // Multi-instances (mode Personnaliser) — tout reste dans le brouillon jusqu'à « Enregistrer ».
   const onDuplicate = (id: string) => setDraft((d) => duplicateInstance(d, id));
   const onRemove = (id: string) => setDraft((d) => removeInstance(d, id));
-  const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg()));
+  const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md"));
 
   // DnD HTML5 natif. Drop hors cible → no-op (seul onDragEnd nettoie l'état).
   const onDrop = (to: number) => {

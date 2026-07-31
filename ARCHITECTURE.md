@@ -4,18 +4,19 @@
 > mécanique des widgets, et surtout **où et comment la data est persistée**.
 > Document de référence destiné à préparer la refonte du système de widgets ;
 > la cible et son plan de migration vivent dans `ARCHITECTURE-V2.md`.
-> Dernière mise à jour : 2026-07-31 — **phases 0 à 3 de la v2 livrées** : modèle de
+> Dernière mise à jour : 2026-07-31 — **les 5 phases de la v2 sont livrées** : modèle de
 > disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES (catalogue,
 > adapters, dispatch statique `SourceFeed`, mock par source) ; widget liste générique
-> piloté par `cfg` + ⋮ « Options » branché ; **multi-instances (galerie, Dupliquer,
-> Supprimer)**. Les contraintes Softr du §1 et la mécanique de persistance du §4 sont
-> inchangées. Reste la phase 4 (type `kpi`) et le branchement des 4 sources Softr.
+> piloté par `cfg` + ⋮ « Options » branché ; multi-instances (galerie, Dupliquer,
+> Supprimer) ; **widget indicateur (KPI)**. Les contraintes Softr du §1 et la mécanique de
+> persistance du §4 sont inchangées. Reste à faire, hors refonte : **brancher les 4 sources
+> Softr non connectées** (recette `ARCHITECTURE-V2.md` §6) et passer `USE_MOCK` à `false`.
 
 ---
 
 ## 1. Nature du projet et contraintes de plateforme
 
-**Livrable unique : `Block.tsx` (2507 lignes).** On copie-colle ce seul fichier dans un bloc
+**Livrable unique : `Block.tsx` (2718 lignes).** On copie-colle ce seul fichier dans un bloc
 « vibe coding » de Softr (`sunlibcrm2.softr.app`, page `/home-copy`). Le bloc s'exécute
 **dans une iframe** au sein de la page Softr. Tout le reste du repo (`src/`, `package.json`,
 `vite.config.ts`) est un **scaffold Vite de dev** qui *simule* l'environnement Softr en local
@@ -66,6 +67,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 8 | Composants de page : `EmptyState`, `WidgetChromeCtx`, `WidgetEditMenu`, **`Widget`** (la coquille), `PageNavBar`, `Hero`, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifRow`/`NotifWidget`, `TaskRow`/`TasksWidget` |
 | **9-bis** | **Widget liste GÉNÉRIQUE** : `ListCfg`, `coerceListCfg`, `matchFilter`/`compareRows`/`applyView` (purs), `GenericRow`/`GenericList`, `ListView`, **`ListOptions`** (le formulaire du ⋮) |
+| **9-ter** | **Widget indicateur (KPI) GÉNÉRIQUE** : `KpiCfg`, `coerceKpiCfg`, `kpiCount` (pur), `KpiView`, `KpiOptions` |
 | 10 | Enveloppes **data** (une par widget) + **`WIDGET_REGISTRY`** (registre des *types*) + `typeDefOf` |
 | **10-bis** | **Modèle de disposition v2** : `Instance`, `Layout`, `DEFAULT_INSTANCES`, **`PRESETS`** (galerie), `seed`, `normalizeLayout`, `migrateV1` + fonctions pures (déplacer / masquer / largeur / hauteur / **ajouter / dupliquer / supprimer**) |
 | 11 | `useHeroCounts`, **`usePersistentLayout`**, `SkeletonCard`, **`Dashboard`** (grille, mode Personnaliser, DnD, FLIP, toast) |
@@ -157,12 +159,12 @@ Deux familles de types cohabitent volontairement :
 
 | | Types **sur-mesure** | Types **liste** |
 |---|---|---|
-| Exemples | `notifs`, `taches`, les 2 LinkedIn | `notesInstallateurs`, `notesProspects`, `list` |
-| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `listType(...)` |
+| Exemples | `notifs`, `taches`, les 2 LinkedIn | `notesInstallateurs`, `notesProspects`, `list`, `kpi` |
+| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `listType(...)` / `kpiType(...)` |
 | Interactions propres | oui (marquer comme lu, onglets, embed) | non |
 | ⋮ Options | non (bouton non affiché) | **oui** |
 
-Ajouter un widget liste = 1 entrée de registre. Ajouter un widget sur-mesure = présentiel +
+Ajouter un widget générique = 1 entrée de registre. Ajouter un widget sur-mesure = présentiel +
 enveloppe + entrée. Dans les deux cas, + 1 entrée `DEFAULT_INSTANCES` pour le livrer par défaut.
 
 ### Couche transversale — les SOURCES (§6-bis)
@@ -231,6 +233,28 @@ type ListCfg = {
   **vide (`""`)** → choix explicite « aucun » respecté, **invalide** → repli. Le « aucun » est
   stocké en chaîne vide et non en `undefined`, sinon `JSON.stringify` supprimerait la clé et le
   défaut reviendrait au rechargement.
+
+### Le widget indicateur (§9-ter)
+
+```ts
+type KpiCfg = {
+  title: string;
+  source: SourceKey;
+  filter?: ListFilter;   // même forme et même moteur (`matchFilter`) que la liste
+  dateField?: string;    // alias d'un champ de `kind: "date"` — requis pour l'écart
+  compareDays?: number;  // fenêtre en jours (0 … 365) ; 0 = pas d'écart
+};
+```
+
+`kpiCount(rows, cfg)` est **pur** : sans fenêtre, il compte les lignes retenues par le filtre ;
+avec fenêtre et champ date, il compte la fenêtre courante `]-N ; 0]` et renvoie l'écart avec la
+fenêtre précédente `]-2N ; -N]`. `coerceKpiCfg` **refuse un champ de comparaison qui n'est pas une
+date** (l'écart n'aurait aucun sens) et clampe la fenêtre.
+
+⚠️ **Limite assumée** : le compte porte sur les lignes **chargées** par la source (la première page
+renvoyée par Softr), pas sur le total serveur. Exact aux volumes actuels ; pour un vrai total sur
+grosse table, deux voies connues — variante d'adapter sans limite, ou champ rollup Airtable lu en
+une ligne (`ARCHITECTURE-V2.md` §2.2). Le libellé du panneau d'options le dit à l'utilisateur.
 
 ### La coquille `Widget`, le contexte d'édition et le ⋮ « Options »
 
@@ -326,8 +350,9 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
 - **`removeInstance(layout, id)`** — retire d'`items` **et** de `hidden`. `seeded` n'est pas touché,
   donc pas de résurrection ; le widget reste re-ajoutable via la galerie.
 - **`PRESETS`** — modèles de la galerie, **générés** : un par type sur-mesure (pour ré-ajouter un
-  widget supprimé) + un `list` par source du catalogue, avec le `defaultMap` de la source. Brancher
-  une source la fait apparaître dans la galerie sans une ligne de code de plus.
+  widget supprimé) + un `list` par source du catalogue, avec le `defaultMap` de la source, + un
+  `kpi` vierge (hauteur « petit » d'emblée). Brancher une source la fait apparaître dans la galerie
+  sans une ligne de code de plus.
 
 Comme le reste du mode Personnaliser, ces trois actions ne touchent que le **brouillon** : rien
 n'est écrit avant « Enregistrer », et « Annuler » restaure tout — y compris une suppression.
@@ -506,7 +531,8 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
    « Notes » avec deux filtres différents sont possibles.
 3. **`widgets_config_json` inutilisé — et il le restera.** Décision Option A : la `cfg` par instance
    vit dans le document `layout_json` (champ `cfg`), désormais **réellement écrite** pour les widgets
-   liste (titre, source, mappage, filtre, tri, limite). Le champ reste en réserve.
+   liste **et indicateur** (titre, source, mappage, filtre, tri, limite, fenêtre de comparaison).
+   Le champ reste en réserve.
 4. **`layout_mobile_json` inutilisé** : pas de layout distinct par breakpoint.
 5. **Grille limitée** : ordre linéaire + largeur binaire (moitié/pleine) + 3 hauteurs discrètes.
    Pas de grille libre (x, y, w, h) — alors que le nom du champ `layout_json` documentait à
