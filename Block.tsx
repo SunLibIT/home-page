@@ -398,12 +398,10 @@ type Rec = { id: string; fields: Record<string, any> };
    match / Remap the fields »). */
 const DS = datasource.define({
   abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // ✅ BDD Abonné · « Abonnés »
-  // ⚠️ [À COMPLÉTER] Persistance du layout (§11) — MIGRÉE de Softr Tables vers AIRTABLE :
-  //    base « SunLib CRM — Préférences » (appHZaD5BkDsWxR65) · table « Home Preferences »
-  //    (tbl18J0zC47myPJLO). Connecter cette table dans l'onglet Sources du bloc, récupérer
-  //    son id de datasource (onglet Chat) et le coller ici. Tant que la valeur commence par
-  //    "TODO", PREFS_ENABLED=false → cache localStorage seul (la page fonctionne).
-  prefs: "TODO-airtable-home-preferences",
+  // ✅ Persistance du layout (§11) — table AIRTABLE (migrée depuis Softr Tables le
+  //    2026-07-31) : base « SunLib CRM — Préférences » (appHZaD5BkDsWxR65) · table
+  //    « Home Preferences » (tbl18J0zC47myPJLO).
+  prefs: "dcc7928c-3906-4807-8224-0532c3e30fc5",
 });
 
 /* Sources PAS ENCORE connectées : notesIns (« Suivi client »), notesPro (« Suivi

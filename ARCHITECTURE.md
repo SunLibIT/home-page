@@ -11,9 +11,9 @@
 > Supprimer) ; **widget indicateur (KPI)**. Les contraintes Softr du §1 et la mécanique de
 > persistance du §4 sont inchangées dans leur mécanique. **2026-07-31 (soir) : la table de
 > préférences quitte Softr Tables pour Airtable** — tout le stockage de l'app est désormais
-> sur Airtable (§4). Reste à faire, hors refonte : **connecter la nouvelle table de
-> préférences** puis les 4 sources métier (recette `ARCHITECTURE-V2.md` §6), et passer
-> `USE_MOCK` à `false`.
+> sur Airtable (§4), et la nouvelle table est connectée au bloc. Reste à faire, hors
+> refonte : brancher les **4 sources métier** encore en mock (recette
+> `ARCHITECTURE-V2.md` §6), puis passer `USE_MOCK` à `false`.
 
 ---
 
@@ -389,7 +389,9 @@ La persistance vivait dans une table **Softr Tables natives** (`Preferences`, ta
 données. L'ancienne table n'est plus lue ni écrite.
 
 **Base `SunLib CRM — Préférences` (`appHZaD5BkDsWxR65`) · table `Home Preferences`
-(`tbl18J0zC47myPJLO`)**, workspace `Sunlib`. 4 champs, **tous écrits** :
+(`tbl18J0zC47myPJLO`)**, workspace `Sunlib`.
+**Datasource ID (connectée au bloc) : `dcc7928c-3906-4807-8224-0532c3e30fc5`.**
+4 champs, **tous écrits** :
 
 | Champ Airtable | Type | Alias code | Rôle |
 |---|---|---|---|
@@ -466,10 +468,9 @@ La **BDD reste la source de vérité** : dès qu'elle répond avec une ligne, el
 
 ### Règles de comportement
 
-- `PREFS_ENABLED = !DS.prefs.startsWith("TODO")` → actuellement **`false`** : la nouvelle table
-  Airtable doit d'abord être connectée dans l'onglet *Sources* du bloc et son id de datasource
-  collé dans le `define` (§6). En attendant, **cache local seul** — la page fonctionne, la
-  disposition se souvient par navigateur, rien n'est écrit en base.
+- `PREFS_ENABLED = !DS.prefs.startsWith("TODO")` → **`true`** : la table Airtable est connectée
+  (datasource `dcc7928c-…`), l'enregistrement en base est actif. Si un jour la valeur repasse à un
+  `"TODO-…"`, le bloc retombe automatiquement sur le **cache local seul** sans rien casser.
 - Écriture **uniquement à « Enregistrer »**, jamais à chaque drop.
 - **Optimiste** : le layout reste appliqué localement même si la BDD échoue (le toast propose
   « Réessayer »).
@@ -495,13 +496,13 @@ et formulaires sur `/home-copy`, puis de publier.
 ```ts
 const DS = datasource.define({
   abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // ✅ connecté
-  prefs:   "TODO-airtable-home-preferences",       // ⏳ à connecter (onglet Sources) puis coller l'id
+  prefs:   "dcc7928c-3906-4807-8224-0532c3e30fc5", // ✅ connecté (persistance, §4)
 });
 ```
 
 | Alias | Table Airtable | État | Champs (alias → nom exact) |
 |---|---|---|---|
-| `prefs` | « Home Preferences » (SunLib CRM — Préférences) | ⏳ **à connecter** | email `user_email` · layout `layout_json` · updatedAt `updated_at` · schemaVersion `schema_version` |
+| `prefs` | « Home Preferences » (SunLib CRM — Préférences) | ✅ **connecté** | email `user_email` · layout `layout_json` · updatedAt `updated_at` · schemaVersion `schema_version` |
 | `abonnes` | « Abonnés » (BDD Abonné) | ✅ **connecté** | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
 | `notesIns` | « Suivi client » (Installateurs) | ⏳ **non connecté** | nom `Installateur` · note `Notes` · date `Date `*(espace final)* |
 | `notesPro` | « Suivi propect » (BDD Propect) | ⏳ **non connecté** | nom `Nom` · note `Notes` · date `date `*(espace final)* |
