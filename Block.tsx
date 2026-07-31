@@ -1042,7 +1042,9 @@ function PageNavBar({ tabs, activeId, onSelect }: { tabs: NavTab[]; activeId: st
      pas, le héro garde l'apparence d'origine. --- */
 const HERO_GRADIENT = "linear-gradient(90deg, #13A3AC 0%, #3CAE68 100%)";
 const HERO_LOOP = "linear-gradient(90deg, #13A3AC 0%, #3CAE68 16.6667%, #13A3AC 33.3333%, #3CAE68 50%, #13A3AC 66.6667%, #3CAE68 83.3333%, #13A3AC 100%)";
-const HERO_CYCLE_MS = 90000;   // durée d'un cycle : « très très lent » assumé
+// Durée d'un cycle complet. Le mouvement doit rester une respiration de fond, pas
+// un effet : en dessous de ~30 s il devient perceptible et fatigant à la lecture.
+const HERO_CYCLE_MS = 60000;
 
 function useHeroPan() {
   const ref = useRef<HTMLDivElement | null>(null);

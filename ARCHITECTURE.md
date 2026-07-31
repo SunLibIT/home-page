@@ -536,7 +536,7 @@ Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son cô
   Tik&Lib). **Toutes les URLs sont encore `#`** — à compléter.
 - **`Hero`** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée à la charte),
   « Bienvenue {prénom} ! », date, 2 chips, logo forcé blanc via `filter: brightness(0) invert(1)`.
-  Le dégradé est **animé en boucle très lente** (90 s par cycle) : une couche de fond large de
+  Le dégradé est **animé en boucle lente** (`HERO_CYCLE_MS`, 60 s par cycle) : une couche de fond large de
   300 %, porteuse d'un motif teal→vert périodique (un cycle tous les 33,333 %), est translatée de
   `-33,3333 %` — la boucle se referme donc sans couture ni changement de sens. L'animation est
   déclarée via `element.animate()` (`useHeroPan`), pas en `@keyframes` : elle ne dépend d'aucune
