@@ -1202,21 +1202,54 @@ type WidgetOptions = {
 };
 const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
 
+/* --- FERMETURE D'UN PANNEAU FLOTTANT (clic extérieur + Échap) -----------------
+   Hook PARTAGÉ par les deux menus ⋮. Il l'est devenu en corrigeant le bug du
+   2026-08-03 — « le panneau se referme au clic, sans exécuter l'action » — parce
+   que le code était dupliqué à l'identique et qu'un correctif appliqué à un seul
+   des deux menus aurait laissé l'autre cassé.
+
+   Deux des trois causes du bug se neutralisent ICI (la troisième, le DnD, est
+   traitée dans `onDragStart` du Dashboard). Les deux gardes ci-dessous ne sont pas
+   défensives « au cas où » : chacune répond à un faux positif observé.
+
+   ⚠️ `setOpen` (setter de useState) est STABLE, contrairement à un
+   `() => setOpen(false)` qui serait recréé à chaque render et réattacherait les
+   écouteurs en boucle. C'est pourquoi le hook prend le setter, pas une fermeture. */
+function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      /* GARDE 1 — nœud DÉTACHÉ du DOM. `contains()` répond toujours `false` pour un
+         orphelin : le panneau se fermait alors que le clic avait bien eu lieu à
+         l'intérieur, simplement le nœud visé venait d'être remplacé par un
+         re-render (retirer un filtre, cocher une case…). */
+      if (!t.isConnected) return;
+      /* GARDE 2 — LISTE DÉROULANTE NATIVE. Les `<option>` d'un `<select>` sont
+         rendues par l'OS, hors du document : le mousedown sur l'une d'elles cible
+         un nœud « extérieur » au panneau, qui se fermait donc au moment même où on
+         choisissait une valeur. `DataOptions` est truffé de `<select>`. */
+      const el = t instanceof Element ? t : t.parentElement;
+      if (el && (el.tagName === "OPTION" || el.closest("select"))) return;
+      if (ref.current && !ref.current.contains(t)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open, setOpen]);
+  return ref;
+}
+
 /* --- Menu ⋮ du mode normal : ouvre le formulaire d'options du widget. Édition
       LOCALE (brouillon) jusqu'à « Enregistrer » — même règle que la grille : on
       n'écrit jamais en base à chaque frappe. Fermeture Échap / clic extérieur. --- */
 function WidgetOptionsMenu({ opts, title }: { opts: WidgetOptions; title: string }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<any>(opts.cfg);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [open]);
+  const ref = useDismissOnOutside(open, setOpen);
   const start = () => { setDraft(opts.cfg); setOpen(true); };   // brouillon toujours frais à l'ouverture
   const save = () => { opts.onSave(draft); setOpen(false); };
   const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
@@ -1245,18 +1278,14 @@ function WidgetOptionsMenu({ opts, title }: { opts: WidgetOptions; title: string
 
 /* --- Menu ⋮ d'édition — chemin CLAVIER et TACTILE (le DnD HTML5 ne fonctionne
       pas au doigt : ce menu n'est donc pas optionnel). Boutons focusables,
-      aria-label explicites, fermeture Échap / clic extérieur. --- */
+      aria-label explicites, fermeture Échap / clic extérieur (`useDismissOnOutside`,
+      qui porte les gardes du bug du 2026-08-03).
+      ⚠️ Ce menu-ci vit en mode Personnaliser, donc AU-DESSUS d'un wrapper
+      `draggable` : c'était lui le plus exposé au DnD qui annulait le clic. La garde
+      correspondante est dans `onDragStart` du Dashboard, pas ici. --- */
 function WidgetEditMenu({ chrome, title }: { chrome: WidgetChrome; title: string }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [open]);
+  const ref = useDismissOnOutside(open, setOpen);
   const item: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", width: "100%", padding: "9px 12px", borderRadius: T.rSm, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "13px", fontWeight: 600, color: T.ink2, textAlign: "left", whiteSpace: "nowrap" };
   const run = (fn: () => void) => () => { fn(); setOpen(false); };
   const sep: CSSProperties = { height: 1, background: T.line, margin: "5px 8px" };
@@ -3026,6 +3055,12 @@ function useElfsightPlatform() {
      CSP de l'app Softr (`script-src`/`frame-src` doivent autoriser Elfsight), le
      domaine autorisé côté Elfsight (la page vit sur sunlibcrm2.softr.app), et un
      bloqueur de contenu dans le navigateur. --- */
+/* Domaine RÉEL de la page qui exécute le bloc, et non une valeur codée en dur : le
+   diagnostic ci-dessous nommait « sunlibcrm2.softr.app » même quand il tournait sur
+   localhost, ce qui envoyait chercher une panne de CSP là où il n'y en avait pas. */
+const pageHost = (): string => (typeof window === "undefined" ? "" : window.location.hostname);
+const isLocalHost = (h: string): boolean => h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "";
+
 function ElfsightEmbed({ appClass, label }: { appClass: string; label: string }) {
   useElfsightPlatform();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -3039,6 +3074,8 @@ function ElfsightEmbed({ appClass, label }: { appClass: string; label: string })
     }, 6000);
     return () => window.clearTimeout(t);
   }, []);
+  const host = pageHost();
+  const local = isLocalHost(host);
   return (
     <div style={{ padding: "10px 16px 16px" }}>
       <div ref={hostRef} className={appClass} />
@@ -3046,10 +3083,21 @@ function ElfsightEmbed({ appClass, label }: { appClass: string; label: string })
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
           <XCircle aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none", marginTop: 1 }} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>{label} indisponible</div>
+            <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>
+              {label} {local ? "— non disponible en aperçu local" : "indisponible"}
+            </div>
+            {/* Deux messages, parce que les causes n'ont RIEN à voir. En local il n'y
+                a pas de panne à chercher : Elfsight n'autorise ses widgets que sur les
+                domaines déclarés dans le compte, et localhost n'en fait pas partie.
+                Envoyer quelqu'un vérifier une CSP dans ce cas lui fait perdre l'après-midi. */}
             <div style={{ marginTop: 2, fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
-              L'embed Elfsight n'a pas démarré : vérifiez que la CSP de l'app autorise <code>elfsightcdn.com</code> et <code>elfsight.com</code>,
-              que le domaine <code>sunlibcrm2.softr.app</code> est autorisé côté Elfsight, et l'absence de bloqueur de contenu.
+              {local ? (
+                <>C'est normal : Elfsight n'autorise ses widgets que sur les domaines déclarés dans le compte
+                  (la page tourne ici sur <code>{host || "un hôte local"}</code>). Ce widget se vérifie sur la page publiée, pas en local.</>
+              ) : (
+                <>L'embed n'a pas démarré sur <code>{host}</code> : vérifiez que la CSP de l'app autorise <code>elfsightcdn.com</code> et <code>elfsight.com</code>,
+                  que <code>{host}</code> est autorisé côté Elfsight, et l'absence de bloqueur de contenu.</>
+              )}
             </div>
           </div>
         </div>
@@ -3978,7 +4026,21 @@ function Dashboard() {
               <div key={id} className="slb-dragwrap"
                 ref={(el) => { if (el) wrapRefs.current.set(id, el); else wrapRefs.current.delete(id); }}
                 draggable={editing}
-                onDragStart={editing ? (e) => { if (resizeRef.current || sizeRef.current) { e.preventDefault(); return; } setDragIndex(i); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", id); } : undefined}
+                onDragStart={editing ? (e) => {
+                  if (resizeRef.current || sizeRef.current) { e.preventDefault(); return; }
+                  /* GARDE 3 du bug du 2026-08-03 — un `dragstart` ANNULE le `click`
+                     qui aurait suivi. Le geste partait d'un bouton du menu ⋮ (ou de
+                     son déclencheur), bougeait d'un pixel, et le navigateur jetait
+                     le clic : le panneau semblait « se fermer sans rien faire ».
+                     Un widget se glisse par sa carte ou sa poignée — jamais depuis un
+                     élément interactif. C'est le pendant de la garde ci-dessus, qui
+                     existait déjà pour les poignées de redimensionnement. */
+                  const from = e.target as Element | null;
+                  if (from?.closest?.('button, select, input, textarea, label, a, [role="menu"], [role="dialog"]')) {
+                    e.preventDefault(); return;
+                  }
+                  setDragIndex(i); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", id);
+                } : undefined}
                 onDragEnd={editing ? resetDrag : undefined}
                 onDragOver={editing ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overIndex !== i) setOverIndex(i); } : undefined}
                 onDragLeave={editing ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverIndex((p) => (p === i ? null : p)); } : undefined}

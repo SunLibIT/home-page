@@ -704,3 +704,32 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
 9. **Pas de pagination réelle** : `flatten().slice(0, 12)` côté client, pas de `fetchNextPage`.
 10. **`USE_MOCK` est encore à `true`** : rien ne tourne en live aujourd'hui, sauf la persistance
     (qui est branchée et fonctionnelle).
+11. ~~**Les menus ⋮ se referment au clic, sans exécuter l'action**~~ **corrigé le 2026-08-03.**
+    Signalé et reproduit plusieurs fois : on ouvrait le ⋮ d'un widget, on cliquait un bouton du
+    panneau, et le panneau se fermait sans que l'action parte. Concernait `WidgetOptionsMenu` (⋮
+    « Options », mode normal) et `WidgetEditMenu` (⋮ disposition, mode Personnaliser).
+
+    **Trois causes cumulées**, toutes trois neutralisées — elles étaient indépendantes, donc les
+    départager n'était pas nécessaire pour corriger :
+
+    - **Le DnD HTML5 annulait le `click`.** En mode Personnaliser, le wrapper de chaque widget porte
+      `draggable` : un `mousedown` suivi du moindre déplacement déclenche `dragstart`, et le
+      navigateur **jette le `click`** qui aurait suivi. Le code portait déjà la garde
+      `if (resizeRef.current || sizeRef.current) { e.preventDefault(); return; }`, ajoutée le jour où
+      le même conflit avait été constaté avec les poignées de redimensionnement — **les menus n'en
+      avaient jamais eu l'équivalent**. `onDragStart` refuse désormais de démarrer un drag partant
+      d'un élément interactif (`button, select, input, textarea, label, a, [role="menu"],
+      [role="dialog"]`) : un widget se glisse par sa carte ou sa poignée, pas depuis un bouton.
+    - **Le nœud cliqué pouvait être détaché du DOM.** `contains()` répond toujours `false` pour un
+      orphelin : quand un re-render venait de remplacer le nœud visé (retirer un filtre, cocher une
+      case), le panneau se fermait alors que le clic était bien à l'intérieur. → garde `isConnected`.
+    - **Les `<select>` natifs.** Leurs `<option>` sont rendues par l'OS, hors du document : le
+      `mousedown` sur une option ciblait un nœud « extérieur » au panneau, qui se fermait au moment
+      même où l'on choisissait une valeur. `DataOptions` en est truffé. → les cibles `OPTION` et tout
+      ce qui est dans un `select` sont ignorées.
+
+    Au passage, le code de fermeture — dupliqué à l'identique dans les deux menus — a été extrait
+    dans **`useDismissOnOutside(open, setOpen)`**, précisément pour qu'un correctif ne puisse plus
+    être appliqué à un seul des deux. Le hook prend le **setter** `useState` (stable) et non une
+    fermeture `() => setOpen(false)`, qui serait recréée à chaque render et réattacherait les
+    écouteurs en boucle.
