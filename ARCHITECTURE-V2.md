@@ -135,9 +135,8 @@ les actions sans base.
 Rappels qui comptent pour ton usage « beaucoup de projets » :
 
 - **Autant de sources qu'on veut.** `define` n'a pas de limite connue, et
-  seules les instances **visibles** montent leur adapter : une source
-  connectée mais absente de l'écran (ou dans `hidden`) ne coûte **aucun**
-  fetch.
+  seules les instances **présentes sur la grille** montent leur adapter : une
+  source connectée mais qu'aucun widget n'affiche ne coûte **aucun** fetch.
 - **Seul `from` est verrouillé.** `where`, `orderBy` et leurs valeurs peuvent
   être dynamiques (la persistance le prouve : `q.text("email").is(email)`).
   Porte ouverte pour du filtrage serveur par instance si une table devient
@@ -364,8 +363,14 @@ Schéma identique à la rév. 1 (seul `"data"` s'ajoute aux types) :
 
 ```tsx
 type Instance = { id: string; type: WidgetTypeKey; cfg: unknown; w: "half" | "full"; h: WidgetSize };
-type Layout = { v: 2; items: Instance[]; hidden: Instance[]; parked: Instance[]; seeded: string[] };
+type Layout = { v: 2; items: Instance[]; parked: Instance[]; seeded: string[] };
 ```
+
+> ⚠️ **`hidden` a été retiré le 2026-08-03** — masquer faisait doublon avec supprimer.
+> Un widget dont on ne veut plus se supprime, et se repose depuis la galerie (perte de
+> cfg assumée). `normalizeLayout` lit encore `hidden` pour les documents déjà écrits et
+> remonte leurs instances en visible ; il ne l'écrit plus. Détail dans `ARCHITECTURE.md`
+> § « Multi-instances ».
 
 Rappels des règles (détaillées en rév. 1, toujours valables) :
 
@@ -390,7 +395,7 @@ Rappels des règles (détaillées en rév. 1, toujours valables) :
                "view": { "kind": "kpi", "agg": "count", "compareDays": 30 },
                "title": "SAV ouverts" } }
   ],
-  "hidden": [], "parked": [], "seeded": ["notifs","taches","notesInstallateurs",
+  "parked": [], "seeded": ["notifs","taches","notesInstallateurs",
   "notesProspects","linkedin","linkedinBanner"] }
 ```
 
@@ -429,10 +434,15 @@ instances `data`, entièrement alimenté par le descripteur :
    toggle du bouton « + » si `create` existe.
 
 « Enregistrer » du panneau → même pipeline `persist` (optimiste + toast), en
-remplaçant la `cfg` de l'instance. En mode **Personnaliser** : Dupliquer /
-Supprimer (rév. 1), et la galerie **« Ajouter un widget »** est la
-concaténation des `presets` de tous les descripteurs connectés + les legacy.
+remplaçant la `cfg` de l'instance. En mode **Personnaliser** : Supprimer, et la
+galerie **« Ajouter un widget »** rassemble les `presets` de tous les descripteurs
++ les types sur-mesure, **regroupés en dépliants par famille métier**
+(`GALLERY_GROUPS`), un seul groupe ouvert à la fois.
 Le moteur (DnD, FLIP, poignées, grille) ne bouge pas.
+
+> Deux gestes de la rév. 1 ont été **retirés** le 2026-08-03 : **Masquer** (doublon
+> de Supprimer) et **Dupliquer** (raccourci peu utilisé). Détail et raisons dans
+> `ARCHITECTURE.md` § « Multi-instances ».
 
 ---
 

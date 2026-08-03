@@ -5,7 +5,7 @@
    · 🎨 Charte UI/UX & Couleurs — IT (Notion 382b09d7…)
    · 🎨 Bloc In-Page Vibe Code — gabarit refonte CRM (Notion 3a3b09d7…)
 
-   Layout : héro (dégradé SunLib + logo rond) → ONGLETS DE NAVIGATION (pages
+   Layout : héro (dégradé SunLib + logo rond animé) → ONGLETS DE NAVIGATION (pages
    de l'espace, souligné teal, sticky au scroll) → outils → LinkedIn (embed
    existant, inchangé) → TABLEAU DE BORD : widgets indépendants et compacts,
    scrollables individuellement — dossiers | tâches, puis notes | notes.
@@ -36,6 +36,7 @@
 
 import {
   Children,
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -48,12 +49,12 @@ import {
   type ReactNode,
 } from "react";
 import {
-  UserPlus, Handshake, BookUser, Users, Library, BarChart3, Copy, Trash2,
+  UserPlus, Handshake, BookUser, Users, Library, BarChart3, Trash2,
   FileSignature, Calculator, LayoutGrid, Briefcase, Ticket, Mail,
   ChevronRight, Bell,
   CheckCheck, Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
-  SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, EyeOff, RotateCcw,
+  SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Save, X, Newspaper, Megaphone, Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -71,7 +72,10 @@ import { useCurrentUser } from "@/lib/user";
    ============================================================================ */
 const USE_MOCK: boolean = true;
 
-/* Assets officiels — dépôt SunLibIT/Documents-PNG (charte, §Dépôt images) */
+/* Assets officiels — dépôt SunLibIT/Documents-PNG (charte, §Dépôt images)
+   `logoRond` n'est plus affiché : le héro utilise <Sunburst>, le même motif
+   reconstruit en SVG inline pour pouvoir l'animer rayon par rayon. Conservé
+   comme référence de charte et comme retour arrière d'un geste. */
 const IMG = {
   logoRond: "https://raw.githubusercontent.com/SunLibIT/Documents-PNG/main/logo_Blanc_rond.svg",
 };
@@ -477,6 +481,34 @@ const SELECT_TACHE_PR = q.select({
   fait: "Fait",
 });
 
+/* Dossiers SAV ← base « SAV » (appGKl3XIjDvH0mkr) · table « Tickets »
+   (tblf4KgGHCaZXKnBX). C'est la table du bloc SUNLIB/SAV « Pilotage SAV » : les
+   noms de champs ci-dessous sont recopiés de son README §5, où ils sont relevés
+   colonne par colonne. Les 12 compteurs de catégorie sont lus parce que le
+   classement des causes s'en déduit (§10, SavCard) — pas pour être affichés un
+   par un.
+   ⚠️⚠️ « Total interventions » (fld3jNTS01cmss313) est VOLONTAIREMENT ABSENT :
+   c'est un champ FORMULE. Le déclarer dans un select ferait échouer l'écriture du
+   record entier côté Softr — la règle est notée aux deux endroits du projet SAV
+   (README §5 et docs/modele-donnees-sav.md §2). Le total se resomme ici, comme le
+   fait `useKpis` dans le bloc SAV. Même règle pour tout futur rollup ou lookup. */
+const SELECT_SAV = q.select({
+  ticket: "Ticket / ID",
+  client: "Client / Centrale",
+  installateur: "Installateur initial",
+  debut: "Date début",
+  fin: "Date fin",
+  panneaux: "Panneaux", onduleurs: "Onduleurs / MO", protection: "Protection électrique",
+  cablage: "Câblage", supervision: "Supervision", raccordement: "Raccordement",
+  consuel: "Consuel", batterie: "Batterie virtuelle", alerte: "Alerte", fuite: "Fuite",
+  calepinage: "Calepinage", autre: "Autre",
+  fabricant: "Fabricant / matériel",
+  priorite: "Priorité",
+  statut: "Statut",
+  tiers: "Tiers SAV",
+  cout: "Coût tiers SAV",
+});
+
 /* --- SELECTS D'ÉCRITURE (§9-ter). Ce sont LES WHITELISTS : un alias absent d'ici
    est physiquement inécrivable depuis le bloc (Softr répond 400), quoi que puisse
    déclarer le catalogue. N'y mettre que des champs que l'utilisateur a le droit de
@@ -501,7 +533,7 @@ const SELECT_NOTE_PRO_W = q.select({ nom: "Nom", note: "Notes" });
 // Airtable, en ajouter un prend dix secondes le jour où le besoin existe.
 const SELECT_PREFS = q.select({
   email: "user_email",           // clé logique (email de useCurrentUser(), en minuscules)
-  layout: "layout_json",         // document v2 {v,items,hidden,parked,seeded} sérialisé (Plan A)
+  layout: "layout_json",         // document v2 {v,items,parked,seeded} sérialisé (Plan A)
   updatedAt: "updated_at",       // DATETIME (chaîne ISO)
   schemaVersion: "schema_version", // Number — recopie de LAYOUT_VERSION (diagnostic du parc)
 });
@@ -602,6 +634,27 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
     { id: "p6", nom: "Voltissima", date: "2025-05-21", note: "OK contrat, va m'envoyer au mois de juin ses premières affaires." },
     { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib." },
   ],
+
+  /* ← SELECT_SAV. Échantillon RÉALISTE plutôt qu'aléatoire : il reproduit les
+     anomalies que le classeur partenaire porte réellement et que le bloc SAV
+     documente (docs/modele-donnees-sav.md §1) — une date de fin antérieure au
+     début (s5), un dossier sans installateur (s6), un tiers mandaté sans coût
+     rapproché (s7). C'est le seul moyen de voir la ligne « qualité des données »
+     du widget faire quelque chose en aperçu.
+     ⚠️ `statut`, `fabricant`, `tiers` et `installateur` n'utilisent QUE des valeurs
+     déclarées dans le descripteur (§6-bis), lui-même relevé sur Airtable — même
+     règle que pour `offre` d'`abonnes`. Les installateurs SAV ne sont PAS ceux des
+     mocks notes/abonnés de ce bloc : deux tables, deux vocabulaires. */
+  sav: [
+    { id: "s1", ticket: "SAV-SL-000412", client: "Toulouse Transit · SL-2291", installateur: "Enertec", debut: daysAgo(3), fin: "", statut: "En cours", priorite: 9, fabricant: "APSYSTEMS", supervision: 2, alerte: 1, tiers: "", cout: 0 },
+    { id: "s2", ticket: "SAV-SL-000408", client: "Vizzini Salvatore · SL-2188", installateur: "MC ENERGY", debut: daysAgo(11), fin: "", statut: "En attente", priorite: 8, fabricant: "HUAWEI", onduleurs: 1, cablage: 1, tiers: "INNOVA", cout: 180 },
+    { id: "s3", ticket: "SAV-SL-000401", client: "Commune de Payssous · SL-2104", installateur: "Panda Energie", debut: daysAgo(74), fin: "", statut: "En cours", priorite: 6, fabricant: "KOSTAL", panneaux: 3, calepinage: 1, tiers: "", cout: 0 },
+    { id: "s4", ticket: "SAV-SL-000397", client: "Guintrand Jocelyne · SL-2077", installateur: "MC ENERGY", debut: daysAgo(38), fin: daysAgo(9), statut: "Résolu", priorite: 4, fabricant: "APSYSTEMS", supervision: 1, raccordement: 1, tiers: "", cout: 0 },
+    { id: "s5", ticket: "SAV-SL-000389", client: "Maillo Moreno Julian · SL-2050", installateur: "MC ENERGY", debut: daysAgo(20), fin: daysAgo(41), statut: "Résolu", priorite: 3, fabricant: "HUAWEI", protection: 1, tiers: "", cout: 0 },
+    { id: "s6", ticket: "SAV-SL-000381", client: "Laborderie Nicolas · SL-1998", installateur: "", debut: daysAgo(6), fin: "", statut: "Nouveau", priorite: 7, fabricant: "HOYMILES", fuite: 1, tiers: "", cout: 0 },
+    { id: "s7", ticket: "SAV-SL-000376", client: "WattElse Energies · SL-1954", installateur: "Eversun", debut: daysAgo(64), fin: "", statut: "En attente", priorite: 5, fabricant: "ENVERTECH", supervision: 3, consuel: 1, tiers: "INNOVA", cout: 0 },
+    { id: "s8", ticket: "SAV-SL-000370", client: "Archivolta · SL-1901", installateur: "Archivolta", debut: daysAgo(52), fin: daysAgo(31), statut: "Clos", priorite: 2, fabricant: "HOYMILES", batterie: 1, autre: 1, tiers: "SOLEBAT", cout: 200 },
+  ],
 };
 
 /* ============================================================================
@@ -619,7 +672,7 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
    Monter/démonter des composants entiers est légal pour React : aucun hook n'est
    appelé dans `SourceFeed` lui-même.
    ============================================================================ */
-type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr";
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav";
 
 // Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
 type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
@@ -827,6 +880,95 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     create: { label: "Nouvelle tâche prospect",
               fields: [{ field: "desc", required: true }, { field: "associe" }, { field: "fin" }] },
   },
+  /* ── SAV ── Source du bloc SUNLIB/SAV « Pilotage SAV ». Le descripteur est
+     complet (les 22 alias lisibles) alors que le widget d'accueil n'en synthétise
+     qu'une poignée : c'est voulu. Le catalogue décrit la SOURCE, pas un écran — et
+     tout alias décrit ici devient utilisable par un widget `data` posé depuis la
+     galerie, sans une ligne de code (un tableau des dossiers prioritaires, par
+     exemple). Les 12 compteurs portent `kind: "number"` : ils deviennent donc
+     agrégeables en KPI `sum`/`avg` et filtrables par `gt`/`lt`.
+     ⚠️ Vocabulaire FIGÉ. Les `options` ci-dessous sont RELEVÉES SUR AIRTABLE le
+     2026-08-03 (base appGKl3XIjDvH0mkr · table Tickets), pas recopiées du README du
+     bloc SAV — qui est en retard sur deux champs : il annonce 6 fabricants (il y en
+     a 7) et 11 installateurs (il y en a 17). Ne rien inventer ici : `options`
+     alimente les menus de valeur des formulaires et des filtres, et une valeur
+     absente du champ ferait échouer l'écriture le jour où le SAV deviendra
+     écrivable depuis l'accueil.
+     ⚠️ Seul `statut` est un `badge` : c'est le seul champ qui porte un ÉTAT. Un
+     fabricant ou un installateur en pastille colorée serait de la décoration, et la
+     charte réserve la couleur au sens. */
+  sav: {
+    key: "sav",
+    label: "Dossiers SAV — Tickets",
+    icon: "Ticket",
+    connected: false,   // ⚠️ voir SavSource plus bas : il faut l'ID de datasource DE CE BLOC
+    fields: {
+      ticket: { label: "Ticket", kind: "text" },
+      client: { label: "Client / Centrale", kind: "text" },
+      // singleSelect (17 choix). ⚠️ Ce sont les installateurs de la table SAV, PAS
+      // ceux des mocks « notes »/« abonnés » de ce bloc — deux vocabulaires distincts.
+      installateur: {
+        label: "Installateur initial", kind: "text",
+        options: [
+          "Actenergie", "Maison Solaire Voltalia", "Solefficience", "ACFluide", "Eversun",
+          "Amelioration Habitat Conseil", "Rayons Verts Energies", "Aquitaine Transition Energetique",
+          "Enertec", "Ecovea", "Archivolta", "Panda Energie", "A.D.W", "MC ENERGY",
+          "ABI énergie", "ECOSYSTEM SOLAIRE", "NOVA ENERGIES",
+        ],
+      },
+      debut: { label: "Date de début", kind: "date" },
+      fin: { label: "Date de fin", kind: "date" },
+      statut: {
+        label: "Statut", kind: "badge",
+        options: ["Nouveau", "En cours", "En attente", "Résolu", "Clos"],
+        // « Clos » en neutral et « Nouveau » en info : ce sont les deux écarts que
+        // le bloc SAV a dû ajouter à statusVariant (README SAV §4). Repris tels
+        // quels pour que le même statut ait la même couleur sur les deux écrans.
+        variants: { "Nouveau": "info", "En cours": "warn", "En attente": "warn", "Résolu": "ok", "Clos": "neutral" },
+      },
+      priorite: { label: "Priorité (1-10)", kind: "number" },
+      // singleSelect (7 choix), tous EN MAJUSCULES dans Airtable — la casse compte
+      // pour l'écriture comme pour un filtre `eq`.
+      fabricant: {
+        label: "Fabricant / matériel", kind: "text",
+        options: ["APSYSTEMS", "HUAWEI", "HOYMILES", "KOSTAL", "ENVERTECH", "ATMOCE", "FHE"],
+      },
+      // singleSelect (2 choix) : les seuls prestataires mandatés à ce jour.
+      tiers: { label: "Tiers SAV mandaté", kind: "text", options: ["SOLEBAT", "INNOVA"] },
+      cout: { label: "Coût tiers SAV (€)", kind: "number" },
+      // Les 12 catégories d'intervention, dans l'ordre figé du classeur.
+      panneaux: { label: "Panneaux", kind: "number" },
+      onduleurs: { label: "Onduleurs / MO", kind: "number" },
+      protection: { label: "Protection électrique", kind: "number" },
+      cablage: { label: "Câblage", kind: "number" },
+      supervision: { label: "Supervision", kind: "number" },
+      raccordement: { label: "Raccordement", kind: "number" },
+      consuel: { label: "Consuel", kind: "number" },
+      batterie: { label: "Batterie virtuelle", kind: "number" },
+      alerte: { label: "Alerte", kind: "number" },
+      fuite: { label: "Fuite", kind: "number" },
+      calepinage: { label: "Calepinage", kind: "number" },
+      autre: { label: "Autre", kind: "number" },
+    },
+    defaultSort: { by: "debut", dir: "desc" },
+    defaultMap: { title: "client", sub: "installateur", date: "debut", badge: "statut" },
+    presets: [
+      { label: "Dossiers SAV récents", cfg: { title: "Dossiers SAV", unit: "dossier" } },
+      // Seuil 7 et non 8 : `gt` est STRICT, donc « > 7 » = « ≥ 8 », le seuil de
+      // priorité élevée du bloc SAV (priority(), p >= 8). Le décaler ici ferait
+      // dire deux choses différentes aux deux écrans.
+      { label: "Dossiers SAV prioritaires", icon: "Ticket",
+        cfg: { title: "SAV — priorité élevée", unit: "dossier",
+               query: { filter: [{ field: "priorite", op: "gt", value: "7" }], sort: { by: "priorite", dir: "desc" } } } },
+      { label: "Coût tiers SAV (indicateur)", icon: "BarChart3", h: "sm",
+        cfg: { title: "Coût tiers SAV", view: { kind: "kpi", agg: "sum", field: "cout" } } },
+      { label: "Tableau des dossiers SAV", icon: "LayoutGrid",
+        cfg: { view: { kind: "table", columns: ["ticket", "client", "statut", "priorite", "debut"] } } },
+    ],
+    // Aucune action, aucun `create` : un dossier SAV se crée et se modifie dans le
+    // bloc « Pilotage SAV », qui porte les validations de cohérence (dates, tiers
+    // sans coût). L'accueil en est un LECTEUR — d'où l'absence de SELECT_SAV_W.
+  },
 };
 
 /* Résolution des icônes : le descripteur porte une CLÉ (donnée), la map porte le
@@ -921,6 +1063,29 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
        } : undefined;                       // pas de session → aucune tentative
        return <>{children({ ...liveState(res), write })}</>;
      } */
+/* ⚠️⚠️ CAS « SAV », et c'est LE piège à ne pas rejouer : le bloc SUNLIB/SAV lit
+   déjà cette table, mais SON id de datasource (4b5d2aa4-…) NE FONCTIONNERA PAS
+   ici. Un id de datasource est lié à UNE CONNEXION d'UN bloc, pas à une table —
+   le README du bloc SAV le dit noir sur blanc (« l'ID d'un autre bloc vibe code
+   ne fonctionne pas, même pour la même table »), et son historique d'ids en porte
+   la trace. Il faut donc connecter « Tickets » dans l'onglet Sources DU BLOC
+   D'ACCUEIL, puis demander son id à l'onglet Chat de CE bloc.
+   Ne PAS coller l'id du bloc SAV dans le define : Softr valide statiquement les
+   ids déclarés et bloquerait LE BLOC ENTIER (« Remap the fields to continue »).
+
+   Adapter prêt à décommenter le jour du branchement — LECTURE SEULE (pas de
+   `write` : le SAV se saisit dans son propre bloc, cf. la note du descripteur) :
+
+     function SavSource({ children }: { children: SourceChildren }) {
+       const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
+       return <>{children(liveState(res))}</>;
+     }
+
+   ⚠️ La table SAV n'est pas plafonnée côté bloc : `orderBy` décide QUELLES lignes
+   sont lues si elle grossit. Trier par `debut` desc garde les dossiers récents,
+   mais les KPI de SavCard (ancienneté, taux de résolution) portent alors sur la
+   FENÊTRE LUE, pas sur la table entière. Le bloc « Pilotage SAV » reste la
+   référence chiffrée ; l'accueil est un résumé. */
 function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
@@ -1010,7 +1175,7 @@ function ScrollBody({ children }: { children?: ReactNode }) {
 }
 
 /* --- Contexte d'édition : le mode Personnaliser injecte, PAR widget, sa position
-      et ses actions (déplacer, largeur, taille, masquer). `null` = usage normal →
+      et ses actions (déplacer, largeur, taille, dupliquer, supprimer). `null` = usage normal →
       aucune poignée, aucun menu d'édition, corps interactif. --- */
 type WidgetChrome = {
   index: number;
@@ -1021,9 +1186,7 @@ type WidgetChrome = {
   onMoveDown: () => void;
   onSetWide: (value: boolean) => void;
   onSetSize: (size: WidgetSize) => void;
-  onHide: () => void;
-  onDuplicate: () => void;
-  onRemove: () => void;
+  onRemove: () => void;   // seul geste de retrait : il n'y a plus de « Masquer »
 };
 const WidgetChromeCtx = createContext<WidgetChrome | null>(null);
 
@@ -1127,14 +1290,9 @@ function WidgetEditMenu({ chrome, title }: { chrome: WidgetChrome; title: string
             <button style={seg(chrome.size === "lg")} onClick={() => chrome.onSetSize("lg")} aria-pressed={chrome.size === "lg"} aria-label={`Grand — ${title}`}>Grand</button>
           </div>
           <div style={sep} />
-          <button role="menuitem" className="slb-menu-item" style={item} onClick={run(chrome.onDuplicate)} aria-label={`Dupliquer — ${title}`}>
-            <Copy aria-hidden style={{ width: 16, height: 16 }} />Dupliquer
-          </button>
-          <button role="menuitem" className="slb-menu-item" style={item} onClick={run(chrome.onHide)} aria-label={`Masquer — ${title}`}>
-            <EyeOff aria-hidden style={{ width: 16, height: 16 }} />Masquer
-          </button>
-          {/* Suppression définitive — réversible tant que « Annuler » n'a pas été
-              quitté : rien n'est écrit en base avant « Enregistrer ». */}
+          {/* Suppression définitive, et SEULE façon de retirer un widget (« Masquer »
+              a été retiré, cf. le type `Layout`). Réversible tant qu'on n'a pas
+              quitté le mode Personnaliser : rien n'est écrit avant « Enregistrer ». */}
           <button role="menuitem" className="slb-menu-item" style={{ ...item, color: T.dangerInk }} onClick={run(chrome.onRemove)} aria-label={`Supprimer — ${title}`}>
             <Trash2 aria-hidden style={{ width: 16, height: 16 }} />Supprimer
           </button>
@@ -1288,6 +1446,86 @@ function useHeroPan() {
   return ref;
 }
 
+/* --- Logo SunLib ANIMÉ — sunburst de 60 rayons -------------------------------
+   Le motif est reconstruit en SVG inline plutôt que chargé depuis le dépôt : un
+   fichier distant en <img> ne s'animerait pas rayon par rayon. Les rayons sont
+   tracés en x=86, soit 14 unités à gauche du centre — c'est ce décalage qui
+   donne le vrillage d'hélice, pas une erreur de centrage.
+
+   Deux mouvements se superposent, et c'est leur superposition qui porte l'effet :
+   · le moyeu tourne en 240 s dans le sens HORAIRE (le sens du vrillage : les
+     pointes penchent de ce côté, l'antihoraire donne une contre-rotation) ;
+   · chaque rayon respire en opacité sur 47 s, décalé de −783 ms par rayon.
+   La rotation seule serait répétitive : 60 rayons identiques ramènent une image
+   identique tous les 240/60 = 4 s. C'est l'onde de 47 s, qui n'est PAS un
+   multiple de ces 4 s (47 / 4 = 11,75), qui casse la répétition et donne la
+   profondeur. En retouchant l'une des deux durées, garder ce rapport non entier
+   — sinon l'onde se cale sur la rotation et l'image se figera par cycles. 47 est
+   premier, donc l'onde ne retombera jamais en phase avec une rotation dont la
+   période apparente est un nombre entier de secondes : c'est le choix sûr si
+   quelqu'un touche au spin plus tard.
+
+   Le décalage NÉGATIF n'est pas cosmétique : positif ou absent, les 60 rayons
+   démarrent en phase et la première seconde du chargement montre un fondu
+   collectif. Négatif, l'onde est déjà installée à la première image.
+
+   Animations en Web Animations API et NON en @keyframes, pour la raison déjà
+   donnée au dégradé du héro : le CSS de StyleInjector peut ne pas s'appliquer
+   dans le bloc Softr (§2), et un logo figé ne signalerait rien. Le SVG seul est
+   déjà le rendu correct — l'animation ne fait que s'ajouter.
+
+   TAILLE — le trait fait 4 unités sur un viewBox de 200, donc 4 × taille/200 à
+   l'écran. Sous ~104 px il passe sous 2 px, les rayons tombent sous le pixel et
+   la rotation lente produit un fourmillement de moiré : d'où le plancher du
+   clamp côté héro. Pour réutiliser le logo en 48 px (favicon, avatar, sidebar),
+   passer `still` — mieux vaut un logo fixe qu'un logo qui scintille. --- */
+const SUNBURST_RAYS = 60;
+const SUNBURST_SPIN_MS = 240000;
+const SUNBURST_WAVE_MS = 47000;
+
+function Sunburst({ height, still = false }: { height: string; still?: boolean }) {
+  const hubRef = useRef<SVGGElement | null>(null);
+  const rayRefs = useRef<(SVGLineElement | null)[]>([]);
+  useEffect(() => {
+    const hub = hubRef.current;
+    if (still || !hub || typeof hub.animate !== "function") return;
+    // Même garde que le pan du héro et le FLIP : `animation:none` du CSS injecté
+    // ne coupe PAS une animation Web Animations API, il faut ne pas la démarrer.
+    const reduce = !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;
+    const anims: Animation[] = [
+      hub.animate(
+        [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+        { duration: SUNBURST_SPIN_MS, iterations: Infinity, easing: "linear" },
+      ),
+    ];
+    rayRefs.current.forEach((ray, i) => {
+      if (!ray) return;
+      // L'easing porte sur CHAQUE segment de l'onde (comme le fait une @keyframes),
+      // pas sur l'itération entière : le mettre en option lisserait tout le cycle.
+      anims.push(ray.animate(
+        [{ opacity: 1, easing: "ease-in-out" }, { opacity: 0.86, easing: "ease-in-out" }, { opacity: 1 }],
+        { duration: SUNBURST_WAVE_MS, delay: -i * (SUNBURST_WAVE_MS / SUNBURST_RAYS), iterations: Infinity },
+      ));
+    });
+    return () => anims.forEach((a) => a.cancel());
+  }, [still]);
+  return (
+    <svg viewBox="0 0 200 200" role="img" aria-label="SunLib"
+      style={{ flex: "none", marginLeft: "auto", height, width: "auto" }}>
+      {/* transformBox / transformOrigin sont obligatoires : sans eux, `rotate`
+          sur un <g> pivote autour de l'origine du repère, pas du centre du logo. */}
+      <g ref={hubRef} style={{ transformBox: "view-box", transformOrigin: "center" }}>
+        {Array.from({ length: SUNBURST_RAYS }, (_, i) => (
+          <line key={i} ref={(el) => { rayRefs.current[i] = el; }}
+            transform={`rotate(${i * 6} 100 100)`}
+            x1="86" y1="61.5" x2="86" y2="1.3" stroke="#fff" strokeWidth="4" />
+        ))}
+      </g>
+    </svg>
+  );
+}
+
 function Hero({ firstName, unread, urgent }: { firstName: string; unread: number; urgent: number }) {
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const chip: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "7px", padding: "7px 13px", borderRadius: "999px", fontSize: "12.5px", fontWeight: 600, color: "#fff", backgroundColor: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.38)", backdropFilter: "blur(4px)" };
@@ -1311,9 +1549,11 @@ function Hero({ firstName, unread, urgent }: { firstName: string; unread: number
             <span style={chip}><CalendarClock aria-hidden style={{ width: 14, height: 14 }} />{urgent} tâche{urgent > 1 ? "s" : ""} urgente{urgent > 1 ? "s" : ""}</span>
           </div>
         </div>
-        {/* Forçé en blanc (le SVG source s'affiche foncé) : brightness(0) → tout noir,
-            puis invert(1) → tout blanc. Rend un logo blanc net sur le dégradé. */}
-        <img src={IMG.logoRond} alt="SunLib" style={{ flex: "none", marginLeft: "auto", height: "clamp(88px, 11vw, 140px)", filter: "brightness(0) invert(1)" }} />
+        {/* Les rayons sont tracés en blanc à la source : plus besoin du
+            brightness(0) invert(1) qui redressait l'ancien SVG du dépôt.
+            Plancher du clamp relevé de 88 à 104 px — en dessous, le trait passe
+            sous 2 px et moire (voir la note TAILLE sur <Sunburst>). */}
+        <Sunburst height="clamp(104px, 11vw, 140px)" />
       </div>
     </section>
   );
@@ -1357,7 +1597,7 @@ function EmbedTab({ src, title }: { src: string; title: string }) {
 /* --- SunLib sur LinkedIn — les embeds Elfsight sont désormais des WIDGETS du
       tableau de bord (voir LinkedinCard / LinkedinBannerCard au §10), chargés
       par le loader partagé useElfsightPlatform. Plus de section fixe : ils
-      s'affichent, se réordonnent et se masquent comme les autres widgets. --- */
+      s'affichent, se réordonnent et se suppriment comme les autres widgets. --- */
 
 /* ============================================================================
    9. Tableau de bord — widgets indépendants et compacts
@@ -2378,6 +2618,362 @@ function TachesCard() {
   );
 }
 
+/* ============================================================================
+   SAV — SYNTHÈSE DU BLOC « PILOTAGE SAV »
+   ----------------------------------------------------------------------------
+   Ce widget est un RÉSUMÉ, pas un second tableau de bord. Le bloc SUNLIB/SAV
+   affiche six KPI, trois onglets, deux modales et les classements complets
+   (fabricants, installateurs, qualité par installateur, tiers mandatés). Tout
+   remonter ici produirait un widget illisible de 340 px et deux écrans à tenir
+   synchronisés. On garde donc ce qui APPELLE UNE ACTION depuis l'accueil :
+
+     · les dossiers OUVERTS — la « métrique reine » du bloc SAV (son README §2) ;
+     · ce qui déborde : priorité élevée, dossiers ouverts trop vieux ;
+     · trois mesures de fond : taux de résolution, ancienneté moyenne, coût tiers ;
+     · les trois premières CAUSES (l'onglet « Problématiques » en montre douze) ;
+     · le compte des dossiers à corriger, qui renvoie au bloc SAV pour la saisie.
+
+   Restent délibérément dans le bloc SAV : le registre, le détail par dossier, les
+   12 catégories complètes, les classements partenaires, les KPI du parc.
+
+   ⚠️ LES SEUILS ET LES FORMULES SONT RECOPIÉS DU BLOC SAV (`useKpis`), pas
+   réinventés : mêmes statuts « clos », même seuil de priorité élevée (≥ 8), même
+   définition de l'ancienneté. Deux écrans qui comptent différemment le même chiffre
+   sont pires qu'un écran en moins. Si `useKpis` change là-bas, ces constantes
+   changent ici.
+
+   DEUX ÉCARTS ASSUMÉS, tous deux parce que l'accueil parle d'ACTION :
+   · `prioHaute` est compté sur les dossiers OUVERTS (le bloc SAV le compte sur
+     tous) : un dossier clos en priorité 9 n'appelle plus rien.
+   · la qualité des données compte les DOSSIERS à corriger, là où le bloc SAV
+     compte les anomalies — un dossier peut en porter trois. D'où le libellé
+     « dossiers », pour que l'écart se lise au lieu de surprendre.
+   ============================================================================ */
+
+/* Les 12 catégories d'intervention, dans l'ordre FIGÉ du classeur partenaire.
+   ⚠️ Les lignes sont PLATES ici (clés = alias, §6-bis) alors que le bloc SAV les
+   structure sous un sous-objet `cat` : d'où `r[c.key]` et non `r.cat[c.key]`. */
+const SAV_CATS: { key: string; label: string }[] = [
+  { key: "panneaux", label: "Panneaux" },
+  { key: "onduleurs", label: "Onduleurs / MO" },
+  { key: "protection", label: "Protection électrique" },
+  { key: "cablage", label: "Câblage" },
+  { key: "supervision", label: "Supervision" },
+  { key: "raccordement", label: "Raccordement" },
+  { key: "consuel", label: "Consuel" },
+  { key: "batterie", label: "Batterie virtuelle" },
+  { key: "alerte", label: "Alerte" },
+  { key: "fuite", label: "Fuite" },
+  { key: "calepinage", label: "Calepinage" },
+  { key: "autre", label: "Autre" },
+];
+const SAV_CLOSED = ["Résolu", "Clos"];   // = CLOSED du bloc SAV
+const SAV_PRIO_HAUTE = 8;                // = priority(), p >= 8 → « Élevée »
+const SAV_VIEUX_J = 60;                  // = seuil du badge d'ancienneté du bloc SAV
+const SAV_CAUSES_TOP = 3;                // « lecture des trois premières causes »
+// TODO [À COMPLÉTER B] : URL de la page « Pilotage SAV » de l'espace Softr.
+const SAV_PAGE_HREF = "#";
+
+const savNum = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const savTotal = (r: Row): number => SAV_CATS.reduce((s, c) => s + savNum(r[c.key]), 0);
+/** Horodatage d'une valeur de date, ou NaN si elle est illisible.
+ *  ⚠️ LE `instanceof Date` N'EST PAS DÉFENSIF, il est nécessaire : `asText` passe
+ *  par `labelOf`, qui traite tout objet en cherchant .name/.label/.value/… — un
+ *  `Date` n'en a aucun, donc `asText(new Date())` vaut la CHAÎNE VIDE. Sans ce
+ *  premier test, comparer une date à « maintenant » donnait NaN, `savDays`
+ *  renvoyait null pour tous les dossiers, et les deux indicateurs d'ancienneté
+ *  affichaient 0 sans jamais signaler d'erreur. Le passage par `asText` reste
+ *  indispensable pour l'autre cas : Softr peut renvoyer un select sous forme
+ *  d'objet `{ id, name }`. */
+const savTime = (v: unknown): number => {
+  if (v instanceof Date) return v.getTime();
+  const s = asText(v);
+  return s ? new Date(s).getTime() : NaN;
+};
+/** Écart en jours, ou `null` si l'une des deux dates est illisible — le registre
+ *  repris du classeur en porte (§ anomalies). Jamais de NaN à l'écran. */
+const savDays = (from: unknown, to: unknown): number | null => {
+  const a = savTime(from), b = savTime(to);
+  return isNaN(a) || isNaN(b) ? null : Math.round((b - a) / 86400000);
+};
+const savAvg = (a: number[]): number => (a.length ? a.reduce((s, n) => s + n, 0) / a.length : 0);
+const fmtEur = (n: number): string => `${Math.round(n).toLocaleString("fr-FR")} €`;
+
+/** PURE, et volontairement PAS un hook : `rows` est un tableau neuf à chaque
+ *  render (flattenRows), donc un useMemo se recalculerait à chaque fois tout en
+ *  donnant l'illusion du contraire — la remarque est la même que dans le bloc SAV
+ *  (`useParcKpis`). Ce qui reste est du comptage O(n) sur quelques dizaines de
+ *  lignes. Bénéfice secondaire : une fonction pure se relit et se teste seule. */
+function savKpis(rows: Row[]) {
+  const now = new Date();
+  const open = rows.filter((r) => !SAV_CLOSED.includes(asText(r.statut)));
+  const resolus = rows.filter((r) => asText(r.statut) === "Résolu");
+  const ages = open
+    .map((r) => savDays(r.debut, now))
+    .filter((n): n is number => n != null && n >= 0);
+
+  const causes = SAV_CATS
+    .map((c) => ({ ...c, value: rows.reduce((s, r) => s + savNum(r[c.key]), 0) }))
+    .filter((c) => c.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  /* Contrôles de cohérence — les cinq du bloc SAV, comptés par DOSSIER. */
+  const aCorriger = rows.filter((r) => {
+    const d = savDays(r.debut, r.fin);
+    return (!!asText(r.fin) && (d == null || d < 0))     // fin antérieure au début
+      || !asText(r.installateur)                        // installateur non renseigné
+      || !asText(r.fabricant)                           // fabricant non renseigné
+      || (!!asText(r.tiers) && !savNum(r.cout))         // tiers mandaté sans coût
+      || savTotal(r) === 0;                             // aucune intervention saisie
+  }).length;
+
+  return {
+    dossiers: rows.length,
+    ouverts: open.length,
+    interventions: rows.reduce((s, r) => s + savTotal(r), 0),
+    taux: rows.length ? resolus.length / rows.length : 0,
+    prioHaute: open.filter((r) => savNum(r.priorite) >= SAV_PRIO_HAUTE).length,
+    vieux: ages.filter((n) => n > SAV_VIEUX_J).length,
+    ancienneteMoy: savAvg(ages),
+    coutTiers: rows.reduce((s, r) => s + savNum(r.cout), 0),
+    causes: causes.slice(0, SAV_CAUSES_TOP),
+    causeMax: causes[0]?.value ?? 0,
+    aCorriger,
+  };
+}
+
+/* ── REGISTRE DES MÉTRIQUES — ce que l'utilisateur peut cocher ────────────────
+   Même principe que `CATALOG` pour les sources et `PRESETS` pour la galerie : de la
+   DONNÉE, pas du code de rendu. Ajouter une valeur au widget = ajouter UNE entrée
+   ici, et elle apparaît aussitôt dans le panneau « Options » de tout le monde.
+   `savKpis` calcule déjà tout : une métrique ne fait que choisir et formater.
+
+   `kind` décide de la FORME, et donc de la section où la métrique atterrit :
+     · hero  → le grand chiffre, en tête (une seule attendue)
+     · stat  → une ligne « libellé … valeur », valeur alignée à droite (charte)
+     · alert → un badge, affiché SEULEMENT si `count` > 0 (le rouge ne s'affiche
+               jamais sur une valeur saine) ; `text` en donne le libellé
+     · block → une section à forme propre, rendue en dur par sa clé (les barres de
+               causes, la ligne de qualité). C'est la seule famille non générique :
+               un bloc a une mise en page que trois champs ne décrivent pas.
+
+   ⚠️ Les CLÉS sont un contrat de persistance au même titre que les clés de type :
+   elles sont stockées dans `cfg.show` du layout de chaque utilisateur. On peut
+   renommer un `label` librement, jamais une `key`.
+
+   L'ORDRE d'affichage est celui de ce tableau, pas celui de `cfg.show` — un
+   utilisateur choisit QUOI voir, la charte décide de l'ordre. Si un jour tu veux
+   aussi laisser réordonner, `cfg.show` est déjà une liste ordonnée : il suffira de
+   l'itérer au lieu du registre, et d'ajouter deux flèches au panneau. */
+type SavKpis = ReturnType<typeof savKpis>;
+
+/** Les champs utiles dépendent du `kind` (cf. ci-dessus) : `value` pour hero/stat,
+ *  `count` + `text` pour alert, aucun pour block. */
+type SavMetric = {
+  key: string;
+  label: string;                       // libellé du panneau ET de la ligne
+  kind: "hero" | "stat" | "alert" | "block";
+  value?: (k: SavKpis) => string;
+  count?: (k: SavKpis) => number;
+  text?: (n: number) => string;
+  icon?: LucideIcon;
+};
+
+const SAV_METRICS: SavMetric[] = [
+  { key: "ouverts", label: "Dossiers ouverts", kind: "hero",
+    value: (k) => `${k.ouverts}` },
+  { key: "prioHaute", label: "Alerte — priorité élevée", kind: "alert",
+    count: (k) => k.prioHaute, text: (n) => `${n} en priorité élevée` },
+  { key: "vieux", label: `Alerte — ouverts > ${SAV_VIEUX_J} j`, kind: "alert",
+    count: (k) => k.vieux, text: (n) => `${n} ouvert${n > 1 ? "s" : ""} > ${SAV_VIEUX_J} j`, icon: Clock },
+  { key: "dossiers", label: "Dossiers au total", kind: "stat",
+    value: (k) => `${k.dossiers}` },
+  { key: "taux", label: "Taux de résolution", kind: "stat",
+    value: (k) => `${Math.round(k.taux * 100)} %` },
+  { key: "ancienneteMoy", label: "Ancienneté moyenne des ouverts", kind: "stat",
+    value: (k) => (k.ouverts ? `${Math.round(k.ancienneteMoy)} j` : DASH) },
+  { key: "interventions", label: "Interventions cumulées", kind: "stat",
+    value: (k) => `${k.interventions}` },
+  { key: "coutTiers", label: "Coût tiers SAV", kind: "stat",
+    value: (k) => fmtEur(k.coutTiers) },
+  { key: "causes", label: `Principales causes (${SAV_CAUSES_TOP})`, kind: "block" },
+  { key: "qualite", label: "Qualité des données", kind: "block" },
+];
+
+/* Sélection livrée par défaut = exactement ce que le widget affichait avant d'être
+   configurable. Une instance déjà posée (cfg `{}`) ne change donc pas d'apparence. */
+const SAV_SHOW_DEFAULT = ["ouverts", "prioHaute", "vieux", "taux", "ancienneteMoy", "interventions", "coutTiers", "causes", "qualite"];
+
+type SavCfg = { show: string[] };
+
+/** cfg stockée (BRUTE) → cfg utilisable. Ne throw JAMAIS, comme `coerceCfg`.
+ *  Deux cas volontairement distincts, sur le modèle du mappage des widgets `data` :
+ *  · `show` ABSENT → sélection par défaut (cas d'une instance posée avant que ce
+ *    widget devienne configurable, dont la cfg vaut `{}`) ;
+ *  · `show` PRÉSENT même vide → choix EXPLICITE respecté, y compris « rien ».
+ *  Les clés inconnues du registre sont écartées à la lecture mais restent dans le
+ *  stockage (on ne « répare » jamais le document) : retirer une métrique puis la
+ *  remettre plus tard rend son affichage aux utilisateurs qui l'avaient cochée. */
+function coerceSavCfg(raw: unknown): SavCfg {
+  const o = asObj(raw);
+  const known = new Set(SAV_METRICS.map((m) => m.key));
+  if (!Array.isArray(o.show)) return { show: [...SAV_SHOW_DEFAULT] };
+  const show = o.show.filter((x: unknown): x is string => typeof x === "string" && known.has(x));
+  return { show: Array.from(new Set(show)) };
+}
+
+/* Panneau « Options » du widget — une case par métrique du registre. Aucun champ
+   n'est écrit en dur : ajouter une entrée au registre suffit à la voir ici. */
+function SavOptions({ cfg, onChange }: { cfg: SavCfg; onChange: (next: SavCfg) => void }) {
+  const on = new Set(cfg.show);
+  const toggle = (key: string) => {
+    const next = new Set(on);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    // Réordonné selon le registre : `show` reste lisible et l'ordre d'affichage
+    // ne dépend jamais de l'ordre des clics.
+    onChange({ show: SAV_METRICS.filter((m) => next.has(m.key)).map((m) => m.key) });
+  };
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 6px" };
+  const line: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 };
+  return (
+    <div>
+      <span style={lbl}>Valeurs affichées</span>
+      {SAV_METRICS.map((m) => (
+        <label key={m.key} style={line}>
+          <input type="checkbox" checked={on.has(m.key)} onChange={() => toggle(m.key)}
+            style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: "pointer" }} />
+          <span>{m.label}</span>
+        </label>
+      ))}
+      {!cfg.show.length && (
+        <p style={{ margin: "8px 0 0", fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
+          Aucune valeur cochée : le widget restera vide.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* Présentiel pur : reçoit un SourceApi et la cfg de l'instance. Ne connaît ni Softr
+   ni le catalogue. Le rendu est PILOTÉ PAR LA CFG — plus une section en dur. */
+function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
+  const k = savKpis(api.rows);
+  const on = new Set(cfg.show);
+  const picked = (kind: SavMetric["kind"]) => SAV_METRICS.filter((m) => m.kind === kind && on.has(m.key));
+  const hero = picked("hero");
+  const stats = picked("stat");
+  // Une alerte n'occupe la place que si elle a quelque chose à dire (count > 0).
+  const alerts = picked("alert").filter((m) => (m.count?.(k) ?? 0) > 0);
+  const row: CSSProperties = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px", padding: "9px 16px" };
+  const lbl: CSSProperties = { fontSize: "12.5px", fontWeight: 500, color: T.ink3 };
+  // Charte : les valeurs chiffrées s'alignent à DROITE, les libellés à gauche.
+  const val: CSSProperties = { fontSize: "13px", fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums" };
+  const secLbl: CSSProperties = { padding: "11px 16px 4px", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em" };
+
+  const footer = (
+    <a href={SAV_PAGE_HREF} target="_top" className="slb-btng"
+      style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 13px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
+      Ouvrir le pilotage SAV<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
+    </a>
+  );
+
+  return (
+    <Widget icon={Ticket} title="Pilotage SAV" sub="Synthèse des dossiers" footer={footer}>
+      {api.error ? (
+        <EmptyState icon={Ticket} dense title="Donnée indisponible" hint="La source « Tickets » n'a pas répondu. Le pilotage SAV reste accessible dans sa page." />
+      ) : api.loading ? (
+        <div style={{ padding: "16px" }}>
+          <span className="slb-skel" style={{ display: "block", width: 96, height: 34, borderRadius: 8, background: T.neutral050 }} />
+        </div>
+      ) : !k.dossiers ? (
+        /* Cas RÉEL en production tant que « Tickets » n'est pas connectée à CE bloc
+           (cf. la note sur SavSource) : mieux vaut le dire que montrer six zéros,
+           qui se liraient comme « aucun dossier SAV ». */
+        <EmptyState icon={Ticket} dense title="Aucun dossier SAV lu"
+          hint="Source « Tickets » non connectée à ce bloc, ou table vide." />
+      ) : !cfg.show.length ? (
+        /* Tout décoché : c'est un choix explicite (cf. `coerceSavCfg`), on le
+           respecte au lieu de réimposer les défauts — mais on dit où revenir. */
+        <EmptyState icon={Ticket} dense title="Aucune valeur affichée"
+          hint="Choisissez ce que ce widget doit montrer dans son menu ⋮ « Options »." />
+      ) : (
+        <ScrollBody>
+          {/* 1 — la métrique reine, et ce qui déborde. Le bloc n'existe que si l'une
+              des deux familles est retenue. Les alertes sont déjà filtrées sur
+              count > 0 : le rouge ne s'affiche jamais sur une valeur saine (charte),
+              et le libellé dit le sens — la couleur ne le porte pas seule. */}
+          {(hero.length > 0 || alerts.length > 0) && (
+            <div style={{ padding: "14px 16px 12px", display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
+              {hero.map((m) => (
+                <Fragment key={m.key}>
+                  <span style={{ fontSize: "34px", lineHeight: 1, fontWeight: 800, letterSpacing: "-.02em", color: T.ink }}>{m.value?.(k)}</span>
+                  <span style={{ fontSize: "12.5px", fontWeight: 600, color: T.ink3 }}>
+                    dossier{k.ouverts > 1 ? "s" : ""} ouvert{k.ouverts > 1 ? "s" : ""}
+                  </span>
+                </Fragment>
+              ))}
+              {alerts.map((m) => {
+                const n = m.count?.(k) ?? 0;
+                return <Badge key={m.key} variant="danger" dot={!m.icon} icon={m.icon}>{m.text?.(n)}</Badge>;
+              })}
+            </div>
+          )}
+
+          {/* 2 — mesures de fond, entièrement générées depuis le registre */}
+          {stats.length > 0 && (
+            <div>
+              {stats.map((m) => (
+                <div key={m.key} style={row}>
+                  <span style={lbl}>{m.label}</span>
+                  <span style={val}>{m.value?.(k)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 3 — les premières causes. Barres en <div> : aucune librairie de graphes
+              n'est autorisée dans le bloc (même contrainte que le bloc SAV). */}
+          {on.has("causes") && (
+            <div style={{ paddingBottom: "8px" }}>
+              <div style={secLbl}>Principales causes</div>
+              {k.causes.length ? k.causes.map((c) => (
+                <div key={c.key} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 16px" }}>
+                  <span style={{ flex: "1 1 96px", minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: T.ink2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
+                  <span aria-hidden style={{ flex: "1 1 60px", height: 6, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
+                    <span style={{ display: "block", height: "100%", width: `${k.causeMax ? Math.round((c.value / k.causeMax) * 100) : 0}%`, background: T.brand, borderRadius: 999 }} />
+                  </span>
+                  <span style={{ ...val, flex: "none", minWidth: 22, textAlign: "right" }}>{c.value}</span>
+                </div>
+              )) : (
+                <div style={{ padding: "2px 16px 6px", fontSize: "12.5px", fontWeight: 500, color: T.ink4 }}>Aucune intervention saisie.</div>
+              )}
+            </div>
+          )}
+
+          {/* 4 — qualité des données. Ambre et non rouge : c'est une saisie à
+              compléter, pas une panne. Section muette quand tout est propre. */}
+          {on.has("qualite") && k.aCorriger > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "11px 16px" }}>
+              <Badge variant="warn" dot>{k.aCorriger}</Badge>
+              <span style={{ fontSize: "12.5px", fontWeight: 500, color: T.ink2 }}>
+                dossier{k.aCorriger > 1 ? "s" : ""} à corriger — dates, installateur, fabricant ou coût tiers
+              </span>
+            </div>
+          )}
+        </ScrollBody>
+      )}
+    </Widget>
+  );
+}
+
+/* Enveloppe : même forme que NotifsCard / TachesCard — elle ne fait que brancher
+   la source. Tant que « Tickets » n'est pas connectée à CE bloc, SourceFeed sert
+   automatiquement le mock (§6-bis, OfflineSource) : le widget est donc testable
+   en aperçu et n'attend rien pour vivre. */
+function SavCard({ cfg }: { cfg: SavCfg }) {
+  return <SourceFeed source="sav">{(s) => <SavWidget api={s} cfg={cfg} />}</SourceFeed>;
+}
+
 /* --- Configurations de DÉPART des types génériques, en grammaire §9-bis. Elles ne
    servent que de base à `coerceCfg` : ce qui manque est comblé par le descripteur
    de la source (mappage, tri). Les deux widgets « notes » n'ont plus d'enveloppe
@@ -2401,7 +2997,7 @@ const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
 /* --- Widgets LinkedIn (embeds Elfsight). platform.js est chargé UNE seule fois
       (nouveau domaine static.elfsight.com) ; il observe le DOM et monte chaque
       <div class="elfsight-app-…"> automatiquement, y compris après un remount
-      (masquer/réafficher, réordonner). Aucune clé ni API exposée côté client.
+      (réordonner, repose depuis la galerie). Aucune clé ni API exposée côté client.
       NB : un <script> écrit en JSX ne s'exécute pas → on l'ajoute au document. --- */
 /* Runtime Elfsight. Elfsight sert le MÊME runtime sous deux URLs — ses codes
    d'intégration donnent tantôt `elfsightcdn.com/platform.js` (le plus récent),
@@ -2511,6 +3107,15 @@ type WidgetTypeKey =
   | "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
   | "linkedin" | "linkedinBanner"
   | "annonces" // ← 3ᵉ embed Elfsight (barre d'annonces), ajoutable via la galerie
+  /* ← Synthèse SAV. Type SUR-MESURE et non instance `data`, parce que son rendu
+     n'est aucune des trois vues génériques : il croise plusieurs agrégats (dont
+     une somme des 12 compteurs) et un classement de causes. Une vue `kpi` ne
+     porte qu'UN chiffre.
+     Il EST configurable (⋮ « Options ») : sa cfg est la liste des valeurs à
+     afficher, choisies dans le registre `SAV_METRICS`. Pour un chiffre simple sur
+     un seul champ SAV (somme, moyenne, comptage filtré), préférer un widget `data`
+     posé depuis les presets `sav` du catalogue (§6-bis) — aucun code requis. */
+  | "sav"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
   | "list" | "kpi";   // ← DÉPRÉCIÉS : livrés en rév. 1, rendent comme `data` (cfg traduite)
 
@@ -2548,6 +3153,11 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Render: LinkedinCard },
   linkedinBanner: { title: "À la une SunLib", icon: Megaphone, Render: LinkedinBannerCard },
   annonces: { title: "Annonces SunLib", icon: Sparkles, Render: AnnoncesCard },
+  /* Configurable depuis la rév. 2.1 : `Options` = les valeurs à afficher (registre
+     SAV_METRICS). `coerce` tolère une cfg vide — les instances posées avant sont
+     donc inchangées, sans migration. */
+  sav: { title: "Pilotage SAV — synthèse", icon: Ticket, Render: SavCard,
+         defaults: () => coerceSavCfg({}), coerce: coerceSavCfg, Options: SavOptions },
   data: dataType("Widget de données", LayoutGrid, DATA_CFG),
   /* --- Clés DÉPRÉCIÉES, conservées par contrat de persistance : elles ont été
      livrées, donc des instances peuvent exister chez des utilisateurs. Elles
@@ -2597,11 +3207,19 @@ type WidgetWidth = "half" | "full";
 type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize };
 
 /** `items` : visibles — l'ordre du tableau EST l'ordre d'affichage.
- *  `hidden`: masqués, cfg CONSERVÉE (réaffichables tels quels).
  *  `parked`: types inconnus du code courant — ni rendus, ni perdus (compat descendante).
  *  `seeded`: ids d'instances par défaut DÉJÀ injectées → un widget par défaut
- *            supprimé/masqué ne ressuscite pas à chaque chargement. */
-type Layout = { v: 2; items: Instance[]; hidden: Instance[]; parked: Instance[]; seeded: string[] };
+ *            supprimé ne ressuscite pas à chaque chargement.
+ *
+ *  ⚠️ IL N'Y A PLUS DE `hidden`, ET C'EST UNE DÉCISION, pas un oubli. Masquer
+ *  faisait doublon avec supprimer : le seul écart réel était la cfg conservée, et
+ *  deux gestes pour un résultat presque identique coûtent plus en confusion qu'ils
+ *  ne font gagner en clics. Un widget qu'on ne veut plus se SUPPRIME ; s'il faut le
+ *  revoir, on le repose depuis la galerie et on le règle à nouveau — perte de cfg
+ *  ASSUMÉE (arbitrage explicite du 2026-08-03).
+ *  Le champ reste LU par `normalizeLayout` pour les documents déjà écrits (voir la
+ *  note de migration là-bas), mais il n'est plus jamais écrit. */
+type Layout = { v: 2; items: Instance[]; parked: Instance[]; seeded: string[] };
 
 /** Version du document de disposition. Portée par le JSON (`v`) ET recopiée dans
  *  le champ `schema_version` de la table (diagnostic du parc sans parser le JSON). */
@@ -2616,6 +3234,11 @@ const DEFAULT_INSTANCES: Instance[] = [
   { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: "md" },
   { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: "md" },
   { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: "md" },
+  /* ⚠️ POUR LE TEST — cette ligne fait apparaître la synthèse SAV UNE FOIS chez
+     tout le monde (puis elle reste supprimable définitivement, cf. `seed()`).
+     La RETIRER si le widget ne doit être qu'un modèle de la galerie : il y est déjà
+     par CUSTOM_TYPES, donc chacun le pose s'il en a l'usage. */
+  { id: "sav", type: "sav", cfg: {}, w: "half", h: "lg" },
 ];
 
 /* --- GALERIE « Ajouter un widget » : les modèles proposés en mode Personnaliser.
@@ -2628,13 +3251,52 @@ const DEFAULT_INSTANCES: Instance[] = [
    Brancher une source la fait donc apparaître ici sans une ligne de code de plus.
    La cfg d'un preset est COPIÉE dans l'instance à la pose : l'instance est
    autoportante et ne bougera plus si le preset évolue. --- */
-type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetSize };
+type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetSize; group: string };
+
+/* ── GROUPES DE LA GALERIE ────────────────────────────────────────────────────
+   La galerie était une liste PLATE : dix-huit boutons alignés, où « Dossiers SAV
+   récents » voisinait « Annonces SunLib » sans qu'on voie les familles. Elle est
+   désormais un DÉPLIANT par domaine métier — un groupe par famille, replié, qui
+   s'ouvre sur ses modèles.
+
+   Le regroupement suit le DOMAINE, pas le mécanisme technique : la synthèse SAV
+   (type sur-mesure) et les quatre vues `data` sur les tickets vivent dans le même
+   groupe « Dossiers SAV », parce que c'est ainsi que quelqu'un les cherche.
+
+   L'ordre des groupes ci-dessous EST l'ordre d'affichage : pour remonter une
+   famille, il suffit de déplacer sa ligne. */
+const GALLERY_GROUPS: { key: string; label: string; icon: string }[] = [
+  { key: "abonnes", label: "Abonnés", icon: "Bell" },
+  { key: "taches", label: "Tâches", icon: "CalendarClock" },
+  { key: "notes", label: "Notes", icon: "HardHat" },
+  { key: "sav", label: "Dossiers SAV", icon: "Ticket" },
+  { key: "comm", label: "Communication", icon: "Newspaper" },
+  // Repli OBLIGATOIRE : voir groupOfSource ci-dessous. Ne pas retirer cette ligne.
+  { key: "autres", label: "Autres", icon: "LayoutGrid" },
+];
+
+/* Groupe d'une SOURCE. ⚠️ Une source ABSENTE de cette table tombe dans « Autres »
+   au lieu de disparaître : c'est ce repli qui préserve la promesse du catalogue —
+   brancher une source la fait apparaître dans la galerie sans toucher au mapping.
+   La ranger ici n'est qu'un raffinement de présentation. */
+const SOURCE_GROUP: Partial<Record<SourceKey, string>> = {
+  abonnes: "abonnes",
+  tachesPa: "taches", tachesPr: "taches",
+  notesIns: "notes", notesPro: "notes",
+  sav: "sav",
+};
+const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
 
 /* Types sur-mesure proposés dans la galerie, avec leur hauteur de départ (une barre
-   d'annonces n'a pas besoin d'un widget de 340 px). */
-const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize }[] = [
-  { type: "notifs" }, { type: "taches" }, { type: "linkedin" },
-  { type: "linkedinBanner", h: "sm" }, { type: "annonces", h: "sm" },
+   d'annonces n'a pas besoin d'un widget de 340 px) et leur groupe de galerie. */
+const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string }[] = [
+  { type: "notifs", group: "abonnes" },
+  { type: "taches", group: "taches" },
+  { type: "linkedin", group: "comm" },
+  { type: "linkedinBanner", h: "sm", group: "comm" },
+  { type: "annonces", h: "sm", group: "comm" },
+  // Posé en "lg" : la synthèse SAV a quatre sections, elle scrolle en "md".
+  { type: "sav", h: "lg", group: "sav" },
 ];
 
 /** Presets d'une source : ceux du descripteur, ou un modèle liste par défaut. */
@@ -2653,20 +3315,36 @@ function presetsOf(s: SourceKey): Preset[] {
     // `coerceCfg` complète le preset avec les défauts du descripteur (mappage, tri).
     cfg: () => coerceCfg({ ...p.cfg, source: s }, cfgOfSource(s)),
     h: p.h,
+    group: groupOfSource(s),
   }));
 }
 
 const PRESETS: Preset[] = [
-  ...CUSTOM_TYPES.map(({ type: t, h }) => ({
+  ...CUSTOM_TYPES.map(({ type: t, h, group }) => ({
     key: t,
     label: WIDGET_REGISTRY[t].title,
     icon: WIDGET_REGISTRY[t].icon,
     type: t,
     cfg: () => ({}),
     h,
+    group,
   })),
   ...(Object.keys(CATALOG) as SourceKey[]).flatMap(presetsOf),
 ];
+
+/** Groupes de la galerie RÉELLEMENT peuplés, dans l'ordre de `GALLERY_GROUPS`.
+ *  Un groupe vide n'est pas affiché (une famille dont aucune source n'est encore
+ *  déclarée ne doit pas laisser un dépliant vide).
+ *  ⚠️ Le `?? "autres"` est un FILET : un preset dont le groupe n'existe pas dans
+ *  `GALLERY_GROUPS` (faute de frappe, groupe supprimé) atterrit dans « Autres » au
+ *  lieu de disparaître de la galerie sans un mot. */
+const GROUP_KEYS = new Set(GALLERY_GROUPS.map((g) => g.key));
+const PRESET_GROUPS = GALLERY_GROUPS
+  .map((g) => ({
+    ...g,
+    items: PRESETS.filter((p) => (GROUP_KEYS.has(p.group) ? p.group : "autres") === g.key),
+  }))
+  .filter((g) => g.items.length > 0);
 
 /* Copie défensive d'une instance. La cfg est clonée EN PROFONDEUR (elle contient
    des objets imbriqués : `map`, `sort`) : deux instances issues d'un même modèle,
@@ -2679,7 +3357,7 @@ const cloneCfg = (cfg: unknown): unknown => {
 };
 const cloneInstance = (i: Instance): Instance => ({ ...i, cfg: cloneCfg(i.cfg) });
 
-const emptyLayout = (): Layout => ({ v: 2, items: [], hidden: [], parked: [], seeded: [] });
+const emptyLayout = (): Layout => ({ v: 2, items: [], parked: [], seeded: [] });
 
 // Layout par défaut = les instances par défaut, semées. Copie défensive garantie.
 const cloneDefault = (): Layout => seed(emptyLayout());
@@ -2688,11 +3366,10 @@ const idxOf = (list: Instance[], id: string): number => list.findIndex((i) => i.
 
 /** Injecte les instances par défaut JAMAIS VUES par cet utilisateur (en fin
  *  d'`items`, visibles) et les marque `seeded`. PURE. Vue une fois = plus jamais
- *  imposée : masquer ou supprimer un widget par défaut est définitif. */
+ *  imposée : supprimer un widget par défaut est définitif. */
 function seed(l: Layout): Layout {
   const known = new Set<string>([
-    ...l.items.map((i) => i.id), ...l.hidden.map((i) => i.id),
-    ...l.parked.map((i) => i.id), ...l.seeded,
+    ...l.items.map((i) => i.id), ...l.parked.map((i) => i.id), ...l.seeded,
   ]);
   const missing = DEFAULT_INSTANCES.filter((d) => !known.has(d.id));
   if (!missing.length) return l;
@@ -2744,7 +3421,7 @@ function normalizeLayout(saved: unknown, knownTypes: readonly string[] = TYPE_KE
 
   const valid = new Set<string>(knownTypes);
   const seen = new Set<string>();
-  const items: Instance[] = [], hidden: Instance[] = [], parked: Instance[] = [];
+  const items: Instance[] = [], parked: Instance[] = [];
   const take = (list: unknown, dest: Instance[], forceHalf = false) => {
     if (!Array.isArray(list)) return;
     for (const raw of list) {
@@ -2755,9 +3432,18 @@ function normalizeLayout(saved: unknown, knownTypes: readonly string[] = TYPE_KE
     }
   };
   take(obj.items, items);
-  take(obj.hidden, hidden, true);   // un widget masqué ne reste pas « pleine largeur »
+  /* MIGRATION « plus de masqués » — les documents écrits avant la suppression de
+     `hidden` en contiennent : leurs instances sont REMONTÉES EN VISIBLE, à la suite.
+     On ne les jette pas. Perdre la cfg d'un widget qu'on supprime soi-même est un
+     arbitrage assumé ; voir disparaître sans un mot un widget qu'on avait seulement
+     mis de côté serait un bug — et l'utilisateur seul décide de le supprimer.
+     `forceHalf` : ces instances avaient été passées en demi-largeur au masquage, on
+     ne leur rend pas une pleine largeur qu'elles n'avaient plus.
+     Le champ n'est plus JAMAIS écrit : il disparaît du document au prochain
+     « Enregistrer », et cette lecture devient alors inutile. */
+  take(obj.hidden, items, true);
   take(obj.parked, parked);
-  return seed({ v: 2, items, hidden, parked, seeded: uniqueStrings(obj.seeded) });
+  return seed({ v: 2, items, parked, seeded: uniqueStrings(obj.seeded) });
 }
 
 /**
@@ -2771,7 +3457,7 @@ function normalizeLayout(saved: unknown, knownTypes: readonly string[] = TYPE_KE
 function migrateV1(v1: any, knownTypes: readonly string[] = TYPE_KEYS): Layout {
   const valid = new Set<string>(knownTypes);
   const seen = new Set<string>();
-  const items: Instance[] = [], hidden: Instance[] = [], parked: Instance[] = [];
+  const items: Instance[] = [], parked: Instance[] = [];
   const conv = (list: unknown, dest: Instance[], forceHalf = false) => {
     if (!Array.isArray(list)) return;
     for (const id of list) {
@@ -2787,8 +3473,10 @@ function migrateV1(v1: any, knownTypes: readonly string[] = TYPE_KEYS): Layout {
     }
   };
   conv(v1?.order, items);
-  conv(v1?.hidden, hidden, true);
-  return seed({ v: 2, items, hidden, parked, seeded: Array.from(seen) });
+  // Un layout v1 avait aussi ses masqués : même règle qu'en v2, ils remontent en
+  // visible plutôt que de disparaître (cf. la note de normalizeLayout).
+  conv(v1?.hidden, items, true);
+  return seed({ v: 2, items, parked, seeded: Array.from(seen) });
 }
 
 /** Déplace l'élément d'index `from` vers l'index `to`. Fonction PURE (copie).
@@ -2808,28 +3496,9 @@ function moveWidget(layout: Layout, id: string, dir: -1 | 1): Layout {
   return { ...layout, items: reorder(layout.items, from, from + dir) };
 }
 
-/** Masque une instance : d'`items` vers `hidden`, cfg et hauteur CONSERVÉES.
- *  PURE. Repasse en demi-largeur (un widget masqué ne reste pas pleine largeur). */
-function hideWidget(layout: Layout, id: string): Layout {
-  const i = idxOf(layout.items, id);
-  if (i < 0) return layout;
-  return {
-    ...layout,
-    items: layout.items.filter((x) => x.id !== id),
-    hidden: [...layout.hidden, { ...layout.items[i], w: "half" }],
-  };
-}
-
-/** Réaffiche une instance masquée : de `hidden` vers la fin d'`items`. PURE. */
-function showWidget(layout: Layout, id: string): Layout {
-  const i = idxOf(layout.hidden, id);
-  if (i < 0) return layout;
-  return {
-    ...layout,
-    items: [...layout.items, layout.hidden[i]],
-    hidden: layout.hidden.filter((x) => x.id !== id),
-  };
-}
+/* `hideWidget` / `showWidget` ont été SUPPRIMÉES (2026-08-03) : il n'y a plus de
+   masquage, seulement `removeInstance`. Ne pas les réintroduire sans revenir sur
+   l'arbitrage documenté au type `Layout`. */
 
 /** Bascule la largeur d'une instance VISIBLE (pleine largeur ↔ moitié). PURE. */
 function setWidgetWide(layout: Layout, id: string, value: boolean): Layout {
@@ -2854,7 +3523,7 @@ function setWidgetSize(layout: Layout, id: string, h: WidgetSize): Layout {
 /** Tous les ids déjà « pris » par cet utilisateur, y compris `seeded` et `parked` :
  *  un id neuf ne doit jamais entrer en collision avec un id retiré mais mémorisé. */
 const takenIds = (l: Layout): Set<string> =>
-  new Set([...l.items, ...l.hidden, ...l.parked].map((i) => i.id).concat(l.seeded));
+  new Set([...l.items, ...l.parked].map((i) => i.id).concat(l.seeded));
 
 /** Id d'instance neuf. Les ids par défaut sont des clés de type (« notifs ») ;
  *  ceux créés à la main portent le préfixe `w_` — aucun risque de confusion. */
@@ -2870,27 +3539,19 @@ function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetSize =
   return { ...layout, items: [...layout.items, inst] };
 }
 
-/** Duplique une instance visible JUSTE APRÈS l'originale, cfg copiée, id neuf. PURE.
- *  C'est LE geste multi-instances : « le même widget, mais filtré autrement ». */
-function duplicateInstance(layout: Layout, id: string): Layout {
-  const i = idxOf(layout.items, id);
-  if (i < 0) return layout;
-  const copy: Instance = { ...cloneInstance(layout.items[i]), id: newInstanceId(takenIds(layout)) };
-  const items = [...layout.items];
-  items.splice(i + 1, 0, copy);
-  return { ...layout, items };
-}
+/* `duplicateInstance` a été SUPPRIMÉE (2026-08-03), comme le masquage avant elle :
+   poser deux fois la même famille de widget passe par la galerie, puis par les
+   Options de chacun. Le multi-instances reste entier — c'est seulement le raccourci
+   « copier celui-ci » qui disparaît. Ne pas la réintroduire sans motif. */
 
-/** Supprime définitivement une instance (visible ou masquée). PURE.
+/** Supprime définitivement une instance. C'est le SEUL geste de retrait (plus de
+ *  masquage, cf. le type `Layout`) : la cfg est perdue, et la reposer depuis la
+ *  galerie donne une instance neuve avec la cfg du preset. PURE.
  *  `seeded` n'est PAS touché : un widget par défaut supprimé ne réapparaîtra pas
  *  au prochain chargement (il reste re-ajoutable via la galerie). */
 function removeInstance(layout: Layout, id: string): Layout {
-  if (idxOf(layout.items, id) < 0 && idxOf(layout.hidden, id) < 0) return layout;
-  return {
-    ...layout,
-    items: layout.items.filter((x) => x.id !== id),
-    hidden: layout.hidden.filter((x) => x.id !== id),
-  };
+  if (idxOf(layout.items, id) < 0) return layout;
+  return { ...layout, items: layout.items.filter((x) => x.id !== id) };
 }
 
 /* ============================================================================
@@ -3064,7 +3725,7 @@ function SkeletonCard() {
    RIEN n'est déplaçable ni redimensionnable. « Personnaliser » bascule en
    édition : poignée de drag + DnD HTML5 natif (réordonner), poignées de bord
    (redimensionner en largeur, événements pointer souris+tactile) et menu ⋮
-   (Monter / Descendre / Pleine largeur / Masquer — chemin clavier/tactile).
+   (Monter / Descendre / Largeur / Taille / Supprimer — chemin clavier/tactile).
    « Enregistrer » persiste (§11) ; « Annuler » restaure le layout d'entrée ;
    « Réinitialiser » revient au défaut (confirmation inline, jamais
    window.confirm). Grille responsive via la classe .slb-dash ; un widget
@@ -3098,6 +3759,8 @@ function Dashboard() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Layout>(() => cloneDefault());
   const [confirmReset, setConfirmReset] = useState(false);
+  // Dépliant de la galerie : clé du groupe ouvert, ou null (tout replié).
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; layout?: Layout; error?: string } | null>(null);
@@ -3159,7 +3822,8 @@ function Dashboard() {
     flipPrev.current = next;
   });
 
-  const enterEdit = () => { setDraft(current); setConfirmReset(false); setEditing(true); };
+  // La galerie s'ouvre toujours REPLIÉE : c'est l'intérêt du dépliant.
+  const enterEdit = () => { setDraft(current); setConfirmReset(false); setOpenGroup(null); setEditing(true); };
   const cancel = () => { setEditing(false); setConfirmReset(false); resetDrag(); };
   const runSave = async (next: Layout) => {
     const res = await persist(next);                  // optimiste : le layout est déjà appliqué
@@ -3183,12 +3847,9 @@ function Dashboard() {
   // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD. `id` = id d'INSTANCE.
   const onMoveUp = (id: string) => setDraft((d) => moveWidget(d, id, -1));
   const onMoveDown = (id: string) => setDraft((d) => moveWidget(d, id, 1));
-  const onHide = (id: string) => setDraft((d) => hideWidget(d, id));
-  const onShow = (id: string) => setDraft((d) => showWidget(d, id));
   const onSetWide = (id: string, v: boolean) => setDraft((d) => setWidgetWide(d, id, v));
   const onSetSize = (id: string, s: WidgetSize) => setDraft((d) => setWidgetSize(d, id, s));
   // Multi-instances (mode Personnaliser) — tout reste dans le brouillon jusqu'à « Enregistrer ».
-  const onDuplicate = (id: string) => setDraft((d) => duplicateInstance(d, id));
   const onRemove = (id: string) => setDraft((d) => removeInstance(d, id));
   const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md"));
 
@@ -3278,7 +3939,7 @@ function Dashboard() {
 
       {editing && (
         <p style={{ margin: "-4px 0 14px", fontSize: "12.5px", fontWeight: 500, color: T.ink3 }}>
-          Glissez les cartes pour réordonner ; poignées latérales = largeur (moitié / pleine), poignée du bas = hauteur ; ou tout régler via le menu ⋮ (Largeur, Taille, Masquer).
+          Glissez les cartes pour réordonner ; poignées latérales = largeur (moitié / pleine), poignée du bas = hauteur ; ou tout régler via le menu ⋮ (Largeur, Taille, Supprimer).
         </p>
       )}
 
@@ -3289,7 +3950,7 @@ function Dashboard() {
       ) : shown.items.length === 0 ? (
         <Card style={CARD}>
           <EmptyState icon={LayoutGrid} title="Aucun widget affiché"
-            hint={editing ? "Réaffichez des widgets depuis « Widgets masqués » ci-dessous." : "Tous vos widgets sont masqués. Ouvrez « Personnaliser » pour en réafficher."} />
+            hint={editing ? "Posez des widgets depuis « Ajouter un widget » ci-dessous." : "Vous avez supprimé tous vos widgets. Ouvrez « Personnaliser » pour en ajouter."} />
           {!editing && (
             <div style={{ display: "flex", justifyContent: "center", paddingBottom: "22px" }}>
               <button className="slb-btnp" style={btnPrimary} onClick={enterEdit}>
@@ -3324,7 +3985,7 @@ function Dashboard() {
                 onDrop={editing ? (e) => { e.preventDefault(); onDrop(i); } : undefined}
                 style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: editing ? "relative" : undefined, gridColumn: wide ? "1 / -1" : undefined, borderRadius: T.rXl, opacity: isSource ? 0.5 : 1, outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3, boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined }}>
                 <div ref={(el) => { if (el) innerRefs.current.set(id, el); else innerRefs.current.delete(id); }} style={{ borderRadius: T.rXl }}>
-                  <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onHide: () => onHide(id), onDuplicate: () => onDuplicate(id), onRemove: () => onRemove(id) } : null}>
+                  <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onRemove: () => onRemove(id) } : null}>
                     {/* Options : mode NORMAL uniquement (en édition, le ⋮ porte les
                         actions de disposition et le corps est inerte). */}
                     <WidgetOptionsCtx.Provider value={!editing && def.Options ? { cfg, Form: def.Options, onSave: (c) => persistCfg(id, c) } : null}>
@@ -3357,59 +4018,59 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Panneau « Widgets masqués » — visible seulement en édition */}
-      {editing && (
-        <Card style={{ ...CARD, marginTop: "18px", padding: "14px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: shown.hidden.length ? "12px" : 0 }}>
-            <EyeOff aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
-            <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>Widgets masqués</span>
-            <span style={{ fontSize: "12px", fontWeight: 600, color: T.ink4 }}>{shown.hidden.length}</span>
-          </div>
-          {shown.hidden.length === 0 ? (
-            <p style={{ margin: 0, fontSize: "12.5px", fontWeight: 500, color: T.ink4 }}>Aucun widget masqué — tous vos widgets sont affichés.</p>
-          ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-              {shown.hidden.map((inst) => {
-                const def = typeDefOf(inst.type);
-                if (!def) return null;                       // type inconnu : garde-fou (cf. `parked`)
-                const { title, icon: Icon } = def;
-                return (
-                  <div key={inst.id} style={{ display: "inline-flex", alignItems: "center", gap: "10px", padding: "7px 8px 7px 12px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
-                    <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
-                    <span style={{ fontSize: "12.5px", fontWeight: 600, color: T.ink2 }}>{title}</span>
-                    <button className="slb-btng" style={{ ...btn, padding: "5px 10px", fontSize: "12px" }} onClick={() => onShow(inst.id)} aria-label={`Afficher — ${title}`}>
-                      <Eye aria-hidden style={{ width: 14, height: 14 }} />Afficher
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-      )}
+      {/* Le panneau « Widgets masqués » a été SUPPRIMÉ avec le masquage lui-même :
+          la galerie ci-dessous est désormais le seul endroit d'où un widget revient
+          sur la grille. */}
 
-      {/* Panneau « Ajouter un widget » — visible seulement en édition. La liste des
-          modèles est générée (types sur-mesure + une liste par source du catalogue) :
-          brancher une source la fait apparaître ici automatiquement. */}
+      {/* Panneau « Ajouter un widget » — visible seulement en édition. Les modèles
+          sont GÉNÉRÉS (types sur-mesure + les presets de chaque source du catalogue),
+          puis regroupés par famille métier en DÉPLIANTS (`PRESET_GROUPS`) : brancher
+          une source la fait apparaître ici automatiquement, dans son groupe ou dans
+          « Autres ». Un seul groupe ouvert à la fois — c'est ce qui garde le panneau
+          court, qui était la raison de le replier. */}
       {editing && (
         <Card style={{ ...CARD, marginTop: "12px", padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
             <Plus aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
             <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>Ajouter un widget</span>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-            {PRESETS.map((p) => {
-              const Icon = p.icon;
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+            {PRESET_GROUPS.map((g) => {
+              const GIcon = iconOf(g.icon);
+              const open = openGroup === g.key;
+              const panelId = `slb-grp-${g.key}`;
               return (
-                <button key={p.key} className="slb-btng" onClick={() => onAdd(p)} aria-label={`Ajouter — ${p.label}`}
-                  style={{ ...btn, padding: "7px 12px", alignItems: "center" }}>
-                  <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
-                  <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
-                    <span style={{ fontSize: "12.5px", fontWeight: 600 }}>{p.label}</span>
-                    {p.hint && <span style={{ fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>{p.hint}</span>}
-                  </span>
-                  <Plus aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />
-                </button>
+                <div key={g.key} style={{ border: `1px solid ${T.line}`, borderRadius: T.rMd, overflow: "hidden", background: open ? T.surface2 : T.surface }}>
+                  <button className="slb-btng" aria-expanded={open} aria-controls={panelId}
+                    onClick={() => setOpenGroup(open ? null : g.key)}
+                    style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: T.ink }}>
+                    <GIcon aria-hidden style={{ width: 15, height: 15, color: T.ink3, flex: "none" }} />
+                    <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 700 }}>{g.label}</span>
+                    {/* Pastille compteur (charte §2) : combien de modèles derrière. */}
+                    <span style={{ flex: "none", padding: "1px 7px", borderRadius: 999, background: T.neutral050, color: T.ink3, fontSize: "11px", fontWeight: 700 }}>{g.items.length}</span>
+                    {open
+                      ? <ChevronUp aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none" }} />
+                      : <ChevronDown aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none" }} />}
+                  </button>
+                  {open && (
+                    <div id={panelId} style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "2px 12px 12px" }}>
+                      {g.items.map((p) => {
+                        const Icon = p.icon;
+                        return (
+                          <button key={p.key} className="slb-btng" onClick={() => onAdd(p)} aria-label={`Ajouter — ${p.label}`}
+                            style={{ ...btn, padding: "7px 12px", alignItems: "center" }}>
+                            <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
+                            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
+                              <span style={{ fontSize: "12.5px", fontWeight: 600 }}>{p.label}</span>
+                              {p.hint && <span style={{ fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>{p.hint}</span>}
+                            </span>
+                            <Plus aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

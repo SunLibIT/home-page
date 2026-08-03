@@ -8,7 +8,7 @@
 > disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES et **descripteur
 > `CATALOG`** ; **type générique unique `data`** (grammaire `query`/`view` → vues liste, tableau,
 > indicateur) avec un **formulaire d'options unique** ; multi-instances (galerie de presets
-> **déclarés dans le catalogue**, Dupliquer, Supprimer) ; **actions d'écriture déclaratives**
+> **déclarés dans le catalogue**, regroupés en dépliants par famille) ; **actions d'écriture déclaratives**
 > (`RowActions`, `QuickCreate`) ; persistance passée **sur Airtable**.
 > Reste à faire, hors refonte : brancher les **4 sources métier** encore en mock (recette
 > `ARCHITECTURE-V2.md` §10) — ce qui activera la première écriture réelle — puis passer
@@ -71,11 +71,12 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, `WidgetChromeCtx`, `WidgetEditMenu`, **`Widget`** (la coquille), `PageNavBar`, `Hero`, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifRow`/`NotifWidget`, `TaskRow`/`TasksWidget` |
+| **9-quinquies** | **Synthèse SAV** : helpers purs (`savNum`/`savTime`/`savDays`/`savTotal`/`savKpis`), **registre `SAV_METRICS`** (les valeurs cochables), `coerceSavCfg`, `SavOptions`, `SavWidget`, `SavCard` |
 | **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
 | **9-ter** | **ACTIONS** (écritures déclaratives) : `activeActions`, `interpolate`, `RowActions`, **`QuickCreate`** |
 | **9-quater** | **`DataOptions`** — le formulaire d'options UNIQUE, généré par la grammaire + `FilterValueInput` |
 | 10 | Enveloppes **data** (une par widget) + **`WIDGET_REGISTRY`** (registre des *types*) + `typeDefOf` |
-| **10-bis** | **Modèle de disposition v2** : `Instance`, `Layout`, `DEFAULT_INSTANCES`, **`PRESETS`** (galerie), `seed`, `normalizeLayout`, `migrateV1` + fonctions pures (déplacer / masquer / largeur / hauteur / **ajouter / dupliquer / supprimer**) |
+| **10-bis** | **Modèle de disposition v2** : `Instance`, `Layout`, `DEFAULT_INSTANCES`, **`PRESETS`** (galerie), `seed`, `normalizeLayout`, `migrateV1`, **groupes de galerie** (`GALLERY_GROUPS`/`PRESET_GROUPS`) + fonctions pures (déplacer / largeur / hauteur / **ajouter / supprimer**) |
 | 11 | `useHeroCounts`, **`usePersistentLayout`**, `SkeletonCard`, **`Dashboard`** (grille, mode Personnaliser, DnD, FLIP, toast) |
 | 12 | `export default function Block()` |
 
@@ -142,7 +143,10 @@ son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appel
 
 ```tsx
 type WidgetTypeKey = "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
-                   | "linkedin" | "linkedinBanner" | "annonces" | "list" | "kpi";
+                   | "linkedin" | "linkedinBanner" | "annonces"
+                   | "sav"            // synthèse du bloc « Pilotage SAV » (§9-quinquies)
+                   | "data"           // LE type générique piloté par cfg (§9-bis)
+                   | "list" | "kpi";  // dépréciés : rendent comme `data`, cfg traduite
 
 type WidgetTypeDef = {
   title: string; icon: LucideIcon;
@@ -179,10 +183,16 @@ Deux familles de types cohabitent volontairement :
 
 | | Types **sur-mesure** | Types **liste** |
 |---|---|---|
-| Exemples | `notifs`, `taches`, les 3 embeds Elfsight | `notesInstallateurs`, `notesProspects`, `data` (+ `list`/`kpi` dépréciés) |
+| Exemples | `notifs`, `taches`, `sav`, les 3 embeds Elfsight | `notesInstallateurs`, `notesProspects`, `data` (+ `list`/`kpi` dépréciés) |
 | Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `dataType(...)` |
 | Interactions propres | oui (marquer comme lu, onglets, embed) | non |
-| ⋮ Options | non (bouton non affiché) | **oui** — un formulaire unique (§9-quater) |
+| ⋮ Options | **au cas par cas** : aucun pour `notifs`/`taches`/les embeds, **oui pour `sav`** (registre `SAV_METRICS`, §9-quinquies) | **oui** — un formulaire unique (§9-quater) |
+
+Le cas `sav` est le patron à suivre pour rendre configurable un widget sur-mesure : le
+formulaire n'énumère rien en dur, il est **généré depuis un registre de métriques** (`key`,
+`label`, `kind`, fonction de calcul). Ajouter une valeur cochable = une entrée dans ce
+registre, et elle apparaît dans le panneau de tout le monde. Les `key` du registre sont
+stockées dans `cfg.show` : **ce sont des contrats de persistance**, comme les clés de type.
 
 Ajouter un widget générique = 1 entrée de registre. Ajouter un widget sur-mesure = présentiel +
 enveloppe + entrée. Dans les deux cas, + 1 entrée `DEFAULT_INSTANCES` pour le livrer par défaut.
@@ -364,11 +374,11 @@ actions et la création se testent sans base.
 
 | Contexte | Quand | Effet |
 |---|---|---|
-| `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Dupliquer**/Masquer/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
+| `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
 | `WidgetOptionsCtx` non-null | mode normal **et** type configurable | bouton ⋮ → `WidgetOptionsMenu` : le formulaire du type, brouillon local, « Annuler » / « Enregistrer » |
 
 Le chrome injecté est
-`{ index, total, isWide, size, onMoveUp, onMoveDown, onSetWide, onSetSize, onHide, onDuplicate,
+`{ index, total, isWide, size, onMoveUp, onMoveDown, onSetWide, onSetSize, onDuplicate,
 onRemove }` ; les options `{ cfg, Form, onSave }`. Le widget lui-même ne connaît **rien** du layout : c'est le `Dashboard` qui
 fournit tout via contexte. Un type sans `Options` n'affiche **aucun** bouton ⋮ en mode normal (plus
 de bouton décoratif sans action). « Enregistrer » appelle `persistCfg(id, cfg)` → même pipeline que
@@ -411,16 +421,23 @@ type Instance = {
 type Layout = {
   v: 2;
   items:  Instance[];  // visibles — l'ordre du tableau EST l'ordre d'affichage
-  hidden: Instance[];  // masqués (cfg et hauteur conservées)
   parked: Instance[];  // types inconnus du code courant : ni rendus, ni perdus
   seeded: string[];    // ids par défaut déjà injectés → pas de résurrection
 };
 ```
 
+> ⚠️ **Il n'y a plus de `hidden`** (décision du 2026-08-03). Masquer faisait doublon avec
+> supprimer : le seul écart réel était la `cfg` conservée, et deux gestes pour un résultat
+> presque identique coûtent plus en confusion qu'ils ne font gagner en clics. Un widget dont
+> on ne veut plus se **supprime** ; pour le revoir, on le repose depuis la galerie et on le
+> règle à nouveau — **perte de cfg assumée**. `hideWidget` / `showWidget` et le panneau
+> « Widgets masqués » ont disparu ; `normalizeLayout` continue de **lire** `hidden` pour les
+> documents déjà écrits, mais ne l'écrit plus jamais.
+
 Toute la logique vit dans des fonctions **pures** (aucune logique dans les handlers) :
 `normalizeLayout(saved, knownTypes?)`, `migrateV1`, `seed`, `coerceInstance`, `cloneInstance`,
-`cloneCfg`, `reorder(list, from, to)`, `moveWidget`, `hideWidget`, `showWidget`, `setWidgetWide`,
-`setWidgetSize`, **`addInstance`, `duplicateInstance`, `removeInstance`**, `newInstanceId`,
+`cloneCfg`, `reorder(list, from, to)`, `moveWidget`, `setWidgetWide`,
+`setWidgetSize`, **`addInstance`, `removeInstance`**, `newInstanceId`,
 `takenIds`, `cloneDefault`, `emptyLayout`, `idxOf`, `uniqueStrings`.
 
 `normalizeLayout` est la brique de compatibilité, appliquée à **toute** lecture (BDD *et* cache
@@ -431,9 +448,13 @@ localStorage — la migration du cache est donc transparente) :
 - `v:2` → assainissement : instance sans `id`/`type` ou en doublon écartée (`items` prioritaire
   sur `hidden` puis `parked`), `w`/`h` clampés, **`type` inconnu → `parked` (jamais supprimé)**,
   `cfg` laissée **brute** (on ne « répare » jamais le stockage, on tolère à la lecture) ;
+- **migration « plus de masqués »** : les instances d'un `hidden` déjà écrit sont **remontées en
+  visible**, en fin d'`items` et en demi-largeur. Elles ne sont pas jetées : perdre la cfg d'un
+  widget qu'on supprime soi-même est un arbitrage, voir disparaître sans un mot un widget
+  seulement mis de côté serait un bug ;
 - puis `seed()` : **toute instance de `DEFAULT_INSTANCES` jamais vue par cet utilisateur** est
   ajoutée en fin d'`items`, visible, et marquée `seeded` — un widget nouvellement livré apparaît
-  donc chez tout le monde **une fois**, mais un widget supprimé ou masqué ne ressuscite plus.
+  donc chez tout le monde **une fois**, mais un widget supprimé ne ressuscite plus.
 
 Comportement volontairement plus fin que le doc cible : `migrateV1` ne marque `seeded` que les ids
 **réellement présents** dans le layout v1, pour qu'un widget par défaut livré après la dernière
@@ -445,16 +466,24 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
 ### Multi-instances (phase 3)
 
 - **`addInstance(layout, type, cfg)`** — ajoute en fin de grille, id neuf `w_xxxxxx` (jamais en
-  collision avec un id d'`items`/`hidden`/`parked`/`seeded`, y compris supprimé mais mémorisé).
-- **`duplicateInstance(layout, id)`** — copie l'instance **juste après** l'originale, `cfg` clonée
-  en profondeur (`cloneCfg` via JSON : une cfg est par construction sérialisable), largeur et
-  hauteur reprises. C'est le geste « le même widget, filtré autrement ».
-- **`removeInstance(layout, id)`** — retire d'`items` **et** de `hidden`. `seeded` n'est pas touché,
-  donc pas de résurrection ; le widget reste re-ajoutable via la galerie.
+  collision avec un id d'`items`/`parked`/`seeded`, y compris supprimé mais mémorisé).
+- **`removeInstance(layout, id)`** — retire d'`items`. **Seul geste de retrait** : la `cfg` est
+  perdue, et reposer le widget depuis la galerie donne une instance neuve avec la cfg du preset.
+  `seeded` n'est pas touché, donc pas de résurrection.
 - **`PRESETS`** — modèles de la galerie, **générés** : un par type sur-mesure (pour ré-ajouter un
-  widget supprimé) + un `list` par source du catalogue, avec le `defaultMap` de la source, + un
-  `kpi` vierge (hauteur « petit » d'emblée). Brancher une source la fait apparaître dans la galerie
-  sans une ligne de code de plus.
+  widget supprimé) + les presets déclarés par chaque source du catalogue (à défaut, un modèle liste
+  sur son `defaultMap`). Brancher une source la fait apparaître dans la galerie sans une ligne de
+  code de plus.
+- **`GALLERY_GROUPS` / `SOURCE_GROUP` / `PRESET_GROUPS`** — la galerie est un **dépliant par
+  famille métier** (Abonnés, Tâches, Notes, Dossiers SAV, Communication, Autres), un seul groupe
+  ouvert à la fois. Le regroupement suit le **domaine**, pas le mécanisme : la synthèse SAV
+  (sur-mesure) et les vues `data` sur les tickets sont dans le même groupe. Une source absente de
+  `SOURCE_GROUP` tombe dans « Autres » plutôt que de disparaître — c'est ce repli qui préserve la
+  promesse « brancher une source suffit ». L'ordre de `GALLERY_GROUPS` est l'ordre d'affichage.
+
+> **`duplicateInstance` a été supprimée (2026-08-03)**, comme le masquage avant elle. Poser deux
+> fois la même famille de widget passe par la galerie puis par les Options de chacun : le
+> multi-instances reste entier, seul le raccourci « copier celui-ci » disparaît.
 
 Comme le reste du mode Personnaliser, ces trois actions ne touchent que le **brouillon** : rien
 n'est écrit avant « Enregistrer », et « Annuler » restaure tout — y compris une suppression.
@@ -469,8 +498,8 @@ multi-instances, clamps, dédup, `parked`, idempotence de l'aller-retour, no-op 
 « Annuler » jette le brouillon, « Réinitialiser » (confirmation inline, jamais `window.confirm`)
 remet `cloneDefault()`, « Enregistrer » appelle `persist(draft)` puis affiche un toast
 (succès auto-disparu à 2,6 s ; échec persistant avec bouton « Réessayer »).
-Deux panneaux n'apparaissent qu'en édition : **« Widgets masqués »** (réafficher) et **« Ajouter un
-widget »** (la galerie de `PRESETS`). Hors édition, le ⋮ de chaque widget configurable ouvre ses
+Un panneau n'apparaît qu'en édition : **« Ajouter un widget »** (la galerie de `PRESETS`) — c'est
+le seul endroit d'où un widget revient sur la grille. Hors édition, le ⋮ de chaque widget configurable ouvre ses
 **Options**, qui persistent la `cfg` immédiatement (`persistCfg`) — c'est le seul chemin d'écriture
 en dehors de « Enregistrer », et il est explicite (bouton « Enregistrer » du panneau).
 
@@ -518,7 +547,7 @@ un champ prend dix secondes le jour où le besoin existe.
 ### Décision « Option A » — stockage unique
 
 **Tout le layout est sérialisé dans le seul champ `layout_json`** :
-`JSON.stringify({ v:2, items, hidden, parked, seeded })`. Le `v` du JSON reste la version qui
+`JSON.stringify({ v:2, items, parked, seeded })`. Le `v` du JSON reste la version qui
 gouverne la lecture ; `schema_version` en est une recopie, pour diagnostiquer l'état du parc
 directement dans la grille Airtable sans parser le JSON.
 
@@ -651,7 +680,7 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
    générique** (`list`/`kpi` piloté par `cfg`) et son formulaire d'options : phase 2.
    Coût marginal d'une nouvelle source aujourd'hui : ~30 lignes, zéro toucher au moteur.
 2. ~~**Une seule instance par widget**~~ **résolu (phases 0 et 3)** : `instance.id` est distinct de
-   `instance.type`, et l'UI suit — « Dupliquer », « Supprimer », galerie « Ajouter un widget ». Deux
+   `instance.type`, et l'UI suit — « Supprimer », galerie « Ajouter un widget » (en dépliants). Deux
    « Notes » avec deux filtres différents sont possibles.
 3. **`widgets_config_json` inutilisé — et il le restera.** Décision Option A : la `cfg` par instance
    vit dans le document `layout_json` (champ `cfg`), désormais **réellement écrite** pour les widgets
