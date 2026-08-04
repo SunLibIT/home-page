@@ -20,11 +20,17 @@ const inDays = (n: number) => {
   return d.toISOString();
 };
 
-// « Abonnés » — nouveaux dossiers (aliases : nom / prenom / partenaire / statut / offre / creeLe)
+/* « Abonnés » — nouveaux dossiers (aliases : nom / prenom / partenaire / statut / offre
+   / creeLe). Les cinq derniers champs servent la SECONDE lecture de cette table, celle
+   du podium CAPEX (SELECT_COM) : sans eux, l'aperçu local en USE_MOCK=false montrerait
+   un podium vide. `contratSigne` est une PIÈCE JOINTE, donc un tableau. */
 const abonnes: Rec[] = [
-  { id: "a1", fields: { prenom: "Quentin", nom: "LINDIMER", partenaire: "Soleil et Climat", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(0) } },
-  { id: "a2", fields: { prenom: "", nom: "TSD BEL HABITAT", partenaire: "TSD BEL HABITAT", statut: "Dossier PRO en cours d'étude du service technique", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(1) } },
-  { id: "a3", fields: { prenom: "Marie", nom: "Dupont", partenaire: "A.D.W", statut: "Contrat signé", offre: "PV seul", creeLe: daysAgo(2) } },
+  { id: "a1", fields: { prenom: "Quentin", nom: "LINDIMER", partenaire: "Soleil et Climat", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(0),
+      commercial: "Edouard Da Silva", capex: 1420000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: "2026-08" } },
+  { id: "a2", fields: { prenom: "", nom: "TSD BEL HABITAT", partenaire: "TSD BEL HABITAT", statut: "Dossier PRO en cours d'étude du service technique", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(1),
+      commercial: "Philippe GERY", capex: 1980000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: "2026-07" } },
+  { id: "a3", fields: { prenom: "Marie", nom: "Dupont", partenaire: "A.D.W", statut: "Contrat signé", offre: "PV seul", creeLe: daysAgo(2),
+      commercial: "Ilan LEVY", capex: 1450000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: "2026-06" } },
 ];
 
 // « Suivi client » — notes installateurs (aliases : nom / note / date)

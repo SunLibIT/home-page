@@ -79,6 +79,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, les **4 contextes de widget** (`WidgetChromeCtx`, `WidgetOptionsCtx`, **`WidgetCfgCtx`**, **`WidgetGrabCtx`**) + `WidgetHeightCtx`, `useDismissOnOutside`/`hitsRect`, `WidgetEditMenu`, **`Widget`** (la coquille), `ScrollBody`, `PageNavBar`, `Hero`, **`topOrigin`/`softrPageUrl`**, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
+| **9-septies** | **Podium CAPEX** : `podiumStats` (pure), `fmtMEur`, `PodiumOptions`, `PodiumWidget`, `PodiumCard` — repris de l'onglet Commercial du bloc `dashboard-KPI` |
 | **9-sexies** | **Widgets UTILITAIRES sans source** : `HorlogeCard`/`HorlogeOptions`, `MemoCard` (+ `memoInline`/`MemoRead`, le texte balisé), `ChecklistCard` — leur contenu EST leur cfg |
 | **9-quinquies** | **Synthèse SAV** : helpers purs (`savNum`/`savTime`/`savDays`/`savTotal`/`savKpis`), **registre `SAV_METRICS`** (les valeurs cochables), `coerceSavCfg`, `SavOptions`, `SavWidget`, `SavCard` |
 | **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
@@ -840,6 +841,13 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 | `tachesPr` | « Taches prospect » (Bdd Installateurs, `tblYQaq030GsdnIdy`) | ✅ **connecté** | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
 | `sav` | « Tickets » (SAV, `tblf4KgGHCaZXKnBX`) | ✅ **connecté**, lecture seule | 22 alias (ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût) |
 | `notifC` | « Notification Center » (BDD Abonné, `tblqF71AO8nFVpWi5`) | ⏳ **non connecté** | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
+| `comKpi` | « Abonnés » **relue** (même datasource que `abonnes`) | ✅ **connecté**, lecture seule **paginée** | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` |
+
+> **Deux entrées de catalogue pour une même table** (`abonnes` et `comKpi`) : une source
+> n'est pas une datasource, c'est une **lecture**. `abonnes` lit large sur les 12 derniers
+> dossiers ; `comKpi` lit 5 champs mais sur **tout le parc**, pour le podium CAPEX. Les fusionner
+> ferait payer au widget « Derniers dossiers » le prix d'un parc entier, ou au podium
+> l'inexactitude d'un échantillon.
 
 ⚠️ Les noms de champs comportent des **espaces finaux et des casses irrégulières** (`"Date "`,
 `"date "`, `"date de fin"` vs `"Date de fin"`) : ne jamais les normaliser. **Tous ont été
@@ -954,9 +962,13 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
 8. ~~**`USE_MOCK` est global**~~ **résolu (phase 1)** : `USE_MOCK` reste l'interrupteur global, mais
    la granularité vient de `CATALOG[k].connected` — toute source non connectée sert son mock même
    avec `USE_MOCK = false` (`offlineState`), sans interrupteur supplémentaire.
-9. **Pas de pagination réelle** : `flatten().slice(0, 12)` côté client, pas de `fetchNextPage`.
-   Conséquence directe, et c'est la plus importante depuis le passage en live : `orderBy` décide
-   **quelles** lignes sont lues, et tout agrégat (KPI, indicateurs SAV) porte sur cette fenêtre.
+9. **Pagination : une seule source la fait.** Par défaut, `useRecords` ne rend que la **première
+   page** — `orderBy` décide donc **quelles** lignes sont lues, et tout agrégat (KPI, indicateurs
+   SAV) porte sur cette fenêtre. Seul **`comKpi`** vide la pagination (`useDrainPages`, plafond
+   `COM_MAX_PAGES = 40`), parce que le podium **agrège sur le parc** : sur un échantillon il
+   afficherait un classement faux avec des montants crédibles. Plafond atteint → `partial: true`,
+   que le widget **affiche** (« Calcul partiel »). Tout futur widget qui totalise doit suivre ce
+   chemin, et jamais se contenter d'une page en silence.
 10. ~~**`USE_MOCK` est encore à `true`**~~ **passé à `false` le 2026-08-04** : 6 des 7 sources
     lisent Airtable en direct. Reste `notifC`.
 11. ~~**Les menus ⋮ se referment au clic, sans exécuter l'action**~~ **corrigé le 2026-08-03.**

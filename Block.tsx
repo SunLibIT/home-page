@@ -61,7 +61,7 @@ import {
   Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
-  Save, X, Newspaper, Megaphone, Sparkles,
+  Save, X, Newspaper, Megaphone, Sparkles, Trophy,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -687,6 +687,32 @@ const SELECT_SAV = q.select({
   cout: "Coût tiers SAV",
 });
 
+/* ── PERFORMANCE COMMERCIALE ← « Abonnés », lue une SECONDE fois avec son propre
+   select. Même table, même datasource, deux lectures : celle-ci sert le podium CAPEX
+   et ne charge que 5 champs, mais elle les charge SUR TOUT LE PARC (pagination
+   complète, cf. ComKpiSource) — alors que `SELECT_ABONNE` lit large sur les 12
+   derniers dossiers. Fusionner les deux ferait payer au widget « Derniers dossiers »
+   le prix d'un parc entier, ou au podium l'inexactitude d'un échantillon.
+
+   Champs et critères RECOPIÉS du bloc `dashboard-KPI` (onglet Commercial), pour que
+   les deux écrans donnent le même podium :
+     · commercial   « Propio SOFTR » — vide ⇒ « Non assigné », exclu du podium
+     · capex        « Prix Installation HT total »
+     · contratSigne « Contrat abonnement signe » — PIÈCE JOINTE, pas un statut
+     · statutAbonne « Statut de l'abonné » — « Annulé » exclut du décompte
+     · moisSignature « Mois de signature contrat » — clé « AAAA-MM » du filtre de période
+
+   ⚠️ « SIGNÉ » = LE PDF DU CONTRAT EST JOINT, et non un statut : un dossier peut
+   porter un statut sans contrat, et l'inverse. C'est le critère du bloc KPI comme de
+   `sunlib-kpi` ; en prendre un autre ici donnerait deux classements concurrents. */
+const SELECT_COM = q.select({
+  commercial: "Propio SOFTR",
+  capex: "Prix Installation HT total",
+  contratSigne: "Contrat abonnement signe",
+  statutAbonne: "Statut de l'abonné",
+  moisSignature: "Mois de signature contrat",
+});
+
 /* --- SELECTS D'ÉCRITURE (§9-ter). Ce sont LES WHITELISTS : un alias absent d'ici
    est physiquement inécrivable depuis le bloc (Softr répond 400), quoi que puisse
    déclarer le catalogue. N'y mettre que des champs que l'utilisateur a le droit de
@@ -756,11 +782,22 @@ const mapTask = (r: Row): Task => ({
    checkbox peut arriver en `true`, en `"true"`, ou absente. */
 const isTruthy = (v: unknown): boolean => v === true || asText(v).toLowerCase() === "true";
 
+/** Un champ PIÈCE JOINTE porte-t-il au moins un fichier ? Airtable renvoie un tableau
+ *  d'objets `{ url, filename }` ; vide ou absent quand rien n'est joint.
+ *  ⚠️ `asText` ne convient pas : sur un tableau d'objets il rend la chaîne vide (cf.
+ *  `labelOf`), donc tout dossier passerait pour non signé. */
+const hasFile = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
+
 // Une tâche « Fait » (checkbox Airtable) ne doit pas rester au journal.
 const isDone = (r: Row): boolean => isTruthy(r.fait);
 
 /* --- Données mock d'aperçu (identiques au prototype validé) --- */
 const daysAgo = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
+/** Clé « AAAA-MM » d'il y a n mois — forme du champ « Mois de signature contrat ». */
+const monthAgo = (n: number) => {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
 const inDays = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString(); };
 
 const MOCK_USER = { firstName: "Frédéric" };
@@ -847,6 +884,31 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
     { id: "s7", ticket: "SAV-SL-000376", client: "WattElse Energies · SL-1954", installateur: "Eversun", debut: daysAgo(64), fin: "", statut: "En attente", priorite: 5, fabricant: "ENVERTECH", supervision: 3, consuel: 1, tiers: "INNOVA", cout: 0 },
     { id: "s8", ticket: "SAV-SL-000370", client: "Archivolta · SL-1901", installateur: "Archivolta", debut: daysAgo(52), fin: daysAgo(31), statut: "Clos", priorite: 2, fabricant: "HOYMILES", batterie: 1, autre: 1, tiers: "SOLEBAT", cout: 200 },
   ],
+
+  /* ← SELECT_COM. Dossiers du parc, vus par le podium CAPEX. L'échantillon est
+     construit pour que le podium ait quelque chose à dire ET que ses gardes se voient :
+     · trois commerciaux avec des CAPEX proches (le classement doit être lisible) ;
+     · un dossier ANNULÉ (m9) — il compte dans le portefeuille mais pas dans les
+       contrats ni le CAPEX ;
+     · un dossier SANS contrat joint (m10) — hors portefeuille, donc invisible ;
+     · un dossier SANS commercial (m11) → « Non assigné », exclu du podium : ce n'est
+       pas une personne, et il finirait régulièrement premier.
+     ⚠️ `contratSigne` est une PIÈCE JOINTE : un tableau, pas un booléen. Le mock doit
+     donc porter des tableaux, sinon `hasFile` renverrait faux partout et l'aperçu
+     montrerait un podium vide. */
+  comKpi: [
+    { id: "m1", commercial: "Edouard Da Silva", capex: 1_420_000, contratSigne: [{ url: "#", filename: "c1.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0) },
+    { id: "m2", commercial: "Edouard Da Silva", capex: 1_310_000, contratSigne: [{ url: "#", filename: "c2.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(1) },
+    { id: "m3", commercial: "Edouard Da Silva", capex: 1_260_000, contratSigne: [{ url: "#", filename: "c3.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(2) },
+    { id: "m4", commercial: "Philippe GERY", capex: 1_980_000, contratSigne: [{ url: "#", filename: "c4.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0) },
+    { id: "m5", commercial: "Philippe GERY", capex: 1_968_000, contratSigne: [{ url: "#", filename: "c5.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(3) },
+    { id: "m6", commercial: "Ilan LEVY", capex: 1_450_000, contratSigne: [{ url: "#", filename: "c6.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(1) },
+    { id: "m7", commercial: "Ilan LEVY", capex: 1_419_000, contratSigne: [{ url: "#", filename: "c7.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(4) },
+    { id: "m8", commercial: "Sarah MOREAU", capex: 940_000, contratSigne: [{ url: "#", filename: "c8.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(2) },
+    { id: "m9", commercial: "Sarah MOREAU", capex: 610_000, contratSigne: [{ url: "#", filename: "c9.pdf" }], statutAbonne: "Annulé", moisSignature: monthAgo(1) },
+    { id: "m10", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0) },
+    { id: "m11", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c11.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0) },
+  ],
 };
 
 /* ============================================================================
@@ -864,7 +926,7 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
    Monter/démonter des composants entiers est légal pour React : aucun hook n'est
    appelé dans `SourceFeed` lui-même.
    ============================================================================ */
-type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC";
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC" | "comKpi";
 
 // Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
 type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
@@ -1112,6 +1174,28 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     // Pas de `presets` : source technique, absente de la galerie (voir presetsOf).
     // Pas d'`actions` : le marquage vit dans le widget abonné, pas en action de ligne.
   },
+  /* ── PERFORMANCE COMMERCIALE ── La table « Abonnés » relue sur TOUT LE PARC, en 5
+     champs, pour le podium CAPEX (§9-septies). Source TECHNIQUE : elle n'a pas de
+     preset, donc pas d'entrée de galerie — poser « une liste de CAPEX » n'aurait aucun
+     sens, et surtout ce serait payer une lecture de parc entier pour une liste.
+     ⚠️ `connected: true` sans nouvel id : elle lit `DS.abonnes`, déjà connectée. Une
+     source du catalogue n'est pas une datasource, c'est une LECTURE — deux entrées
+     peuvent viser la même table avec des selects et des volumes différents. */
+  comKpi: {
+    key: "comKpi",
+    label: "Performance commerciale — Abonnés",
+    icon: "Trophy",
+    connected: true,
+    technical: true,
+    fields: {
+      commercial: { label: "Commercial", kind: "text" },
+      capex: { label: "CAPEX HT", kind: "number" },
+      contratSigne: { label: "Contrat signé (pièce jointe)", kind: "bool" },
+      statutAbonne: { label: "Statut de l'abonné", kind: "badge" },
+      moisSignature: { label: "Mois de signature", kind: "text" },
+    },
+    defaultSort: { by: "moisSignature", dir: "desc" },
+  },
   /* ── SAV ── Source du bloc SUNLIB/SAV « Pilotage SAV ». Le descripteur est
      complet (les 22 alias lisibles) alors que le widget d'accueil n'en synthétise
      qu'une poignée : c'est voulu. Le catalogue décrit la SOURCE, pas un écran — et
@@ -1212,7 +1296,7 @@ const ICONS: Record<string, LucideIcon> = {
   LayoutGrid, BarChart3, Newspaper, Megaphone, Sparkles, Building2, Briefcase, Ticket,
   // ⚠️ Toute clé citée dans GALLERY_GROUPS doit figurer ici, sinon `iconOf` retombe
   // silencieusement sur l'icône neutre — c'est arrivé à « Utilitaires ».
-  Clock, FileSignature,
+  Clock, FileSignature, Trophy,
 };
 const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
 
@@ -1221,7 +1305,13 @@ const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
 const variantOf = (desc: SourceDesc, alias: string | undefined, value: string): BadgeVariant =>
   (alias ? desc.fields[alias]?.variants?.[value] : undefined) ?? statusVariant(value);
 
-type SourceState = { rows: Row[]; loading: boolean; error: boolean };
+/** `partial` : la lecture est INCOMPLÈTE — plafond de pages atteint alors qu'il en
+ *  reste (voir `useDrainPages`). Facultatif parce que la plupart des sources lisent une
+ *  seule page et n'ont rien à dire ; mais quand il vaut `true`, un widget qui AGRÈGE
+ *  doit le montrer. Un total calculé sur un échantillon ne se distingue pas d'un total
+ *  juste : c'est le défaut le plus sournois de ce projet, et il a déjà coûté cher au
+ *  bloc SAV (« 60 centrales lues sur 771 », sans erreur ni alerte). */
+type SourceState = { rows: Row[]; loading: boolean; error: boolean; partial?: boolean };
 
 /* Ce qu'un adapter expose à un widget : les lignes, les états, et — seulement si
    la source déclare un SELECT d'écriture ET qu'une session existe — de quoi
@@ -1289,6 +1379,43 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
    décide QUELLES lignes sont lues quand la table dépasse la première page. Chaque
    adapter trie donc par la colonne qui garde les lignes UTILES au widget (les plus
    récentes pour des notes, les échéances les plus proches pour des tâches). --- */
+
+/* --- PAGINATION — la seule source qui la fasse, et pourquoi -------------------
+   ⚠️⚠️ SOFTR PAGINE `useRecords` : la requête ne rend que la PREMIÈRE page, les
+   suivantes n'arrivent QUE si on appelle `fetchNextPage()`. Tous les autres widgets de
+   ce bloc affichent « les N plus récents », donc une page leur suffit. Le podium, lui,
+   AGRÈGE : sur un échantillon il afficherait un classement faux, sans erreur ni console,
+   avec des montants crédibles. C'est le défaut le plus coûteux de la famille — le bloc
+   SAV l'a payé (« 60 centrales lues sur 771 »), le bloc KPI aussi.
+
+   Ce hook vide la pagination page par page. Deux gardes qui ne sont pas décoratives :
+   · `nPages` (nombre de pages DÉJÀ reçues) EST la dépendance qui fait avancer la
+     boucle — `hasNextPage` reste `true` d'une page à l'autre, donc React ne
+     relancerait pas l'effet et le chargement s'arrêterait à la deuxième page ;
+   · `isFetchingNextPage` empêche de tirer deux pages en parallèle à chaque render.
+   Et un PLAFOND, parce qu'une boucle qui dépend de la réponse du serveur doit toujours
+   pouvoir s'arrêter : atteint, il rend `partial: true`, que le widget AFFICHE. --- */
+const COM_MAX_PAGES = 40;   // ≈ 4 000 dossiers (1 756 au 2026-08-04) — large, mais borné
+
+function useDrainPages(res: any, maxPages: number): { partial: boolean } {
+  const nPages = Array.isArray(res?.data?.pages) ? res.data.pages.length : 0;
+  const hasNext = !!res?.hasNextPage;
+  const fetching = !!res?.isFetchingNextPage;
+  const canFetch = typeof res?.fetchNextPage === "function";
+  useEffect(() => {
+    if (hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
+  }, [hasNext, canFetch, fetching, nPages, maxPages]);
+  // Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
+  return { partial: hasNext && nPages >= maxPages };
+}
+
+/* Performance commerciale : `DS.abonnes` relue en entier, 5 champs (cf. SELECT_COM).
+   Lecture seule — l'accueil ne modifie pas un dossier abonné. */
+function ComKpiSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.abonnes, select: SELECT_COM, orderBy: q.desc("moisSignature") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial })}</>;
+}
 
 function NotesInsSource({ children }: { children: SourceChildren }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
@@ -1382,6 +1509,7 @@ function SourceFeed({ source, children }: { source: SourceKey; children: SourceC
     case "tachesPa": return <TachesPaSource>{children}</TachesPaSource>;
     case "tachesPr": return <TachesPrSource>{children}</TachesPrSource>;
     case "sav":      return <SavSource>{children}</SavSource>;
+    case "comKpi":   return <ComKpiSource>{children}</ComKpiSource>;
     // case "notifC": return <NotifCSource>{children}</NotifCSource>;   // à connecter
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
@@ -3912,6 +4040,182 @@ function AnnoncesCard() {
 }
 
 /* ============================================================================
+   9-septies. PODIUM CAPEX — les trois premiers commerciaux
+   ----------------------------------------------------------------------------
+   Reprise du podium de l'onglet Commercial du bloc `dashboard-KPI` : même critères,
+   même dessin. Les deux écrans doivent donner le MÊME classement, sans quoi la
+   question « lequel a raison ? » se posera un jour, en réunion.
+
+   Les critères sont recopiés, pas réinventés (cf. SELECT_COM) :
+     · PORTEFEUILLE = dossiers dont le contrat signé est JOINT (pièce jointe), annulés
+       compris — ils ont bien été signés un jour ;
+     · les CONTRATS comptés et le CAPEX excluent les dossiers « Annulé » ;
+     · « Non assigné » (commercial vide) est EXCLU du podium : ce n'est pas une
+       personne, et il finirait régulièrement sur la première marche.
+
+   ⚠️ CE WIDGET AGRÈGE SUR TOUT LE PARC, donc il est le seul à exiger une lecture
+   paginée (ComKpiSource). Sur un échantillon, il afficherait un classement faux avec
+   des montants crédibles : quand la lecture est incomplète, il le DIT à l'écran.
+   ============================================================================ */
+const PODIUM_NON_ASSIGNE = "Non assigné";
+const PODIUM_PERIODES = [
+  { key: "tout", label: "Tout" },
+  { key: "annee", label: "Année" },
+  { key: "mois", label: "Mois" },
+] as const;
+type PodiumPeriode = (typeof PODIUM_PERIODES)[number]["key"];
+type PodiumCfg = { periode: PodiumPeriode };
+
+const coercePodiumCfg = (raw: unknown): PodiumCfg => {
+  const p = asText(asObj(raw).periode);
+  return { periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee" };
+};
+
+type PodiumStat = { nom: string; capex: number; contrats: number };
+
+/** Clé « AAAA-MM » du mois courant, et « AAAA » de l'année — mêmes formes que le champ
+ *  « Mois de signature contrat », donc comparables par simple préfixe. */
+const moisCourant = (now: Date) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+/** Classement des commerciaux sur la période. PURE — testable, et identique en mock
+ *  comme en live. */
+function podiumStats(rows: Row[], periode: PodiumPeriode, now: Date): PodiumStat[] {
+  const mois = moisCourant(now);
+  const annee = `${now.getFullYear()}`;
+  const dansPeriode = (r: Row) => {
+    const m = asText(r.moisSignature);
+    if (periode === "mois") return m === mois;
+    if (periode === "annee") return m.startsWith(annee);
+    return true;
+  };
+  const par = new Map<string, PodiumStat>();
+  rows.forEach((r) => {
+    if (!hasFile(r.contratSigne)) return;                     // hors portefeuille
+    if (!dansPeriode(r)) return;
+    if (asText(r.statutAbonne) === "Annulé") return;          // signé, mais pas compté
+    const nom = asText(r.commercial).trim() || PODIUM_NON_ASSIGNE;
+    if (nom === PODIUM_NON_ASSIGNE) return;                   // pas une personne
+    const cur = par.get(nom) ?? { nom, capex: 0, contrats: 0 };
+    cur.capex += savNum(r.capex);
+    cur.contrats += 1;
+    par.set(nom, cur);
+  });
+  return [...par.values()].sort((a, b) => b.capex - a.capex).slice(0, 3);
+}
+
+/** Montant en M€ à trois décimales — la forme du bloc KPI (« 3,990 M€ »), qui garde
+ *  les classements lisibles quand deux commerciaux se tiennent à quelques milliers
+ *  d'euros. `fmtEur` arrondirait au millier et les afficherait à égalité. */
+const fmtMEur = (n: number): string => `${(n / 1_000_000).toFixed(3).replace(".", ",")} M€`;
+
+function PodiumOptions({ cfg, onChange }: { cfg: PodiumCfg; onChange: (next: PodiumCfg) => void }) {
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
+  return (
+    <div>
+      <span style={lbl}>Période</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {PODIUM_PERIODES.map((p) => (
+          <button key={p.key} style={seg(cfg.periode === p.key)} onClick={() => onChange({ periode: p.key })}
+            aria-pressed={cfg.periode === p.key}>{p.label}</button>
+        ))}
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        Contrats signés (PDF joint), hors dossiers annulés et hors « Non assigné ».
+      </p>
+    </div>
+  );
+}
+
+function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
+  const top3 = podiumStats(api.rows, cfg.periode, new Date());
+  /* ORDRE VISUEL 2 · 1 · 3 — le premier au centre, comme sur un vrai podium. Le
+     tableau peut contenir des trous (moins de trois commerciaux sur la période) : les
+     cases vides sont filtrées au rendu, pas ici, pour que les positions restent
+     stables. */
+  const marches: (PodiumStat | undefined)[] = [top3[1], top3[0], top3[2]];
+  const hauteurs = [58, 82, 44];
+  const rangs = [2, 1, 3];
+  const periodeLabel = cfg.periode === "mois" ? "sur le mois en cours"
+    : cfg.periode === "annee" ? "sur l'année en cours" : "sur tout l'historique";
+
+  return (
+    <Widget icon={Trophy} title="Podium CAPEX HT" sub={`Les trois premiers ${periodeLabel}`}>
+      {api.error ? (
+        <EmptyState icon={Trophy} dense title="Donnée indisponible"
+          hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
+      ) : api.loading ? (
+        /* L'attente est LONGUE ici (le parc entier, page par page) : un squelette de
+           podium vaut mieux qu'un vide, il annonce ce qui arrive. */
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "26px", padding: "18px 16px 20px" }}>
+          {[58, 82, 44].map((h, i) => (
+            <span key={i} className="slb-skel" style={{ display: "block", width: i === 1 ? 92 : 74, height: h + 60, borderRadius: T.rMd, background: T.neutral050 }} />
+          ))}
+        </div>
+      ) : top3.length < 2 ? (
+        /* Moins de deux commerciaux : ce n'est pas un podium, et deux marches vides se
+           liraient comme un bug. On dit ce qui manque. */
+        <EmptyState icon={Trophy} dense title="Pas assez de contrats sur la période"
+          hint="Le podium demande au moins deux commerciaux avec un contrat signé. Élargissez la période dans le menu ⋮." />
+      ) : (
+        <div>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "26px", flexWrap: "wrap", padding: "16px 16px 0" }}>
+            {marches.map((c, i) => c ? (
+              <div key={c.nom} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+                {/* Pastille d'initiales : même teinte stable par nom que les listes du
+                    bloc (`avatarBg`), donc la même personne garde sa couleur partout. */}
+                <span aria-hidden style={{ width: i === 1 ? 56 : 42, height: i === 1 ? 56 : 42, flex: "none", borderRadius: T.rSm, display: "grid", placeItems: "center", background: avatarBg(c.nom), color: "#fff", fontSize: i === 1 ? "17px" : "13px", fontWeight: 700, letterSpacing: "-.02em" }}>
+                  {initials(c.nom)}
+                </span>
+                <div style={{ textAlign: "center" }}>
+                  <div style={{ fontSize: i === 1 ? "13.5px" : "12.5px", fontWeight: 600, color: T.ink2 }}>{c.nom}</div>
+                  <div style={{ fontSize: i === 1 ? "26px" : "19px", fontWeight: 700, color: T.ink, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}>
+                    {fmtMEur(c.capex)}
+                  </div>
+                  <div style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+                    {c.contrats} contrat{c.contrats > 1 ? "s" : ""}
+                  </div>
+                </div>
+                {/* La MARCHE. Or solaire pour la première, gris pour les autres — et le
+                    numéro est écrit dessus : la couleur ne dit jamais le rang seule. */}
+                <div style={{
+                  width: i === 1 ? 92 : 74, height: hauteurs[i], borderRadius: `${T.rMd} ${T.rMd} 0 0`,
+                  background: i === 1 ? T.solar050 : T.neutral050,
+                  boxShadow: `inset 0 0 0 1px ${i === 1 ? T.solar100 : T.line2}`,
+                  display: "grid", placeItems: "center",
+                }}>
+                  <span style={{
+                    display: "inline-grid", placeItems: "center", width: 24, height: 24, borderRadius: 999,
+                    fontSize: "11.5px", fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                    background: rangs[i] === 1 ? T.solar050 : rangs[i] === 2 ? T.neutral050 : T.warn050,
+                    color: rangs[i] === 1 ? T.solar600 : rangs[i] === 2 ? T.ink2 : T.warnInk,
+                    boxShadow: `inset 0 0 0 1px ${rangs[i] === 2 ? T.line2 : T.solar100}`,
+                  }}>{rangs[i]}</span>
+                </div>
+              </div>
+            ) : null)}
+          </div>
+          {/* LECTURE INCOMPLÈTE : jamais silencieuse. Un classement calculé sur une
+              partie du parc n'a pas l'air faux — c'est bien pour ça qu'il faut le dire. */}
+          {api.partial && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 16px 14px" }}>
+              <Badge variant="warn" dot>Calcul partiel</Badge>
+              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+                Le parc dépasse ce que ce widget lit d'un coup : le classement porte sur les dossiers les plus récents.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </Widget>
+  );
+}
+
+function PodiumCard({ cfg }: { cfg: PodiumCfg }) {
+  return <SourceFeed source="comKpi">{(s) => <PodiumWidget api={s} cfg={cfg} />}</SourceFeed>;
+}
+
+/* ============================================================================
    9-sexies. WIDGETS UTILITAIRES — sans source de données
    ----------------------------------------------------------------------------
    Trois widgets qui ne lisent AUCUNE table : leur contenu est leur cfg, donc il
@@ -4286,6 +4590,8 @@ type WidgetTypeKey =
      un seul champ SAV (somme, moyenne, comptage filtré), préférer un widget `data`
      posé depuis les presets `sav` du catalogue (§6-bis) — aucun code requis. */
   | "sav"
+  /* ← Podium des commerciaux (§9-septies) : seul widget qui agrège sur tout le parc. */
+  | "podium"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
   | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
@@ -4331,6 +4637,9 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
      donc inchangées, sans migration. */
   sav: { title: "Pilotage SAV — synthèse", icon: Ticket, Render: SavCard,
          defaults: () => coerceSavCfg({}), coerce: coerceSavCfg, Options: SavOptions },
+  /* Podium (§9-septies) — vient du tableau de bord KPI, mêmes critères et même dessin. */
+  podium: { title: "Podium CAPEX HT", icon: Trophy, Render: PodiumCard,
+            defaults: () => coercePodiumCfg({}), coerce: coercePodiumCfg, Options: PodiumOptions },
   /* Utilitaires (§9-sexies). `memo` et `checklist` n'ont PAS d'`Options` : leur seul
      réglage serait leur contenu, et il s'édite dans le widget — pas derrière un ⋮. */
   horloge: { title: "Heure", icon: Clock, Render: HorlogeCard,
@@ -4470,6 +4779,7 @@ const GALLERY_GROUPS: { key: string; label: string; icon: string }[] = [
   { key: "notes", label: "Notes", icon: "HardHat" },
   { key: "sav", label: "Dossiers SAV", icon: "Ticket" },
   { key: "comm", label: "Communication", icon: "Newspaper" },
+  { key: "perf", label: "Performance", icon: "Trophy" },
   { key: "outils", label: "Utilitaires", icon: "Clock" },
   // Repli OBLIGATOIRE : voir groupOfSource ci-dessous. Ne pas retirer cette ligne.
   { key: "autres", label: "Autres", icon: "LayoutGrid" },
@@ -4497,6 +4807,8 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string }[] = [
   { type: "annonces", h: "sm", group: "comm" },
   // Posé en "lg" : la synthèse SAV a quatre sections, elle scrolle en "md".
   { type: "sav", h: "lg", group: "sav" },
+  // Le podium a besoin de hauteur : avatars, montants et marches s'empilent.
+  { type: "podium", h: "lg", group: "perf" },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
   { type: "horloge", h: "sm", group: "outils" },
   { type: "memo", group: "outils" },
