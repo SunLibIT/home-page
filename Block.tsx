@@ -3680,6 +3680,14 @@ function ElfsightEmbed({ appClass, label }: { appClass: string; label: string })
   );
 }
 
+/* ⚠️ TITRE EN DOUBLE : ne pas le chercher ici. Signalé le 2026-08-04 — « SunLib sur
+   LinkedIn » apparaît deux fois, dans l'en-tête de la carte ET en gros dans le corps.
+   Le second N'EST PAS RENDU PAR CE FICHIER : c'est l'en-tête du widget Elfsight, monté
+   par `platform.js` d'après les réglages du compte. Le seul titre que ce bloc écrit est
+   le `title` ci-dessous, qui porte aussi le ⋮ et la préhension — le retirer viderait
+   l'en-tête de la carte, ce qui n'est pas ce qu'on veut.
+   → Il se masque DANS L'ÉDITEUR DU WIDGET côté Elfsight (réglages de mise en page /
+   apparence, affichage de l'en-tête ou du titre). Rien à changer dans le code. */
 function LinkedinCard() {
   return (
     <Widget icon={Newspaper} title="SunLib sur LinkedIn" sub="Dernières publications">
