@@ -26,12 +26,15 @@
      react · lucide-react · @/components/ui/card · @/lib/datasource · @/lib/user
 
    ────────────────────────────────────────────────────────────────────────────
-   BRANCHEMENT — 4 zones [À COMPLÉTER], toutes regroupées ci-dessous :
-     A) USE_MOCK / datasource.define / SELECT_*  → §6 (IDs + noms de champs)
-     B) NAV_TABS.href / QUICK_LINKS.href         → §7 (URLs des pages & outils)
-     C) LinkedInSection                          → embed LinkedIn existant
-     D) Page « Détail » d'un abonné              → ABONNE_PAGE_SLUG / _PARAM (§9)
-   Tant que USE_MOCK=true, l'aperçu tourne sur les données mock du prototype.
+   BRANCHEMENT — ce qui reste [À COMPLÉTER] :
+     A) datasource.define        → §6 : 6 des 7 sources connectées ; il manque
+                                  `notifC` (Notification Center), d'où un widget
+                                  « Derniers dossiers » sans état lu / non lu
+     B) NAV_TABS.href / QUICK_LINKS.href → §7 : URLs des pages & outils (encore « # »)
+     C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
+     D) Page « Détail » d'un abonné → ABONNE_PAGE_SLUG ✅ ; reste à CONFIRMER le nom
+                                  du paramètre d'URL (ABONNE_PAGE_PARAM, §9)
+   ⚠️ USE_MOCK est passé à FALSE le 2026-08-04 : le bloc lit Airtable en direct.
    ============================================================================ */
 
 import {
@@ -68,10 +71,16 @@ import { useCurrentUser } from "@/lib/user";
    ----------------------------------------------------------------------------
    USE_MOCK = true  → aperçu sur les données mock du prototype (aucune datasource
                       requise). USE_MOCK = false → lecture Airtable via useRecords.
-   Passer à false UNE FOIS les IDs de §6 renseignés (et les tables connectées
-   dans l'onglet Sources du bloc). C'est le SEUL interrupteur mock ↔ live.
+   C'est le SEUL interrupteur mock ↔ live, mais il n'est PAS le seul niveau : une
+   source dont le descripteur porte `connected: false` sert son mock même ici en
+   `false` (cf. `offlineState`) — c'est ce qui permet de brancher les tables une par
+   une sans jamais appeler `useRecords` sur un id absent du `define`.
+
+   ⚠️ Passé à FALSE le 2026-08-04, les 6 datasources de §6 étant connectées et leurs
+   noms de champs revérifiés contre Airtable. Le repli est immédiat : remettre `true`
+   fait retomber tout le bloc sur ses mocks, sans autre changement.
    ============================================================================ */
-const USE_MOCK: boolean = true;
+const USE_MOCK: boolean = false;
 
 /* Assets officiels — dépôt SunLibIT/Documents-PNG (charte, §Dépôt images)
    `logoRond` n'est plus affiché : le héro utilise <Sunburst>, le même motif
@@ -429,15 +438,27 @@ const DS = datasource.define({
   //    2026-07-31) : base « SunLib CRM — Préférences » (appHZaD5BkDsWxR65) · table
   //    « Home Preferences » (tbl18J0zC47myPJLO).
   prefs: "dcc7928c-3906-4807-8224-0532c3e30fc5",
+  // ✅ Connectées le 2026-08-04. Les noms de champs des SELECT_* ci-dessous ont été
+  //    REVÉRIFIÉS ce jour-là contre le schéma Airtable (espaces finaux et casses
+  //    irrégulières compris) avant d'ouvrir la lecture en direct.
+  notesIns: "122fbc71-06e9-40ce-8b4d-01544c1ac022", // Bdd Installateurs · « Suivi client »
+  notesPro: "dbd7e501-deba-482d-86f9-7b3a47abfe4f", // BDD Propect · « Suivi propect »
+  tachesPa: "7198b954-7fdd-41a7-b92b-a114ff88009e", // Bdd Installateurs · « Taches »
+  tachesPr: "9414183e-2624-4e6e-8d7c-89470546251b", // « Taches prospect »
+  sav: "3f5f8f6c-c6af-4909-a8dc-46e2f123e9a6",      // SAV · « Tickets »
 });
 
-/* Sources PAS ENCORE connectées : notesIns (« Suivi client »), notesPro (« Suivi
-   propect »), tachesPa (« Taches »), tachesPr (« Taches prospect »). On NE les
-   déclare PAS dans le define ci-dessus (Softr rejette tout id non connecté) et on
-   ne les lit PAS. Les widgets correspondants s'affichent vides. Pour en activer
-   une : la connecter (onglet Sources), récupérer son id (onglet Chat), l'ajouter
-   comme membre ci-dessus, puis brancher sa lecture dans le widget §9-10 (voir la
-   marche à suivre en commentaire au-dessus de chaque widget concerné). */
+/* Source PAS ENCORE connectée : notifC (« Notification Center », l'état lu/non lu
+   des dossiers abonnés). On NE la déclare PAS dans le define ci-dessus (Softr
+   rejette tout id non connecté) et on ne la lit PAS : le widget des dossiers
+   s'affiche alors sans état de lecture ni bouton « Vu » — dégradation prévue, cf.
+   `matchNotifC`. Pour l'activer : la connecter (onglet Sources DE CE BLOC),
+   récupérer son id (onglet Chat), l'ajouter comme membre ci-dessus, décommenter
+   `NotifCSource` et son `case`, puis passer `connected: true` dans CATALOG.
+
+   ⚠️ La table existe déjà dans le workspace et deux blocs de page la lisent, mais
+   un id de datasource appartient à UNE connexion d'UN bloc : il faut la connecter
+   à celui-ci. Voir la note détaillée au-dessus de `SourceFeed`. */
 
 // alias (clé JS) -> nom EXACT du champ Airtable. Filtres/tri par ALIAS.
 // ⚠️ Certains noms comportent des espaces exacts (« … Installateur ) », « Date »,
@@ -861,7 +882,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     key: "notesIns",
     label: "Notes installateurs — Suivi client",
     icon: "HardHat",
-    connected: false,   // ⚠️ passer à true UNIQUEMENT avec l'id dans DS + un adapter
+    connected: true,    // ⚠️ ne passer à true qu'avec l'id dans DS ET un adapter
     fields: {
       nom: { label: "Installateur", kind: "text" },
       note: { label: "Note", kind: "longtext" },
@@ -870,14 +891,20 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
     presets: [{ label: "Dernières notes — Installateurs", cfg: { title: "Dernières notes — Installateurs", unit: "note" } }],
-    create: { label: "Nouvelle note installateur",
-              fields: [{ field: "nom", required: true }, { field: "note", required: true }, { field: "date" }] },
+    /* ⚠️ PAS DE `create`, retiré le 2026-08-04 en ouvrant la lecture en direct. Le
+       formulaire fonctionnait techniquement (les trois champs sont dans la whitelist),
+       mais « Suivi client » rattache ses notes à l'installateur par un champ LIEN
+       (`Installateurs`, multipleRecordLinks) qui attend un RECORD ID, pas un nom. Une
+       note créée d'ici serait donc absente de la fiche de l'installateur : l'auteur
+       croirait avoir écrit là où personne ne lira. Le jour où le bloc saura résoudre un
+       lien (menu alimenté par la table parente), le formulaire revient tel quel. En
+       attendant, une note se crée depuis la fiche installateur. */
   },
   notesPro: {
     key: "notesPro",
     label: "Notes prospects — Suivi propect",
     icon: "Target",
-    connected: false,
+    connected: true,
     fields: {
       nom: { label: "Prospect", kind: "text" },
       note: { label: "Note", kind: "longtext" },
@@ -886,15 +913,15 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
     presets: [{ label: "Dernières notes — Prospects", cfg: { title: "Dernières notes — Prospects", unit: "note" } }],
-    // `date` est un createdTime : absent du formulaire comme du select d'écriture.
-    create: { label: "Nouvelle note prospect",
-              fields: [{ field: "nom", required: true }, { field: "note", required: true }] },
+    // Pas de `create` — même raison que pour les notes installateurs : le rattachement
+    // au prospect passe par un champ LIEN (`Propects`). `date` est de surcroît un
+    // createdTime, donc absent du select d'écriture.
   },
   tachesPa: {
     key: "tachesPa",
     label: "Tâches partenaires — Taches",
     icon: "CalendarClock",
-    connected: false,
+    connected: true,
     fields: {
       desc: { label: "Description", kind: "text" },
       associe: { label: "Partenaire associé", kind: "text" },
@@ -911,16 +938,22 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
         query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
         actions: { use: ["fait"] } } },
     ],
-    // Première écriture réelle prévue : cocher « Fait » depuis l'accueil (§9-ter).
+    /* PREMIÈRE ÉCRITURE RÉELLE DU BLOC (§9-ter) : cocher « Fait » depuis l'accueil.
+       C'est le seul champ de `SELECT_TACHE_PA_W`, donc le seul qu'un widget puisse
+       toucher. */
     actions: [{ id: "fait", label: "Fait", kind: "toggle", field: "fait" }],
-    create: { label: "Nouvelle tâche partenaire",
-              fields: [{ field: "desc", required: true }, { field: "associe" }, { field: "fin" }] },
+    /* ⚠️ PAS DE CRÉATION DE TÂCHE, retiré le 2026-08-04. Le formulaire demandait
+       `desc`/`associe`/`fin`, tous ABSENTS de la whitelist d'écriture : Softr aurait
+       répondu 400 dès le premier essai. Élargir la whitelist ne suffirait pas —
+       « Partenaire associé » est un champ LIEN qui attend un record id, pas un nom, et
+       une tâche sans partenaire rattaché n'apparaît sur la fiche de personne. Une tâche
+       se crée dans /taches, qui sait choisir le partenaire. */
   },
   tachesPr: {
     key: "tachesPr",
     label: "Tâches prospects — Taches prospect",
     icon: "ClipboardList",
-    connected: false,
+    connected: true,
     fields: {
       desc: { label: "Description", kind: "text" },
       associe: { label: "Prospect associé", kind: "text" },
@@ -935,8 +968,8 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
         actions: { use: ["fait"] } } },
     ],
     actions: [{ id: "fait", label: "Fait", kind: "toggle", field: "fait" }],
-    create: { label: "Nouvelle tâche prospect",
-              fields: [{ field: "desc", required: true }, { field: "associe" }, { field: "fin" }] },
+    // Pas de création — même raison que pour les tâches partenaires (whitelist réduite
+    // à `fait`, et « Prospect associé » est un lien).
   },
   /* ── NOTIFICATION CENTER ── L'état de lecture des dossiers abonnés. Source
      TECHNIQUE : elle n'a pas de preset, donc elle n'apparaît PAS dans la galerie —
@@ -982,7 +1015,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     key: "sav",
     label: "Dossiers SAV — Tickets",
     icon: "Ticket",
-    connected: false,   // ⚠️ voir SavSource plus bas : il faut l'ID de datasource DE CE BLOC
+    connected: true,    // connectée à CE bloc le 2026-08-04 (cf. la note de SavSource)
     fields: {
       ticket: { label: "Ticket", kind: "text" },
       client: { label: "Client / Centrale", kind: "text" },
@@ -1130,46 +1163,81 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
 /* POUR CONNECTER une source (recette complète : ARCHITECTURE-V2.md §10) :
    1) la connecter dans l'onglet Sources du bloc, récupérer son id (onglet Chat) ;
    2) l'ajouter comme membre de `datasource.define` (§6) ;
-   3) copier AbonnesSource en changeant `from`/`select`/`orderBy` — et, si la source
-      est écrivable, y monter update/create avec son `SELECT_*_W` (§6) ;
-   4) ajouter son `case` ci-dessous ; 5) passer `connected: true` dans CATALOG.
+   3) copier un adapter ci-dessous en changeant `from`/`select`/`orderBy` — et, si la
+      source est écrivable, y monter update/create avec son `SELECT_*_W` (§6) ;
+   4) ajouter son `case` plus bas ; 5) passer `connected: true` dans CATALOG.
 
-   Exemple prêt à décommenter le jour du branchement des tâches partenaires :
+   ⚠️ `orderBy` n'est pas un détail d'affichage : rien n'est paginé ici, donc il
+   décide QUELLES lignes sont lues quand la table dépasse la première page. Chaque
+   adapter trie donc par la colonne qui garde les lignes UTILES au widget (les plus
+   récentes pour des notes, les échéances les plus proches pour des tâches). --- */
 
-     function TachesPaSource({ children }: { children: SourceChildren }) {
-       const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
-       const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
-       const crtM = useRecordCreate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
-       const email = asText(useCurrentUser()?.email).trim();
-       const write = email ? {
-         update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
-         create: (values: Record<string, unknown>) => crtM.mutateAsync(values),
-       } : undefined;                       // pas de session → aucune tentative
-       return <>{children({ ...liveState(res), write })}</>;
-     } */
-/* ⚠️⚠️ CAS « SAV », et c'est LE piège à ne pas rejouer : le bloc SUNLIB/SAV lit
-   déjà cette table, mais SON id de datasource (4b5d2aa4-…) NE FONCTIONNERA PAS
-   ici. Un id de datasource est lié à UNE CONNEXION d'UN bloc, pas à une table —
-   le README du bloc SAV le dit noir sur blanc (« l'ID d'un autre bloc vibe code
-   ne fonctionne pas, même pour la même table »), et son historique d'ids en porte
-   la trace. Il faut donc connecter « Tickets » dans l'onglet Sources DU BLOC
-   D'ACCUEIL, puis demander son id à l'onglet Chat de CE bloc.
-   Ne PAS coller l'id du bloc SAV dans le define : Softr valide statiquement les
-   ids déclarés et bloquerait LE BLOC ENTIER (« Remap the fields to continue »).
+function NotesInsSource({ children }: { children: SourceChildren }) {
+  const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
+  const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
+  const email = asText(useCurrentUser()?.email).trim();
+  const write = email
+    ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
+    : undefined;                        // pas de session → aucune tentative
+  return <>{children({ ...liveState(res), write })}</>;
+}
 
-   Adapter prêt à décommenter le jour du branchement — LECTURE SEULE (pas de
-   `write` : le SAV se saisit dans son propre bloc, cf. la note du descripteur) :
+function NotesProSource({ children }: { children: SourceChildren }) {
+  const res  = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
+  const updM = useRecordUpdate({ from: DS.notesPro, fields: SELECT_NOTE_PRO_W });
+  const email = asText(useCurrentUser()?.email).trim();
+  const write = email
+    ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
+    : undefined;
+  return <>{children({ ...liveState(res), write })}</>;
+}
 
-     function SavSource({ children }: { children: SourceChildren }) {
-       const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
-       return <>{children(liveState(res))}</>;
-     }
+/* Tâches : `write` porte la PREMIÈRE écriture réelle du bloc — la case « Fait ».
+   Sa whitelist ne contient que ce champ, donc c'est tout ce qu'un widget peut
+   toucher ici, quoi que puisse déclarer le catalogue. Pas de `create` : voir la
+   note « pas de création de tâche » dans le descripteur. */
+function TachesPaSource({ children }: { children: SourceChildren }) {
+  const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
+  const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
+  const email = asText(useCurrentUser()?.email).trim();
+  const write = email
+    ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
+    : undefined;
+  return <>{children({ ...liveState(res), write })}</>;
+}
 
-   ⚠️ La table SAV n'est pas plafonnée côté bloc : `orderBy` décide QUELLES lignes
-   sont lues si elle grossit. Trier par `debut` desc garde les dossiers récents,
-   mais les KPI de SavCard (ancienneté, taux de résolution) portent alors sur la
-   FENÊTRE LUE, pas sur la table entière. Le bloc « Pilotage SAV » reste la
-   référence chiffrée ; l'accueil est un résumé. */
+function TachesPrSource({ children }: { children: SourceChildren }) {
+  const res  = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
+  const updM = useRecordUpdate({ from: DS.tachesPr, fields: SELECT_TACHE_PR_W });
+  const email = asText(useCurrentUser()?.email).trim();
+  const write = email
+    ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
+    : undefined;
+  return <>{children({ ...liveState(res), write })}</>;
+}
+
+/* ⚠️⚠️ CAS « SAV », et c'est LE piège qui a été évité de justesse : le bloc
+   SUNLIB/SAV lit déjà cette table, mais SON id de datasource (4b5d2aa4-…) NE
+   FONCTIONNE PAS ici. Un id de datasource est lié à UNE CONNEXION d'UN bloc, pas à
+   une table — le README du bloc SAV le dit noir sur blanc (« l'ID d'un autre bloc
+   vibe code ne fonctionne pas, même pour la même table »). L'id ci-dessus
+   (3f5f8f6c-…) est bien celui de la connexion DE CE BLOC.
+
+   LECTURE SEULE, volontairement (pas de `write`) : un dossier SAV se saisit dans son
+   propre bloc, qui porte les validations de cohérence. Cf. la note du descripteur.
+
+   ⚠️ « Total interventions » (champ FORMULE) est absent de SELECT_SAV, et doit le
+   rester : un champ calculé déclaré dans un select fait échouer l'écriture du record
+   entier. Le total se resomme côté bloc. Même règle pour tout futur rollup. */
+function SavSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
+  return <>{children(liveState(res))}</>;
+}
+
+/* ⚠️ Trier le SAV par `debut` desc garde les dossiers récents, mais les KPI de
+   SavCard (ancienneté, taux de résolution) portent alors sur la FENÊTRE LUE, pas sur
+   la table entière. Le bloc « Pilotage SAV » reste la référence chiffrée ; l'accueil
+   est un résumé — c'est dit dans le widget lui-même. */
 /* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Adapter
    prêt à décommenter le jour où la table est connectée à CE bloc (l'id est propre au
    bloc : onglet Chat, jamais celui d'un autre bloc — cf. la note du SAV) :
@@ -1190,8 +1258,13 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
 function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
-    case "abonnes": return <AbonnesSource>{children}</AbonnesSource>;
-    // case "tachesPa": return <TachesPaSource>{children}</TachesPaSource>;
+    case "abonnes":  return <AbonnesSource>{children}</AbonnesSource>;
+    case "notesIns": return <NotesInsSource>{children}</NotesInsSource>;
+    case "notesPro": return <NotesProSource>{children}</NotesProSource>;
+    case "tachesPa": return <TachesPaSource>{children}</TachesPaSource>;
+    case "tachesPr": return <TachesPrSource>{children}</TachesPrSource>;
+    case "sav":      return <SavSource>{children}</SavSource>;
+    // case "notifC": return <NotifCSource>{children}</NotifCSource>;   // à connecter
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
 }

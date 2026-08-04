@@ -51,10 +51,30 @@ const tachesPr: Rec[] = [
   { id: "tp1", fields: { desc: "Rappeler après le salon", associe: "Enecopro", fin: inDays(3), fait: false } },
 ];
 
+/* « Tickets » (base SAV) — dossiers SAV. Alias de SELECT_SAV. Volontairement
+   irrégulier : un dossier clos, un tiers mandaté sans coût rapproché, un dossier
+   ouvert de longue date — ce sont les anomalies que la synthèse doit faire ressortir.
+   ⚠️ Pas de « Total interventions » : c'est un champ formule, absent du select. */
+const sav: Rec[] = [
+  { id: "s1", fields: { ticket: "SAV-SL-000412", client: "Centrale LINDIMER", installateur: "MC ENERGY",
+      debut: daysAgo(3), statut: "Nouveau", priorite: 9, fabricant: "HUAWEI",
+      onduleurs: 1, supervision: 1 } },
+  { id: "s2", fields: { ticket: "SAV-SL-000398", client: "Centrale Duval", installateur: "Enertec",
+      debut: daysAgo(41), statut: "En cours", priorite: 6, fabricant: "APSYSTEMS",
+      tiers: "SOLEBAT", panneaux: 2 } },   // tiers mandaté, coût NON rapproché
+  { id: "s3", fields: { ticket: "SAV-SL-000355", client: "Centrale Aubert", installateur: "Ecovea",
+      debut: daysAgo(96), fin: daysAgo(12), statut: "Clos", priorite: 3, cablage: 1, cout: 780 } },
+  { id: "s4", fields: { ticket: "SAV-SL-000401", client: "Centrale Roussel", installateur: "Archivolta",
+      debut: daysAgo(18), statut: "En attente", priorite: 8, raccordement: 1, consuel: 1 } },
+  { id: "s5", fields: { ticket: "SAV-SL-000407", client: "Centrale Perrin", installateur: "Panda Energie",
+      debut: daysAgo(9), fin: daysAgo(1), statut: "Résolu", priorite: 4, alerte: 1 } },
+];
+
 export const SEED: Record<string, Rec[]> = {
   [DS_IDS.abonnes]: abonnes,
   [DS_IDS.notesIns]: notesIns,
   [DS_IDS.notesPro]: notesPro,
   [DS_IDS.tachesPa]: tachesPa,
   [DS_IDS.tachesPr]: tachesPr,
+  [DS_IDS.sav]: sav,
 };

@@ -30,10 +30,11 @@ import React from "react";
 /* ---- IDs de datasource (doivent matcher datasource.define de Block.tsx) ---- */
 export const DS_IDS = {
   abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // BDD Abonné · « Abonnés »
-  notesIns: "TODO-suivi-client",     // base Installateurs · « Suivi client »
-  notesPro: "TODO-suivi-propect",    // base BDD Propect · « Suivi propect »
-  tachesPa: "TODO-taches",           // base Installateurs · « Taches »
-  tachesPr: "TODO-taches-prospect",  // base Installateurs · « Taches prospect »
+  notesIns: "122fbc71-06e9-40ce-8b4d-01544c1ac022", // Bdd Installateurs · « Suivi client »
+  notesPro: "dbd7e501-deba-482d-86f9-7b3a47abfe4f", // BDD Propect · « Suivi propect »
+  tachesPa: "7198b954-7fdd-41a7-b92b-a114ff88009e", // Bdd Installateurs · « Taches »
+  tachesPr: "9414183e-2624-4e6e-8d7c-89470546251b", // « Taches prospect »
+  sav: "3f5f8f6c-c6af-4909-a8dc-46e2f123e9a6",      // SAV · « Tickets »
 } as const;
 
 /* ============================ Types ============================ */
@@ -48,6 +49,7 @@ const store: Record<string, Rec[]> = {
   [DS_IDS.tachesPa]: [],
   [DS_IDS.notesIns]: [],
   [DS_IDS.notesPro]: [],
+  [DS_IDS.sav]: [],
 };
 
 let version = 0;
