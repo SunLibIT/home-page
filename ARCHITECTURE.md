@@ -485,8 +485,15 @@ grille**. Désormais `gridAutoRows: 4px` (`DASH_ROW`) et chaque widget occupe `s
   réordonnancement.
 - ⚠️ **`rowGap` est à ZÉRO** et ce n'est pas un oubli : un gap s'ajouterait à *chaque* ligne fine
   (n − 1 fois). L'espace vertical vient donc d'un `paddingBottom: DASH_GAP` sur le wrapper, compté
-  dans le span. Corollaire : les poignées de redimensionnement sont décalées de `DASH_GAP` pour
-  rester collées à la **carte** et non au bas du wrapper.
+  dans le span.
+- ⚠️ **Corollaire à retenir : le wrapper n'épouse plus la carte.** Tout ce qui doit s'aligner sur la
+  carte doit donc être décalé de `DASH_GAP`, ou posé sur le **div interne** (celui que mesure le
+  `ResizeObserver`). Deux cas rencontrés, dans cet ordre : les **poignées** de redimensionnement,
+  décalées d'autant ; puis le **liseré de cible de dépôt**, qui était resté sur le wrapper et
+  encadrait donc la carte *plus* son espacement — il descendait sous la carte et passait derrière le
+  widget du dessous. Il vit maintenant sur le div interne, avec un `zIndex` pendant le survol : il
+  dépasse de 8 px (offset 3 + halo 5) et la carte suivante, peinte après dans l'ordre du DOM, le
+  recouvrait sinon par le bas.
 - Les **squelettes** de chargement gardent `gridAutoRows: auto` et retrouvent leur `rowGap` : tous
   de même hauteur, ils n'ont rien à tasser, et des lignes de 4 px les écraseraient.
 

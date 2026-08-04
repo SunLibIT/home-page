@@ -5117,8 +5117,21 @@ function Dashboard() {
                      espacement bas est DANS le span — cf. la note sur DASH_GAP. */
                   gridRow: `span ${spans[id] ?? spanOf(size)}`,
                   paddingBottom: DASH_GAP,
-                  borderRadius: T.rXl, opacity: isSource ? 0.5 : 1, outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3, boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined }}>
-                <div ref={(el) => { if (el) innerRefs.current.set(id, el); else innerRefs.current.delete(id); }} style={{ borderRadius: T.rXl }}>
+                  borderRadius: T.rXl, opacity: isSource ? 0.5 : 1 }}>
+                {/* ⚠️ LE LISERÉ DE CIBLE EST POSÉ ICI, sur la carte, et NON sur le wrapper.
+                    Il y était avant le tassement, quand le wrapper épousait la carte ; depuis
+                    que le wrapper porte `paddingBottom: DASH_GAP`, l'encadrer revenait à
+                    encadrer la carte PLUS ses 18 px d'espacement — le liseré descendait donc
+                    sous la carte et passait derrière le widget du dessous.
+                    `zIndex` pendant le survol : le liseré dépasse de 8 px (offset 3 + halo 5),
+                    et sans lui la carte suivante — peinte après dans l'ordre du DOM — le
+                    recouvrait par le bas. `position: relative` est nécessaire pour que
+                    `zIndex` s'applique. */}
+                <div ref={(el) => { if (el) innerRefs.current.set(id, el); else innerRefs.current.delete(id); }}
+                  style={{ borderRadius: T.rXl,
+                    outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3,
+                    boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined,
+                    position: isTarget ? "relative" : undefined, zIndex: isTarget ? 4 : undefined }}>
                   <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onRemove: () => onRemove(id) } : null}>
                     {/* Options : mode NORMAL uniquement (en édition, le ⋮ porte les
                         actions de disposition et le corps est inerte). */}
