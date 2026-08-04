@@ -711,6 +711,18 @@ const SELECT_COM = q.select({
   contratSigne: "Contrat abonnement signe",
   statutAbonne: "Statut de l'abonné",
   moisSignature: "Mois de signature contrat",
+  /* Colonnes du CLASSEMENT (§9-septies). Noms VÉRIFIÉS sur Airtable le 2026-08-04
+     (base appe55vTZRk6Ssd2w · table tblcACuSWYttnFQNr, 1 771 dossiers).
+     ⚠️ `installateur` s'écrit « (from Installateur) » SANS espace avant la parenthèse,
+     là où `partenaire` de SELECT_ABONNE s'écrit « (from Installateur ) » AVEC espace :
+     ce sont DEUX champs distincts de la même table, et les confondre casse la lecture.
+     ⚠️ `commercial` est un singleSelect : Softr peut le rendre en objet `{ id, name }`,
+     d'où le passage systématique par `asText` (qui lit `.name`). */
+  aboMoyen: "Prix En nombre",
+  etatFacture2: "Etat facture 2",
+  dateSignature: "Date signature contrat",
+  dateCreation: "date de création",
+  installateur: "Nom de l'entreprise (from Installateur)",
 });
 
 /* --- SELECTS D'ÉCRITURE (§9-ter). Ce sont LES WHITELISTS : un alias absent d'ici
@@ -896,19 +908,53 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
      ⚠️ `contratSigne` est une PIÈCE JOINTE : un tableau, pas un booléen. Le mock doit
      donc porter des tableaux, sinon `hasFile` renverrait faux partout et l'aperçu
      montrerait un podium vide. */
-  comKpi: [
-    { id: "m1", commercial: "Edouard Da Silva", capex: 1_420_000, contratSigne: [{ url: "#", filename: "c1.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0) },
-    { id: "m2", commercial: "Edouard Da Silva", capex: 1_310_000, contratSigne: [{ url: "#", filename: "c2.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(1) },
-    { id: "m3", commercial: "Edouard Da Silva", capex: 1_260_000, contratSigne: [{ url: "#", filename: "c3.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(2) },
-    { id: "m4", commercial: "Philippe GERY", capex: 1_980_000, contratSigne: [{ url: "#", filename: "c4.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0) },
-    { id: "m5", commercial: "Philippe GERY", capex: 1_968_000, contratSigne: [{ url: "#", filename: "c5.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(3) },
-    { id: "m6", commercial: "Ilan LEVY", capex: 1_450_000, contratSigne: [{ url: "#", filename: "c6.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(1) },
-    { id: "m7", commercial: "Ilan LEVY", capex: 1_419_000, contratSigne: [{ url: "#", filename: "c7.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(4) },
-    { id: "m8", commercial: "Sarah MOREAU", capex: 940_000, contratSigne: [{ url: "#", filename: "c8.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(2) },
-    { id: "m9", commercial: "Sarah MOREAU", capex: 610_000, contratSigne: [{ url: "#", filename: "c9.pdf" }], statutAbonne: "Annulé", moisSignature: monthAgo(1) },
-    { id: "m10", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0) },
-    { id: "m11", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c11.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0) },
-  ],
+  comKpi: (() => {
+    /* Fabriqué plutôt qu'écrit à la main : le classement a dix colonnes, dont une
+       sparkline sur douze mois — à la main, l'échantillon serait soit minuscule, soit
+       illisible. Les VARIATIONS sont voulues et déterministes (aucun `Math.random` :
+       un mock qui bouge à chaque rendu rend un défaut d'affichage impossible à
+       reproduire) : chaque commercial a son volume, son taux de pose, son délai et sa
+       part d'annulations, et deux d'entre eux se tiennent à quelques milliers d'euros
+       pour que le podium ait un sens.
+       Les trois gardes de `comStats` restent testables : un dossier ANNULÉ, un SANS
+       contrat joint (hors portefeuille), un SANS commercial (« Non assigné », exclu). */
+    const gens = [
+      { nom: "Edouard Da Silva", n: 26, capex: 153_000, abo: 352, pose: 0.70, delai: 28, annul: 0.08, inst: 4 },
+      { nom: "Philippe GERY", n: 24, capex: 164_000, abo: 850, pose: 0.59, delai: 20, annul: 0.07, inst: 3 },
+      { nom: "Ilan LEVY", n: 21, capex: 136_000, abo: 282, pose: 0.42, delai: 24, annul: 0.09, inst: 5 },
+      { nom: "Julien RAMON", n: 19, capex: 121_000, abo: 137, pose: 0.75, delai: 29, annul: 0.17, inst: 6 },
+      { nom: "Frédéric HUET", n: 14, capex: 126_000, abo: 193, pose: 0.83, delai: 22, annul: 0.15, inst: 2 },
+      { nom: "Arnaud", n: 11, capex: 125_000, abo: 138, pose: 0.82, delai: 20, annul: 0.09, inst: 3 },
+      { nom: "Antoine KELBERT", n: 5, capex: 60_000, abo: 164, pose: 0.70, delai: 37, annul: 0.13, inst: 1 },
+    ];
+    const rows: Row[] = [];
+    gens.forEach((g, gi) => {
+      for (let i = 0; i < g.n; i++) {
+        const mois = i % 12;                                  // étale sur douze mois
+        const annule = i > 0 && i % Math.max(2, Math.round(1 / g.annul)) === 0;
+        const pose = !annule && (i % 100) / 100 < g.pose;
+        const debut = new Date(); debut.setMonth(debut.getMonth() - mois); debut.setDate(2);
+        const signature = new Date(debut); signature.setDate(signature.getDate() + g.delai);
+        rows.push({
+          id: `m${gi}_${i}`,
+          commercial: g.nom,
+          capex: g.capex + i * 900,
+          contratSigne: [{ url: "#", filename: "contrat.pdf" }],
+          statutAbonne: annule ? "Annulé" : "Actif",
+          moisSignature: monthAgo(mois),
+          aboMoyen: g.abo,
+          etatFacture2: pose ? "Validée" : "En attente",
+          dateCreation: debut.toISOString(),
+          dateSignature: signature.toISOString(),
+          installateur: `Installateur ${(i % g.inst) + 1}`,
+        });
+      }
+    });
+    // Les deux lignes qui doivent RESTER INVISIBLES au classement.
+    rows.push({ id: "m_nocontrat", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 200, etatFacture2: "", dateCreation: "", dateSignature: "", installateur: "" });
+    rows.push({ id: "m_nonassigne", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 300, etatFacture2: "Validée", dateCreation: "", dateSignature: "", installateur: "Installateur 1" });
+    return rows;
+  })(),
 };
 
 /* ============================================================================
@@ -1193,6 +1239,11 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       contratSigne: { label: "Contrat signé (pièce jointe)", kind: "bool" },
       statutAbonne: { label: "Statut de l'abonné", kind: "badge" },
       moisSignature: { label: "Mois de signature", kind: "text" },
+      aboMoyen: { label: "Abonnement mensuel", kind: "number" },
+      etatFacture2: { label: "État facture 2", kind: "badge" },
+      dateSignature: { label: "Date de signature", kind: "date" },
+      dateCreation: { label: "Date de création", kind: "date" },
+      installateur: { label: "Installateur", kind: "text" },
     },
     defaultSort: { by: "moisSignature", dir: "desc" },
   },
@@ -4071,36 +4122,95 @@ const coercePodiumCfg = (raw: unknown): PodiumCfg => {
   return { periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee" };
 };
 
-type PodiumStat = { nom: string; capex: number; contrats: number };
+/** Une ligne du classement. `monthly` = signés par mois, dans l'ordre de `mois`. */
+type ComStat = {
+  nom: string; capex: number; contrats: number; annules: number; tauxAnnulation: number;
+  poses: number; tauxPose: number; delaiMoy: number; aboMoyen: number;
+  installateurs: number; tendance: number; monthly: number[];
+};
 
 /** Clé « AAAA-MM » du mois courant, et « AAAA » de l'année — mêmes formes que le champ
  *  « Mois de signature contrat », donc comparables par simple préfixe. */
 const moisCourant = (now: Date) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-/** Classement des commerciaux sur la période. PURE — testable, et identique en mock
- *  comme en live. */
-function podiumStats(rows: Row[], periode: PodiumPeriode, now: Date): PodiumStat[] {
-  const mois = moisCourant(now);
+const moyenne = (a: number[]): number => (a.length ? a.reduce((s, n) => s + n, 0) / a.length : 0);
+const pct = (n: number, total: number): number => (total ? Math.round((n / total) * 100) : 0);
+
+/** Écart en jours entre deux dates. `null` = incalculable — c'est une SENTINELLE, jamais
+ *  un délai : tout ce qui moyenne des délais doit l'écarter, sinon une date manquante
+ *  compterait pour zéro jour et tirerait la moyenne vers le bas. */
+function joursEntre(a: unknown, b: unknown): number | null {
+  const ta = savTime(a), tb = savTime(b);
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return null;
+  return Math.round((tb - ta) / 86400000);
+}
+
+/* ── LE CALCUL, une fois pour les deux widgets (podium ET classement) ───────────
+   Critères recopiés du bloc `dashboard-KPI` (`statsDe`), sans quoi les écrans
+   divergeraient :
+     · PORTEFEUILLE = contrat signé JOINT (annulés compris) ;
+     · `contrats`/`capex` comptent les NON annulés de la période ;
+     · `tauxAnnulation` se calcule sur le total de la période (annulés inclus) ;
+     · `tauxPose` = posés / signés, « posé » = « Etat facture 2 » à « Validée » ;
+     · `delaiMoy` = jours entre création du dossier et signature, bornés à [0, 365[ —
+       au-delà c'est une saisie douteuse, pas un délai commercial ;
+     · `installateurs` = nombre d'installateurs DISTINCTS (c'est la colonne
+       « Installs. » du bloc KPI : des partenaires, pas des installations) ;
+     · `tendance` = signés du mois courant moins ceux du mois précédent PRÉSENT DANS
+       LES DONNÉES — un mois sans aucune signature ferait sinon afficher −100 % à tout
+       le monde. Elle ignore la période choisie, exprès : c'est une dynamique.
+   PURE, donc identique en mock et en live. --- */
+function comStats(rows: Row[], periode: PodiumPeriode, now: Date): { stats: ComStat[]; mois: string[] } {
+  const portefeuille = rows.filter((r) => hasFile(r.contratSigne));
+  const mCourant = moisCourant(now);
   const annee = `${now.getFullYear()}`;
   const dansPeriode = (r: Row) => {
     const m = asText(r.moisSignature);
-    if (periode === "mois") return m === mois;
+    if (periode === "mois") return m === mCourant;
     if (periode === "annee") return m.startsWith(annee);
     return true;
   };
-  const par = new Map<string, PodiumStat>();
-  rows.forEach((r) => {
-    if (!hasFile(r.contratSigne)) return;                     // hors portefeuille
-    if (!dansPeriode(r)) return;
-    if (asText(r.statutAbonne) === "Annulé") return;          // signé, mais pas compté
-    const nom = asText(r.commercial).trim() || PODIUM_NON_ASSIGNE;
-    if (nom === PODIUM_NON_ASSIGNE) return;                   // pas une personne
-    const cur = par.get(nom) ?? { nom, capex: 0, contrats: 0 };
-    cur.capex += savNum(r.capex);
-    cur.contrats += 1;
-    par.set(nom, cur);
+  const estAnnule = (r: Row) => asText(r.statutAbonne) === "Annulé";
+
+  // Mois réellement présents, les 12 derniers → l'échelle de la sparkline.
+  const tousMois = [...new Set(portefeuille.map((r) => asText(r.moisSignature)).filter(Boolean))].sort();
+  const mois = tousMois.slice(-12);
+  const iCourant = tousMois.indexOf(mCourant);
+  const mPrecedent = (iCourant > 0 ? tousMois[iCourant - 1] : tousMois[tousMois.length - 2]) || "";
+
+  const par = new Map<string, Row[]>();
+  portefeuille.forEach((r) => {
+    const nom = asText(r.commercial).trim();
+    if (!nom || nom === PODIUM_NON_ASSIGNE) return;   // « Non assigné » n'est pas une personne
+    (par.get(nom) ?? par.set(nom, []).get(nom)!).push(r);
   });
-  return [...par.values()].sort((a, b) => b.capex - a.capex).slice(0, 3);
+
+  const stats = [...par.entries()].map(([nom, recs]) => {
+    const dansP = recs.filter(dansPeriode);
+    const signes = dansP.filter((r) => !estAnnule(r));
+    const annules = dansP.filter(estAnnule);
+    const poses = signes.filter((r) => asText(r.etatFacture2) === "Validée");
+    const delais = signes
+      .map((r) => joursEntre(r.dateCreation, r.dateSignature))
+      .filter((d): d is number => d != null && d >= 0 && d < 365);
+    const abos = signes.map((r) => savNum(r.aboMoyen)).filter((v) => v > 0);
+    const parMois = (m: string) => recs.filter((r) => asText(r.moisSignature) === m && !estAnnule(r)).length;
+    return {
+      nom,
+      capex: signes.reduce((s, r) => s + savNum(r.capex), 0),
+      contrats: signes.length,
+      annules: annules.length,
+      tauxAnnulation: pct(annules.length, dansP.length),
+      poses: poses.length,
+      tauxPose: pct(poses.length, signes.length),
+      delaiMoy: delais.length ? Math.round(moyenne(delais)) : 0,
+      aboMoyen: moyenne(abos),
+      installateurs: new Set(recs.map((r) => asText(r.installateur)).filter(Boolean)).size,
+      tendance: parMois(mCourant) - (mPrecedent ? parMois(mPrecedent) : 0),
+      monthly: mois.map(parMois),
+    };
+  });
+  return { stats, mois };
 }
 
 /** Montant en M€ à trois décimales — la forme du bloc KPI (« 3,990 M€ »), qui garde
@@ -4128,12 +4238,13 @@ function PodiumOptions({ cfg, onChange }: { cfg: PodiumCfg; onChange: (next: Pod
 }
 
 function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
-  const top3 = podiumStats(api.rows, cfg.periode, new Date());
+  const top3 = comStats(api.rows, cfg.periode, new Date()).stats
+    .sort((a, b) => b.capex - a.capex).slice(0, 3);
   /* ORDRE VISUEL 2 · 1 · 3 — le premier au centre, comme sur un vrai podium. Le
      tableau peut contenir des trous (moins de trois commerciaux sur la période) : les
      cases vides sont filtrées au rendu, pas ici, pour que les positions restent
      stables. */
-  const marches: (PodiumStat | undefined)[] = [top3[1], top3[0], top3[2]];
+  const marches: (ComStat | undefined)[] = [top3[1], top3[0], top3[2]];
   const hauteurs = [58, 82, 44];
   const rangs = [2, 1, 3];
   const periodeLabel = cfg.periode === "mois" ? "sur le mois en cours"
@@ -4213,6 +4324,254 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
 
 function PodiumCard({ cfg }: { cfg: PodiumCfg }) {
   return <SourceFeed source="comKpi">{(s) => <PodiumWidget api={s} cfg={cfg} />}</SourceFeed>;
+}
+
+/* ── LE CLASSEMENT COMPLET — le tableau du bloc KPI, colonne pour colonne ───────
+   Dix colonnes, dont quatre triables. Le tri vit dans la cfg (donc persisté par
+   utilisateur) et non dans un état local : on retrouve son classement au rechargement.
+
+   ⚠️ « INSTALLS. » = nombre d'INSTALLATEURS distincts, pas d'installations. Le libellé
+   est celui du bloc KPI, et il est trompeur — la note ci-dessous existe pour qu'on ne
+   le « corrige » pas en croyant compter des poses.
+
+   Mise en page en style INLINE, jamais par classes : rien ne garantit qu'une règle
+   injectée atteigne le bloc (§1). L'en-tête est collant (`position: sticky`) pour que
+   les colonnes restent lisibles pendant le défilement du corps. --- */
+const COM_COLS = [
+  { key: "capex", label: "CAPEX HT" },
+  { key: "contrats", label: "Signés" },
+  { key: "annules", label: "Annulés" },
+  { key: "tauxPose", label: "Taux pose" },
+  { key: "delaiMoy", label: "Délai sig." },
+] as const;
+type ComCol = (typeof COM_COLS)[number]["key"];
+type ClassementCfg = { periode: PodiumPeriode; tri: ComCol; dir: "asc" | "desc" };
+
+const coerceClassementCfg = (raw: unknown): ClassementCfg => {
+  const o = asObj(raw);
+  const p = asText(o.periode);
+  const t = asText(o.tri);
+  return {
+    periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee",
+    tri: COM_COLS.some((c) => c.key === t) ? (t as ComCol) : "capex",
+    dir: o.dir === "asc" ? "asc" : "desc",
+  };
+};
+
+function ClassementOptions({ cfg, onChange }: { cfg: ClassementCfg; onChange: (next: ClassementCfg) => void }) {
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  return (
+    <div>
+      <span style={lbl}>Période</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {PODIUM_PERIODES.map((p) => (
+          <button key={p.key} style={seg(cfg.periode === p.key)} onClick={() => onChange({ ...cfg, periode: p.key })}
+            aria-pressed={cfg.periode === p.key}>{p.label}</button>
+        ))}
+      </div>
+      <span style={{ ...lbl, marginTop: "10px" }}>Trier par</span>
+      <select style={field} value={cfg.tri} aria-label="Colonne de tri"
+        onChange={(e) => onChange({ ...cfg, tri: e.target.value as ComCol })}>
+        {COM_COLS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+      </select>
+      <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+        <button style={seg(cfg.dir === "desc")} onClick={() => onChange({ ...cfg, dir: "desc" })}
+          aria-pressed={cfg.dir === "desc"}>Décroissant</button>
+        <button style={seg(cfg.dir === "asc")} onClick={() => onChange({ ...cfg, dir: "asc" })}
+          aria-pressed={cfg.dir === "asc"}>Croissant</button>
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        Les en-têtes du tableau trient aussi, d'un clic.
+      </p>
+    </div>
+  );
+}
+
+/** Courbe des 12 derniers mois. Le point final est vert si le dernier mois se tient au
+ *  niveau du précédent, rouge s'il décroche — jamais la couleur seule : le nombre de
+ *  signés est déjà dans la colonne voisine. */
+function Sparkline({ data }: { data: number[] }) {
+  if (!data.length || data.every((d) => d === 0)) {
+    return <span style={{ fontSize: "12px", color: T.ink4 }}>{DASH}</span>;
+  }
+  const W = 76, H = 26, top = Math.max(...data, 1);
+  const x = (i: number) => (data.length < 2 ? W / 2 : (i / (data.length - 1)) * W);
+  const y = (v: number) => H - (v / top) * (H - 5) - 2.5;
+  const pts = data.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const last = data[data.length - 1], prev = data.length > 1 ? data[data.length - 2] : last;
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} aria-hidden="true" style={{ display: "block", overflow: "visible" }}>
+      <polyline fill="none" stroke={T.brand} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" points={pts} opacity="0.45" />
+      <circle cx={x(data.length - 1)} cy={y(last)} r="2.6" fill={last >= prev ? T.ok : T.danger} />
+    </svg>
+  );
+}
+
+function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: ClassementCfg; onSort: (col: ComCol) => void }) {
+  const { stats } = comStats(api.rows, cfg.periode, new Date());
+  const signe = cfg.dir === "asc" ? 1 : -1;
+  const tries = [...stats].sort((a, b) => (a[cfg.tri] - b[cfg.tri]) * signe);
+  const maxCapex = Math.max(1, ...stats.map((c) => c.capex));
+
+  const TH: CSSProperties = { position: "sticky", top: 0, zIndex: 1, background: T.surface2, padding: "9px 10px", textAlign: "left", fontSize: "10.5px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}` };
+  const THN: CSSProperties = { ...TH, textAlign: "right" };
+  const TD: CSSProperties = { padding: "10px", borderBottom: `1px solid ${T.line}`, fontSize: "12.5px", fontWeight: 500, color: T.ink2, verticalAlign: "middle" };
+  const TDN: CSSProperties = { ...TD, textAlign: "right", fontVariantNumeric: "tabular-nums" };
+  /* En-tête TRIABLE : un bouton, pas un `<th>` cliquable — le tri doit être atteignable
+     au clavier, et un `th` ne l'est pas. La flèche dit le sens ; elle ne se déduit pas
+     de la seule couleur. */
+  const thTri = (col: ComCol, label: string) => {
+    const actif = cfg.tri === col;
+    return (
+      <th key={col} style={THN} aria-sort={actif ? (cfg.dir === "asc" ? "ascending" : "descending") : "none"}>
+        <button onClick={() => onSort(col)} title={`Trier par ${label}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", fontSize: "10.5px", fontWeight: 700, color: actif ? T.brand700 : T.ink3, textTransform: "uppercase", letterSpacing: ".05em" }}>
+          {label}
+          {actif
+            ? (cfg.dir === "asc" ? <ChevronUp aria-hidden style={{ width: 12, height: 12 }} /> : <ChevronDown aria-hidden style={{ width: 12, height: 12 }} />)
+            : <ChevronDown aria-hidden style={{ width: 12, height: 12, opacity: 0.35 }} />}
+        </button>
+      </th>
+    );
+  };
+
+  return (
+    <Widget icon={Users} title="Classement des commerciaux"
+      sub={`${stats.length} commercial${stats.length > 1 ? "aux" : ""} — trié par ${COM_COLS.find((c) => c.key === cfg.tri)?.label}`}>
+      {api.error ? (
+        <EmptyState icon={Users} dense title="Donnée indisponible"
+          hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
+      ) : api.loading ? (
+        <div style={{ padding: "14px 16px" }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} className="slb-skel" style={{ display: "block", height: 34, marginBottom: 8, borderRadius: T.rSm, background: T.neutral050 }} />
+          ))}
+        </div>
+      ) : !stats.length ? (
+        <EmptyState icon={Users} dense title="Aucun contrat signé sur la période"
+          hint="Élargissez la période dans le menu ⋮ « Options »." />
+      ) : (
+        <>
+          <ScrollBody>
+            {/* `overflowX` sur le conteneur du tableau : dix colonnes ne tiennent pas
+                dans un widget en demi-largeur, et un tableau qui déborde du bloc serait
+                pire qu'un tableau qui défile. */}
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
+                <thead>
+                  <tr>
+                    <th style={TH}>#</th>
+                    <th style={TH}>Commercial</th>
+                    {thTri("capex", "CAPEX HT")}
+                    <th style={THN}>Tendance</th>
+                    {thTri("contrats", "Signés")}
+                    {thTri("annules", "Annulés")}
+                    {thTri("tauxPose", "Taux pose")}
+                    {thTri("delaiMoy", "Délai sig.")}
+                    <th style={TH}>12 mois</th>
+                    <th style={THN}>Installs.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tries.map((c, i) => {
+                    /* Le liseré or ne s'applique qu'au tri par CAPEX décroissant : sur un
+                       autre tri, les trois premières lignes ne sont pas « le podium », et
+                       les dorer raconterait un classement qui n'est pas affiché. */
+                    const podium = i < 3 && cfg.tri === "capex" && cfg.dir === "desc";
+                    return (
+                      <tr key={c.nom}>
+                        <td style={TD}>
+                          <span style={{
+                            display: "inline-grid", placeItems: "center", width: 24, height: 24, borderRadius: 999,
+                            fontSize: "11.5px", fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                            background: !podium ? "transparent" : i === 0 ? T.solar050 : i === 1 ? T.neutral050 : T.warn050,
+                            color: !podium ? T.ink4 : i === 0 ? T.solar600 : i === 1 ? T.ink2 : T.warnInk,
+                            boxShadow: podium ? `inset 0 0 0 1px ${i === 1 ? T.line2 : T.solar100}` : "none",
+                          }}>{i + 1}</span>
+                        </td>
+                        <td style={TD}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <span aria-hidden style={{ width: 32, height: 32, flex: "none", borderRadius: T.rSm, display: "grid", placeItems: "center", background: avatarBg(c.nom), color: "#fff", fontSize: "11.5px", fontWeight: 700 }}>
+                              {initials(c.nom)}
+                            </span>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{c.nom}</div>
+                              <div style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3, whiteSpace: "nowrap" }}>
+                                {c.aboMoyen > 0 ? `Abonnement moyen ${Math.round(c.aboMoyen)} €/mois` : DASH}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        {/* CAPEX : montant PUIS barre relative au meilleur — c'est la
+                            comparaison qui se lit d'abord dans ce tableau. */}
+                        <td style={TD}>
+                          <div style={{ fontSize: "13px", fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{fmtMEur(c.capex)}</div>
+                          <span aria-hidden style={{ display: "block", width: 150, height: 5, marginTop: 5, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
+                            <span style={{ display: "block", height: "100%", width: `${Math.round((c.capex / maxCapex) * 100)}%`, background: podium ? T.solar : T.brand, borderRadius: 999 }} />
+                          </span>
+                        </td>
+                        {/* TENDANCE : icône ET signe, jamais la couleur seule. */}
+                        <td style={TDN}>
+                          {c.tendance === 0 ? (
+                            <span style={{ color: T.ink4 }}>{DASH}</span>
+                          ) : (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontWeight: 700, color: c.tendance > 0 ? T.okInk : T.dangerInk }}>
+                              {c.tendance > 0 ? <ChevronUp aria-hidden style={{ width: 13, height: 13 }} /> : <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />}
+                              {c.tendance > 0 ? `+${c.tendance}` : c.tendance}
+                            </span>
+                          )}
+                        </td>
+                        <td style={TDN}>{c.contrats}</td>
+                        <td style={TDN}>
+                          {c.annules > 0 ? (
+                            <span style={{ color: T.dangerInk, fontWeight: 700 }}>
+                              {c.annules}<span style={{ fontSize: "11.5px", fontWeight: 600, color: T.ink3 }}> ({c.tauxAnnulation} %)</span>
+                            </span>
+                          ) : <span style={{ color: T.ink4 }}>{DASH}</span>}
+                        </td>
+                        {/* Taux de pose : vert au-delà de 70 %, ambre en dessous — et le
+                            chiffre est écrit, la couleur ne fait que le doubler. */}
+                        <td style={TDN}>
+                          <span style={{ fontWeight: 700, color: c.tauxPose >= 70 ? T.okInk : c.tauxPose >= 40 ? T.warnInk : T.ink3 }}>
+                            {c.tauxPose} %
+                          </span>
+                        </td>
+                        <td style={TDN}>{c.delaiMoy ? `${c.delaiMoy} j` : DASH}</td>
+                        <td style={TD}><Sparkline data={c.monthly} /></td>
+                        <td style={TDN}>{c.installateurs || DASH}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </ScrollBody>
+          {api.partial && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px 12px", borderTop: `1px solid ${T.line}` }}>
+              <Badge variant="warn" dot>Calcul partiel</Badge>
+              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+                Le parc dépasse ce que ce widget lit d'un coup : le classement porte sur les dossiers les plus récents.
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </Widget>
+  );
+}
+
+function ClassementCard({ id, cfg }: { id: string; cfg: ClassementCfg }) {
+  /* Le tri par en-tête écrit la cfg — donc il est PERSISTÉ : on retrouve son classement
+     au rechargement. Cliquer la colonne déjà triée inverse le sens, comme partout. */
+  const writer = useCfgWriter();
+  const onSort = (col: ComCol) => {
+    if (!writer) return;                       // mode Personnaliser : le corps est inerte
+    writer.save(col === cfg.tri ? { ...cfg, dir: cfg.dir === "desc" ? "asc" : "desc" } : { ...cfg, tri: col, dir: "desc" });
+  };
+  void id;
+  return <SourceFeed source="comKpi">{(s) => <ClassementWidget api={s} cfg={cfg} onSort={onSort} />}</SourceFeed>;
 }
 
 /* ============================================================================
@@ -4590,8 +4949,8 @@ type WidgetTypeKey =
      un seul champ SAV (somme, moyenne, comptage filtré), préférer un widget `data`
      posé depuis les presets `sav` du catalogue (§6-bis) — aucun code requis. */
   | "sav"
-  /* ← Podium des commerciaux (§9-septies) : seul widget qui agrège sur tout le parc. */
-  | "podium"
+  /* ← Performance commerciale (§9-septies) : les seuls widgets qui agrègent sur tout le parc. */
+  | "podium" | "classementCom"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
   | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
@@ -4640,6 +4999,8 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   /* Podium (§9-septies) — vient du tableau de bord KPI, mêmes critères et même dessin. */
   podium: { title: "Podium CAPEX HT", icon: Trophy, Render: PodiumCard,
             defaults: () => coercePodiumCfg({}), coerce: coercePodiumCfg, Options: PodiumOptions },
+  classementCom: { title: "Classement des commerciaux", icon: Users, Render: ClassementCard,
+                   defaults: () => coerceClassementCfg({}), coerce: coerceClassementCfg, Options: ClassementOptions },
   /* Utilitaires (§9-sexies). `memo` et `checklist` n'ont PAS d'`Options` : leur seul
      réglage serait leur contenu, et il s'édite dans le widget — pas derrière un ⋮. */
   horloge: { title: "Heure", icon: Clock, Render: HorlogeCard,
@@ -4809,6 +5170,8 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string }[] = [
   { type: "sav", h: "lg", group: "sav" },
   // Le podium a besoin de hauteur : avatars, montants et marches s'empilent.
   { type: "podium", h: "lg", group: "perf" },
+  // Le classement est un TABLEAU de dix colonnes : à poser en pleine largeur et haut.
+  { type: "classementCom", h: "lg", group: "perf" },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
   { type: "horloge", h: "sm", group: "outils" },
   { type: "memo", group: "outils" },

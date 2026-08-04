@@ -79,7 +79,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, les **4 contextes de widget** (`WidgetChromeCtx`, `WidgetOptionsCtx`, **`WidgetCfgCtx`**, **`WidgetGrabCtx`**) + `WidgetHeightCtx`, `useDismissOnOutside`/`hitsRect`, `WidgetEditMenu`, **`Widget`** (la coquille), `ScrollBody`, `PageNavBar`, `Hero`, **`topOrigin`/`softrPageUrl`**, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
-| **9-septies** | **Podium CAPEX** : `podiumStats` (pure), `fmtMEur`, `PodiumOptions`, `PodiumWidget`, `PodiumCard` — repris de l'onglet Commercial du bloc `dashboard-KPI` |
+| **9-septies** | **Performance commerciale** : `comStats` (pure, le calcul partagé), `fmtMEur`, `Sparkline`, le **podium** (`PodiumWidget`/`PodiumCard`) et le **classement** (`ClassementWidget`/`ClassementCard`, 10 colonnes triables) — repris de l'onglet Commercial du bloc `dashboard-KPI` |
 | **9-sexies** | **Widgets UTILITAIRES sans source** : `HorlogeCard`/`HorlogeOptions`, `MemoCard` (+ `memoInline`/`MemoRead`, le texte balisé), `ChecklistCard` — leur contenu EST leur cfg |
 | **9-quinquies** | **Synthèse SAV** : helpers purs (`savNum`/`savTime`/`savDays`/`savTotal`/`savKpis`), **registre `SAV_METRICS`** (les valeurs cochables), `coerceSavCfg`, `SavOptions`, `SavWidget`, `SavCard` |
 | **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
@@ -845,9 +845,36 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 
 > **Deux entrées de catalogue pour une même table** (`abonnes` et `comKpi`) : une source
 > n'est pas une datasource, c'est une **lecture**. `abonnes` lit large sur les 12 derniers
-> dossiers ; `comKpi` lit 5 champs mais sur **tout le parc**, pour le podium CAPEX. Les fusionner
-> ferait payer au widget « Derniers dossiers » le prix d'un parc entier, ou au podium
-> l'inexactitude d'un échantillon.
+> dossiers ; `comKpi` lit 10 champs mais sur **tout le parc**, pour le podium et le classement
+> des commerciaux. Les fusionner ferait payer au widget « Derniers dossiers » le prix d'un parc
+> entier, ou aux deux autres l'inexactitude d'un échantillon.
+>
+> ⚠️ **Deux lookups d'installateur cohabitent dans cette table**, et les confondre casse la
+> lecture : `Nom de l'entreprise (from Installateur )` **avec** espace avant la parenthèse
+> (alias `partenaire` de `SELECT_ABONNE`) et `Nom de l'entreprise (from Installateur)`
+> **sans** espace (alias `installateur` de `SELECT_COM`). Les deux noms ont été vérifiés sur
+> Airtable le 2026-08-04. `Propio SOFTR` est un **singleSelect** : Softr peut le rendre en
+> objet `{ id, name }`, d'où le passage systématique par `asText`.
+
+### Performance commerciale — podium et classement (§9-septies)
+
+Deux widgets, **un seul calcul** (`comStats`, pure) : les critères sont recopiés de `statsDe` du
+bloc `dashboard-KPI` pour que les deux écrans donnent le **même** classement — portefeuille =
+contrat signé **joint** (annulés compris, ils ont bien été signés), `contrats`/`capex` sur les non
+annulés de la période, `tauxPose` = posés/signés (« Etat facture 2 » à « Validée »), `delaiMoy` =
+jours création → signature bornés à `[0, 365[`, `installateurs` = installateurs **distincts** (la
+colonne « Installs. » compte des partenaires, **pas** des installations — le libellé du bloc KPI est
+trompeur, la note existe pour qu'on ne le « corrige » pas), `tendance` = signés du mois courant
+moins le mois précédent **présent dans les données** (sinon un mois creux afficherait −100 % à tout
+le monde) et « Non assigné » **exclu** (ce n'est pas une personne, il finirait premier).
+
+Le **tri du classement vit dans la cfg**, pas dans un état local : il est donc persisté, et on
+retrouve son classement au rechargement. Les en-têtes trient d'un clic via `WidgetCfgCtx` — le même
+canal que le pense-bête — et inversent le sens au second clic. Le liseré or des trois premières
+lignes n'apparaît **que** sur un tri par CAPEX décroissant : ailleurs, ces lignes ne sont pas « le
+podium », et les dorer raconterait un classement qui n'est pas affiché. Le tableau défile
+horizontalement (`minWidth: 880`) — dix colonnes ne tiennent pas dans un widget en demi-largeur, et
+un tableau qui déborderait du bloc serait pire.
 
 ⚠️ Les noms de champs comportent des **espaces finaux et des casses irrégulières** (`"Date "`,
 `"date "`, `"date de fin"` vs `"Date de fin"`) : ne jamais les normaliser. **Tous ont été
