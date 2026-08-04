@@ -823,16 +823,38 @@ Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son cô
 - **`QUICK_LINKS`** (section Outils) — raccourcis pages d'espace en `target=_top` (Prospects,
   Partenaires, Contact Partenaire, Abonnés, KPI) + outils externes (You Sign, Calculette, Sellsy,
   Tik&Lib). **Les 9 URLs sont encore `#`** — à compléter. Idem `SAV_PAGE_HREF`.
-- **`topOrigin()` / `softrPageUrl(slug, params)`** — un lien vers une page de l'espace ne peut pas
-  être **relatif** : `href="/ma-page"` serait résolu contre l'**iframe du bloc**, pas contre l'app.
-  Il faut donc l'origine de la page parente, et `window.parent.location` est bloqué dès que
-  l'iframe est d'une autre origine. Trois sources, dans cet ordre : `ancestorOrigins` (exact, mais
-  absent de Firefox) → `document.referrer` (présent en pratique) → un repli codé en dur, pour ne
-  jamais fabriquer un lien vide. L'origine est **lue à l'exécution**, donc le même code marche en
-  aperçu et en production sans condition ; un domaine personnalisé ne demanderait rien à changer.
-  Premier usage : le bouton « Détail » du widget des dossiers, vers `abonn-s-details-3`.
-  ⚠️ **Le nom du paramètre reste à confirmer** (`ABONNE_PAGE_PARAM = "recordId"`, la convention
-  Softr la plus courante) : ouvrir une fiche depuis l'app et lire son URL.
+### Les adresses — un registre unique en tête de fichier (§0-bis)
+
+**Aucune URL n'est écrite ailleurs.** `PAGES` (slugs des pages de l'espace) et `TOOLS` (outils
+externes et sources d'iframe) vivent juste après `USE_MOCK` ; `NAV_TABS`, `QUICK_LINKS` et les
+widgets ne portent que des **références**. Une adresse qui change se change à un seul endroit.
+
+```ts
+const PAGES = { abonne: "abonn-s-details-3", installateur: "installateurs-details",
+                sav: "sav", kpi: "dashboard-kpi",
+                prospects: "", partenaires: "", contactPartenaire: "", abonnes: "" };
+const PAGE_RECORD_PARAM = "recordId";     // paramètre des pages de détail
+```
+
+- **Des slugs, pas des URLs** — un lien vers une page de l'espace ne peut pas être **relatif** :
+  `href="/sav"` serait résolu contre l'**iframe du bloc**, pas contre l'app. `pageUrl(slug, params)`
+  préfixe donc l'origine **parente**, que `topOrigin()` déduit à l'exécution :
+  `ancestorOrigins` (exact, mais absent de Firefox) → `document.referrer` (présent en pratique) →
+  un repli codé en dur. L'origine est **lue, jamais devinée**, donc les mêmes liens marchent en
+  aperçu et en production sans condition, et un domaine personnalisé ne demanderait rien à changer.
+- **Résolu AU RENDU**, pas à l'évaluation du module : `topOrigin()` lit le DOM, et une URL figée au
+  chargement se tromperait si le bloc était monté autrement.
+- **Une entrée vide (`""`) est un choix explicite**, « adresse pas encore connue » : `pageUrl`
+  renvoie `""` et l'appelant rend un **lien inerte** — tuile Outils désactivée (un `<span>`, mention
+  « bientôt »), pied du widget SAV absent. Un bouton qui n'ouvre rien vaut moins que pas de bouton.
+  Renseigner le slug dans §0-bis l'active, sans toucher au reste.
+- ⚠️ **Le nom du paramètre reste à confirmer** (`recordId`, convention Softr la plus courante) :
+  ouvrir une fiche depuis l'app et lire son URL.
+- `PAGES.installateur` est **déclarée mais pas encore utilisée** : les widgets de notes affichent le
+  *nom* de l'installateur, pas son record id (le champ lien n'est pas dans `SELECT_NOTE_INS`).
+  L'ajouter au select suffirait à offrir un lien « Voir la fiche » sur chaque note.
+- Hors registre, et c'est voulu : les images de la charte (`IMG`) et le runtime des embeds
+  (`ELFSIGHT_PLATFORM`) — ressources techniques, pas cibles de navigation.
 - **`Hero`** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée à la charte),
   « Bienvenue {prénom} ! », date, 2 chips, logo forcé blanc via `filter: brightness(0) invert(1)`.
   Le dégradé est **animé en boucle lente** (`HERO_CYCLE_MS`, 60 s par cycle) : une couche de fond large de

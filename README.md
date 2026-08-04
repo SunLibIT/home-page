@@ -133,10 +133,27 @@ ses formules) :
 Tant que la table n'est pas connectée, le widget s'affiche **sans pastille « Non lu » ni bouton
 « Vu »** : dégradation prévue, pas une panne.
 
-### E — Reste à faire
-- Les **9 URLs** de `QUICK_LINKS` et `SAV_PAGE_HREF`, encore `#` (§7 de `Block.tsx`).
-- **Confirmer le nom du paramètre** de la page « Détail » d'un abonné (`ABONNE_PAGE_PARAM`,
-  `"recordId"` par convention) : ouvrir une fiche depuis l'app et lire son URL.
+### E — Les adresses : un seul endroit (`Block.tsx` §0-bis)
+
+Toutes les cibles de navigation vivent dans **`PAGES`** (pages de l'espace) et **`TOOLS`** (outils
+externes), juste après `USE_MOCK`. Aucune URL n'est écrite ailleurs : les tuiles et les widgets ne
+portent que des références. **Une adresse qui change se change là, une fois.**
+
+Ce sont des **slugs**, pas des URLs : `pageUrl()` y ajoute l'origine de la page **parente**, lue à
+l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en production**.
+
+| Renseignées ✅ | Encore vides ⏳ |
+| --- | --- |
+| `abonne` → `abonn-s-details-3` · `installateur` → `installateurs-details` · `sav` → `sav` · `kpi` → `dashboard-kpi` | `prospects` · `partenaires` · `contactPartenaire` · `abonnes` (liste) · les 4 outils externes (You Sign, Calculette, Sellsy, Tik&Lib) |
+
+Une entrée vide est un **choix explicite** : la tuile s'affiche **désactivée** (mention « bientôt »)
+au lieu de promettre un clic qui ne mène nulle part. Renseigner le slug l'active, sans autre
+changement.
+
+⚠️ **À confirmer** : le nom du paramètre des pages de détail (`PAGE_RECORD_PARAM = "recordId"`, la
+convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son URL.
+
+### F — Reste à faire
 - **Vérifier à l'écran**, sur la page publiée et connecté, ce qui ne se manifeste qu'à la souris
   et en session : cocher « Fait », glisser un widget par son en-tête, régler une poignée.
 

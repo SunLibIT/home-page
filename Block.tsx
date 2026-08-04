@@ -30,10 +30,13 @@
      A) datasource.define        → §6 : 6 des 7 sources connectées ; il manque
                                   `notifC` (Notification Center), d'où un widget
                                   « Derniers dossiers » sans état lu / non lu
-     B) NAV_TABS.href / QUICK_LINKS.href → §7 : URLs des pages & outils (encore « # »)
+     B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. 4 pages
+                                  de l'espace sont connues (abonné, installateur, SAV,
+                                  KPI) ; les 4 autres et les 4 outils externes sont
+                                  vides, donc rendus en tuiles désactivées
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
-     D) Page « Détail » d'un abonné → ABONNE_PAGE_SLUG ✅ ; reste à CONFIRMER le nom
-                                  du paramètre d'URL (ABONNE_PAGE_PARAM, §9)
+     D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
+                                  CONFIRMER que Softr attend bien « recordId »
    ⚠️ USE_MOCK est passé à FALSE le 2026-08-04 : le bloc lit Airtable en direct.
    ============================================================================ */
 
@@ -81,6 +84,101 @@ import { useCurrentUser } from "@/lib/user";
    fait retomber tout le bloc sur ses mocks, sans autre changement.
    ============================================================================ */
 const USE_MOCK: boolean = false;
+
+/* ============================================================================
+   0-bis. ADRESSES — LE SEUL ENDROIT OÙ VIT UNE URL
+   ----------------------------------------------------------------------------
+   Toutes les cibles de navigation du bloc sont ici : pages de l'espace Softr
+   (`PAGES`) et outils externes (`TOOLS`). Une adresse qui change se change ICI, une
+   fois, et tous les liens suivent — plus de chasse à l'URL au milieu de 5 000 lignes.
+
+   ── Pourquoi des SLUGS et non des URLs complètes ──
+   Un lien vers une page de l'espace ne peut pas être relatif : `href="/sav"` serait
+   résolu contre le document courant, c'est-à-dire l'IFRAME du bloc, et non contre
+   l'app. Il faut donc une URL absolue, donc l'origine de la page PARENTE — et
+   `window.parent.location` est bloqué dès que l'iframe est d'une autre origine.
+   `topOrigin()` la déduit à l'exécution, avec trois sources dans cet ordre :
+     1. `ancestorOrigins` — l'information exacte, mais absente de Firefox ;
+     2. `document.referrer` — la page qui a chargé l'iframe (présent en pratique) ;
+     3. un repli codé en dur, pour ne jamais fabriquer un lien vide.
+   C'est ce qui fait fonctionner les mêmes liens EN APERÇU ET EN PRODUCTION sans
+   condition : l'origine est LUE, jamais devinée. Un passage à un domaine
+   personnalisé ne demanderait rien à changer ici (seul le repli mériterait une
+   retouche). En aperçu local (`npm run dev`), on retombe sur localhost — normal, la
+   page cible n'y existe pas.
+
+   ⚠️ Ne JAMAIS écrire une origine en dur dans un slug (« https://…/sav ») : ce serait
+   exactement l'erreur que `topOrigin()` existe pour éviter.
+   ⚠️ Une entrée VIDE ("") est un choix explicite : « adresse pas encore connue ».
+   `pageUrl` renvoie alors "" et l'appelant rend un lien INERTE plutôt qu'un lien mort.
+
+   Ce que ce bloc NE couvre PAS, pour ne pas le chercher ici : les images de la charte
+   (constante `IMG`, §1) et le runtime des embeds (`ELFSIGHT_PLATFORM`, posé juste au-
+   dessus de `useElfsightPlatform`, son unique consommateur).
+   Ce ne sont pas des cibles de navigation mais des ressources techniques, chacune
+   déjà unique en son endroit.
+   ============================================================================ */
+const SOFTR_ORIGIN_FALLBACK = "https://sunlibcrm2.softr.app";
+
+/** Slugs des pages de l'espace, sans slash initial. Relevés le 2026-08-04. */
+const PAGES = {
+  /* Pages CONFIRMÉES (fournies le 2026-08-04, valables en aperçu comme en prod). */
+  abonne: "abonn-s-details-3",           // FICHE d'un abonné → attend un recordId
+  /* FICHE d'un installateur → attend un recordId. DÉCLARÉE MAIS PAS ENCORE UTILISÉE :
+     les widgets de notes affichent le NOM de l'installateur, pas son record id (le
+     champ lien « Installateurs » n'est pas dans SELECT_NOTE_INS). L'ajouter au select
+     suffirait à offrir un lien « Voir la fiche » sur chaque note. */
+  installateur: "installateurs-details",
+  sav: "sav",                            // Pilotage SAV
+  kpi: "dashboard-kpi",                  // Tableau de bord KPI
+
+  /* ⏳ PAS ENCORE FOURNIES. Les laisser vides est délibéré : la tuile
+     correspondante s'affiche alors désactivée, au lieu de promettre un clic qui ne
+     mène nulle part. Renseigner le slug suffit à l'activer. */
+  prospects: "",
+  partenaires: "",
+  contactPartenaire: "",
+  abonnes: "",                           // LISTE des abonnés (≠ `abonne`, qui est la fiche)
+} as const;
+
+/** Nom du paramètre d'URL qui porte l'enregistrement ciblé sur une page de détail.
+ *  ⚠️ `recordId` est la convention Softr la plus courante, PAS une certitude : à
+ *  confirmer en ouvrant une fiche depuis l'app et en lisant son URL. */
+const PAGE_RECORD_PARAM = "recordId";
+
+/** Outils externes (nouvel onglet). Même règle : "" = adresse inconnue → tuile inerte. */
+const TOOLS = {
+  youSign: "",
+  calculette: "",
+  sellsy: "",
+  tikLib: "",
+  /* Apps Vercel PUBLIQUES embarquées en iframe dans les onglets (§7) : ce ne sont pas
+     des liens mais des sources d'iframe — d'où leur place à part. */
+  formulaireContact: "https://formulairedecontact.vercel.app/",
+  simulateurGrille: "https://simulateur-grille-v2.vercel.app/",
+  bibliotheque: "https://documentation-interne.vercel.app/",
+} as const;
+
+function topOrigin(): string {
+  if (typeof window === "undefined") return SOFTR_ORIGIN_FALLBACK;
+  try {
+    if (window.parent === window) return window.location.origin;   // hors iframe
+    const anc = (window.location as unknown as { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+    if (anc && anc.length) return anc[anc.length - 1];             // le plus haut ancêtre
+    if (document.referrer) return new URL(document.referrer).origin;
+  } catch { /* origine illisible : on tombe sur le repli */ }
+  return SOFTR_ORIGIN_FALLBACK;
+}
+
+/** URL absolue d'une page de l'espace. Slug vide → "" (lien à rendre inerte).
+ *  ⚠️ Appelée AU RENDU et non à l'évaluation du module : `topOrigin()` lit le DOM,
+ *  et une URL figée au chargement se tromperait si le bloc était monté autrement. */
+function pageUrl(slug: string, params?: Record<string, string>): string {
+  if (!slug) return "";
+  const base = `${topOrigin()}/${slug.replace(/^\/+/, "")}`;
+  const query = new URLSearchParams(params ?? {}).toString();
+  return query ? `${base}?${query}` : base;
+}
 
 /* Assets officiels — dépôt SunLibIT/Documents-PNG (charte, §Dépôt images)
    `logoRond` n'est plus affiché : le héro utilise <Sunburst>, le même motif
@@ -1270,7 +1368,10 @@ function SourceFeed({ source, children }: { source: SourceKey; children: SourceC
 }
 
 /* ============================================================================
-   7. NAV & OUTILS — [À COMPLÉTER B] URLs réelles
+   7. NAV & OUTILS — la STRUCTURE ; les adresses sont en §0-bis
+   ----------------------------------------------------------------------------
+   Aucune URL n'est écrite ici : ces tableaux ne portent que des RÉFÉRENCES à
+   `PAGES` / `TOOLS`. Changer une adresse se fait en §0-bis, jamais dans ce §7.
    ============================================================================ */
 /* Onglets de navigation. « Accueil » = ce bloc (tableau de bord). Un onglet avec
    `embed` intègre une app externe PUBLIQUE (sans login) DANS la page via une
@@ -1281,27 +1382,30 @@ function SourceFeed({ source, children }: { source: SourceKey; children: SourceC
 type NavTab = { id: string; label: string; icon: LucideIcon; embed?: string; href?: string };
 const NAV_TABS: NavTab[] = [
   { id: "accueil", label: "Accueil", icon: Home },
-  { id: "formulaire", label: "Formulaire de contact", icon: Mail, embed: "https://formulairedecontact.vercel.app/" },
-  { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid, embed: "https://simulateur-grille-v2.vercel.app/" },
-  { id: "bibliotheque", label: "Bibliothèque", icon: Library, embed: "https://documentation-interne.vercel.app/" },
+  { id: "formulaire", label: "Formulaire de contact", icon: Mail, embed: TOOLS.formulaireContact },
+  { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid, embed: TOOLS.simulateurGrille },
+  { id: "bibliotheque", label: "Bibliothèque", icon: Library, embed: TOOLS.bibliotheque },
 ];
 
-/* Outils. TODO : renseigner les vraies URLs. Cible par défaut = outil externe
-   (nouvel onglet). Mettre `top: true` pour une page de l'espace Softr (target
-   _top, comme la navigation) — jamais de navigation DANS l'iframe du bloc. */
-const QUICK_LINKS: { label: string; icon: LucideIcon; href: string; solar?: boolean; top?: boolean }[] = [
+/* Outils. UNE tuile = soit `page` (page de l'espace, ouverte en _top et résolue par
+   `pageUrl`), soit `url` (outil externe, nouvel onglet). Les deux valeurs viennent de
+   §0-bis, et une chaîne vide y signifie « pas encore d'adresse » → tuile désactivée.
+   ⚠️ `page` et `url` sont exclusifs : c'est `page !== undefined` qui décide de la
+   cible, donc une entrée qui porterait les deux ignorerait `url` en silence. */
+const QUICK_LINKS: { label: string; icon: LucideIcon; page?: string; url?: string; solar?: boolean }[] = [
   // Pages de l'espace Softr (ex-onglets de nav) restaurées en raccourcis (target _top).
-  { label: "Prospects", icon: UserPlus, href: "#", top: true },
-  { label: "Partenaires", icon: Handshake, href: "#", top: true },
-  { label: "Contact Partenaire", icon: BookUser, href: "#", top: true },
-  { label: "Abonnés", icon: Users, href: "#", top: true },
-  { label: "KPI", icon: BarChart3, href: "#", top: true },
-  // (Bibliothèque n'est plus ici : c'est un onglet → documentation-interne.vercel.app)
+  { label: "Prospects", icon: UserPlus, page: PAGES.prospects },
+  { label: "Partenaires", icon: Handshake, page: PAGES.partenaires },
+  { label: "Contact Partenaire", icon: BookUser, page: PAGES.contactPartenaire },
+  { label: "Abonnés", icon: Users, page: PAGES.abonnes },
+  { label: "Pilotage SAV", icon: Ticket, page: PAGES.sav },
+  { label: "KPI", icon: BarChart3, page: PAGES.kpi },
+  // (Bibliothèque n'est plus ici : c'est un onglet → TOOLS.bibliotheque)
   // Outils externes.
-  { label: "You Sign", icon: FileSignature, href: "#" },
-  { label: "Calculette d'abonnement", icon: Calculator, href: "#", solar: true },
-  { label: "Services Sellsy", icon: Briefcase, href: "#" },
-  { label: "Tik&Lib", icon: Ticket, href: "#" },
+  { label: "You Sign", icon: FileSignature, url: TOOLS.youSign },
+  { label: "Calculette d'abonnement", icon: Calculator, url: TOOLS.calculette, solar: true },
+  { label: "Services Sellsy", icon: Briefcase, url: TOOLS.sellsy },
+  { label: "Tik&Lib", icon: Ticket, url: TOOLS.tikLib },
   // Simulateur Grille & Formulaire de contact retirés d'ici : ce sont désormais
   // des onglets (embarqués en iframe). Ne pas les redédoubler dans les Outils.
 ];
@@ -1870,63 +1974,46 @@ function Hero({ firstName, unread, urgent }: { firstName: string; unread: number
   );
 }
 
-/* ============================================================================
-   LIENS VERS LES PAGES DE L'ESPACE SOFTR — depuis l'intérieur d'une iframe
-   ----------------------------------------------------------------------------
-   Un lien vers une page de l'espace doit ouvrir dans la fenêtre PARENTE
-   (`target="_top"`), et son URL ne peut PAS être relative : `href="/ma-page"` serait
-   résolu contre le document courant, c'est-à-dire l'IFRAME du bloc — pas l'app. Il
-   faut donc une URL absolue, donc connaître l'origine de la page parente.
-
-   On ne peut pas simplement lire `window.parent.location` : c'est bloqué dès que
-   l'iframe est d'une autre origine. Trois sources, dans cet ordre :
-     1. `ancestorOrigins` — l'information exacte, mais absente de Firefox ;
-     2. `document.referrer` — la page qui a chargé l'iframe (présent en pratique) ;
-     3. un repli codé en dur, pour ne jamais fabriquer un lien vide.
-
-   C'est ce qui fait fonctionner le même code EN APERÇU ET EN PRODUCTION sans
-   condition : l'origine est LUE à l'exécution au lieu d'être devinée. Hors iframe
-   (aperçu local `npm run dev`), on retombe sur notre propre origine, et le lien
-   pointe donc vers localhost — normal, la page cible n'existe pas là.
-   ⚠️ Si l'espace passe un jour sur un domaine personnalisé, il n'y a RIEN à changer
-   ici ; seul le repli ci-dessous mériterait d'être actualisé.
-   ============================================================================ */
-const SOFTR_ORIGIN_FALLBACK = "https://sunlibcrm2.softr.app";
-
-function topOrigin(): string {
-  if (typeof window === "undefined") return SOFTR_ORIGIN_FALLBACK;
-  try {
-    if (window.parent === window) return window.location.origin;   // hors iframe
-    const anc = (window.location as unknown as { ancestorOrigins?: DOMStringList }).ancestorOrigins;
-    if (anc && anc.length) return anc[anc.length - 1];             // le plus haut ancêtre
-    if (document.referrer) return new URL(document.referrer).origin;
-  } catch { /* origine illisible : on tombe sur le repli */ }
-  return SOFTR_ORIGIN_FALLBACK;
-}
-
-/** URL absolue d'une page de l'espace. `slug` sans slash initial. */
-function softrPageUrl(slug: string, params?: Record<string, string>): string {
-  const base = `${topOrigin()}/${slug.replace(/^\/+/, "")}`;
-  const q = new URLSearchParams(params ?? {}).toString();
-  return q ? `${base}?${q}` : base;
-}
-
-/* --- Outils --- */
+/* --- Outils. Les adresses viennent de `PAGES` / `TOOLS` (§0-bis) ; ce composant ne
+      fait que les résoudre au rendu. Une tuile sans adresse connue est rendue
+      DÉSACTIVÉE (un `<span>`, pas un `<a>`) : elle reste visible — l'outil existe, on
+      sait juste où il n'est pas encore — mais elle ne promet plus un clic qui ne mène
+      nulle part. Renseigner le slug dans §0-bis l'active, sans toucher ici. --- */
 function QuickLinks() {
   return (
     <section aria-label="Outils">
       <h2 style={{ ...H2, marginBottom: "14px" }}>Outils</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "13px" }}>
-        {QUICK_LINKS.map(({ label, icon: Icon, href, solar, top }) => (
-          <a key={label} href={href}
-            target={top ? "_top" : "_blank"} rel={top ? undefined : "noopener noreferrer"}
-            className="slb-tile"
-            style={{ display: "flex", alignItems: "center", gap: "12px", padding: "13px 15px", backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rLg, boxShadow: T.shSm, textDecoration: "none" }}>
-            <span style={icoPill(solar)}><Icon aria-hidden style={{ width: 17, height: 17 }} strokeWidth={1.7} /></span>
-            <span style={{ flex: 1, minWidth: 0, fontSize: "13.5px", fontWeight: 600, color: T.ink }}>{label}</span>
-            <ChevronRight aria-hidden className="slb-arrow" style={{ width: 16, height: 16, color: T.ink4, flex: "none" }} />
-          </a>
-        ))}
+        {QUICK_LINKS.map(({ label, icon: Icon, page, url, solar }) => {
+          /* `page` = page de l'espace (résolue, target _top) ; `url` = outil externe. */
+          const href = page !== undefined ? pageUrl(page) : url ?? "";
+          const tile: CSSProperties = {
+            display: "flex", alignItems: "center", gap: "12px", padding: "13px 15px",
+            backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rLg,
+            boxShadow: T.shSm, textDecoration: "none",
+          };
+          const inner = (
+            <>
+              <span style={icoPill(solar)}><Icon aria-hidden style={{ width: 17, height: 17 }} strokeWidth={1.7} /></span>
+              <span style={{ flex: 1, minWidth: 0, fontSize: "13.5px", fontWeight: 600, color: href ? T.ink : T.ink4 }}>{label}</span>
+              {href
+                ? <ChevronRight aria-hidden className="slb-arrow" style={{ width: 16, height: 16, color: T.ink4, flex: "none" }} />
+                : <span style={{ fontSize: "10.5px", fontWeight: 600, color: T.ink4, flex: "none" }}>bientôt</span>}
+            </>
+          );
+          return href ? (
+            <a key={label} href={href}
+              target={page !== undefined ? "_top" : "_blank"} rel={page !== undefined ? undefined : "noopener noreferrer"}
+              className="slb-tile" style={tile}>
+              {inner}
+            </a>
+          ) : (
+            <span key={label} aria-disabled="true" title="Adresse pas encore renseignée"
+              style={{ ...tile, backgroundColor: T.surface2, boxShadow: "none", cursor: "default" }}>
+              {inner}
+            </span>
+          );
+        })}
       </div>
     </section>
   );
@@ -1970,14 +2057,6 @@ function EmbedTab({ src, title }: { src: string; title: string }) {
 
    `cfg` : quelles informations montrer, combien de lignes, bouton « Détail » ou non.
    Le registre ci-dessous est la seule chose à toucher pour en proposer une de plus. */
-
-/* Page de l'espace vers laquelle pointe « Détail ».
-   ⚠️ Le NOM DU PARAMÈTRE est la seule inconnue de ce lien : Softr passe
-   l'enregistrement en query. `recordId` est sa convention la plus courante — à
-   confirmer en ouvrant une fiche depuis l'app et en lisant son URL. Le slug, lui, est
-   celui donné : `abonn-s-details-3`. */
-const ABONNE_PAGE_SLUG = "abonn-s-details-3";
-const ABONNE_PAGE_PARAM = "recordId";
 
 type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean };
 
@@ -2121,7 +2200,7 @@ function NotifRow({ n, cfg, nonLu, onVu }: { n: Notif; cfg: NotifsCfg; nonLu: bo
       {cfg.detail && (
         /* Lien et NON bouton : c'est une navigation. `target="_top"` parce que le bloc
            vit dans une iframe — sans lui, la fiche s'ouvrirait DANS le widget. */
-        <a href={softrPageUrl(ABONNE_PAGE_SLUG, { [ABONNE_PAGE_PARAM]: n.id })} target="_top"
+        <a href={pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: n.id })} target="_top"
           className="slb-btng" aria-label={`Détail — ${title}`} title="Ouvrir la fiche abonné"
           style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12px", fontWeight: 600, textDecoration: "none" }}>
           Détail<ChevronRight aria-hidden style={{ width: 13, height: 13 }} />
@@ -3173,8 +3252,8 @@ const SAV_CLOSED = ["Résolu", "Clos"];   // = CLOSED du bloc SAV
 const SAV_PRIO_HAUTE = 8;                // = priority(), p >= 8 → « Élevée »
 const SAV_VIEUX_J = 60;                  // = seuil du badge d'ancienneté du bloc SAV
 const SAV_CAUSES_TOP = 3;                // « lecture des trois premières causes »
-// TODO [À COMPLÉTER B] : URL de la page « Pilotage SAV » de l'espace Softr.
-const SAV_PAGE_HREF = "#";
+// La page « Pilotage SAV » de l'espace : son slug vit en §0-bis, comme toutes les
+// adresses. Résolu au rendu (cf. `pageUrl`), pas ici.
 
 const savNum = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const savTotal = (r: Row): number => SAV_CATS.reduce((s, c) => s + savNum(r[c.key]), 0);
@@ -3372,12 +3451,15 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
   const val: CSSProperties = { fontSize: "13px", fontWeight: 700, color: T.ink, fontVariantNumeric: "tabular-nums" };
   const secLbl: CSSProperties = { padding: "11px 16px 4px", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em" };
 
-  const footer = (
-    <a href={SAV_PAGE_HREF} target="_top" className="slb-btng"
+  /* Le pied ne s'affiche que si l'adresse existe : un bouton « Ouvrir » qui n'ouvre
+     rien vaut moins que pas de bouton (même règle que les tuiles Outils). */
+  const savHref = pageUrl(PAGES.sav);
+  const footer = savHref ? (
+    <a href={savHref} target="_top" className="slb-btng"
       style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 13px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
       Ouvrir le pilotage SAV<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
     </a>
-  );
+  ) : undefined;
 
   return (
     <Widget icon={Ticket} title="Pilotage SAV" sub="Synthèse des dossiers" footer={footer}>
