@@ -77,8 +77,11 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    coûtent **rien** — seules les instances affichées montent leur adapter. Si la lecture ne va pas
    au bout, ils affichent **« Calcul partiel »** plutôt qu'un classement faux.
 
-   Chaque widget se règle par son ⋮, et **tous sont renommables** (champ « Titre du widget » en tête
-   du panneau ; vider le champ rend le titre d'origine). « Personnaliser » ouvre la galerie
+   Chaque widget se règle par son ⋮, et **tous sont renommables et colorables** : champ « Titre du
+   widget » puis une palette de 8 teintes d'en-tête — les 3 couleurs SunLib (teal, vert, ambre) et
+   4 pastels, plus « Aucune ». Vider le titre rend celui d'origine ; « Aucune » rend l'en-tête
+   blanc. *(Ni rouge ni orange vif dans la palette : ce sont les couleurs d'alerte de la charte, et
+   les banaliser en décor les affaiblirait là où elles comptent.)* « Personnaliser » ouvre la galerie
    (dépliants par famille, un exemplaire par modèle), et toute la disposition — titres compris —
    est **persistée par utilisateur**.
 

@@ -455,6 +455,7 @@ actions et la création se testent sans base.
 | `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
 | `WidgetOptionsCtx` non-null | mode normal, **tous les types** | bouton ⋮ → `WidgetOptionsMenu` : champ **Titre** (commun) + le formulaire du type s'il en a un, brouillon local, « Annuler » / « Enregistrer » |
 | **`WidgetTitleCtx`** | **les deux modes** | titre personnalisé de l'instance, appliqué **par-dessus** la prop `title` |
+| **`WidgetTintCtx`** | **les deux modes** | teinte de l'instance : fond de l'en-tête, encre du titre, pastille d'icône |
 | **`WidgetCfgCtx`** non-null | mode normal | le widget écrit **sa propre cfg** sans passer par un formulaire — c'est ce qui rend le pense-bête et la liste à cocher possibles |
 | **`WidgetGrabCtx`** non-null | **les deux modes** | l'**en-tête** de la carte devient saisissable (`draggable` + `cursor: grab`), image de glissement forcée sur la carte entière |
 
@@ -489,6 +490,33 @@ chose à offrir, donc il n'est pas redevenu le bouton décoratif que la v1 avait
   s'afficher par ce chemin.
 - Borné à `WIDGET_TITLE_MAX` (48) : l'en-tête d'une carte est étroit, autant borner à la saisie
   plutôt que tronquer à l'écran.
+
+### Teinter un widget — palette fermée (2026-08-04)
+
+Même mécanique que le titre : `Instance.tint` porte une **CLÉ** de `WIDGET_TINTS`, jamais une
+couleur. Trois raisons qui tiennent dans la durée — un sélecteur libre produirait des accueils
+illisibles (texte foncé sur fond saturé) ; les teintes se retouchent en un seul endroit si la charte
+bouge ; et le document de disposition ne stocke **aucune valeur de style**, donc rien à migrer. Une
+clé inconnue est écartée à la lecture : le widget reprend l'en-tête blanc.
+
+Huit choix : **Aucune** (défaut), les trois couleurs **SunLib** prises dans les tokens (teal, vert,
+ambre solaire), quatre **pastels** (ciel, lavande, rosé, ardoise). Ciel et ardoise viennent des
+tokens `info`/`neutral` ; lavande et rosé sont définis dans la palette du widget — la charte n'a pas
+de teinte purement décorative — assez désaturés pour ne jamais passer pour un état.
+
+- ⚠️ **Aucun rouge ni orange vif** : ce sont les couleurs d'**alerte**. Les proposer comme décor
+  apprendrait à l'œil à les ignorer là où elles comptent.
+- La teinte habille **l'en-tête, pas le corps** : sur un fond coloré, une liste de statuts et de
+  badges devient un patchwork, et les couleurs de sens (ambre « à compléter », rouge « panne »)
+  perdent leur force.
+- La pastille **`solar`** d'un outil solaire garde la priorité sur la teinte : c'est un marqueur de
+  **sens**, pas une décoration.
+- Sélection marquée par un contour teal **et une coche** — jamais par la seule couleur ; chaque
+  pastille est un bouton dont l'`aria-label` **nomme** la teinte, pour qui ne distingue pas deux
+  pastels.
+- `setInstanceLook(layout, id, title, tint)` écrit les deux ensemble, parce que le panneau les édite
+  ensemble : deux fonctions séparées inviteraient à deux `runSave`, dont le second écraserait le
+  premier (il repartirait de `current`, encore inchangé).
 
 **Pourquoi `WidgetCfgCtx` n'existe qu'en mode normal** : pendant l'édition, le brouillon `draft`
 fait autorité, et deux chemins d'écriture concurrents sur la même instance produiraient un
@@ -582,6 +610,7 @@ type Instance = {
   h: "sm" | "md" | "lg";
   preset?: string;     // modèle de galerie d'origine → un seul exemplaire par modèle
   title?: string;      // titre choisi par l'utilisateur ; absent = titre par défaut du widget
+  tint?: string;       // CLÉ de WIDGET_TINTS ; absent = en-tête blanc
 };
 
 type Layout = {
@@ -603,7 +632,7 @@ type Layout = {
 Toute la logique vit dans des fonctions **pures** (aucune logique dans les handlers) :
 `normalizeLayout(saved, knownTypes?)`, `migrateV1`, `seed`, `coerceInstance`, `cloneInstance`,
 `cloneCfg`, `reorder(list, from, to)`, `moveWidget`, `setWidgetWide`,
-`setWidgetSize`, **`addInstance`, `removeInstance`, `setInstanceTitle`**, `newInstanceId`,
+`setWidgetSize`, **`addInstance`, `removeInstance`, `setInstanceLook`**, `newInstanceId`,
 `takenIds`, `cloneDefault`, `emptyLayout`, `idxOf`, `uniqueStrings`.
 
 `normalizeLayout` est la brique de compatibilité, appliquée à **toute** lecture (BDD *et* cache

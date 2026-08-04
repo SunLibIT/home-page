@@ -1708,7 +1708,9 @@ type WidgetOptions = {
   Form?: FC<{ cfg: any; onChange: (next: any) => void }>;
   /** Titre choisi par l'utilisateur pour CETTE instance ("" = titre par défaut). */
   title: string;
-  onSave: (next: { title: string; cfg: any }) => void;
+  /** Clé de teinte de CETTE instance ("" = aucune). Cf. `WIDGET_TINTS`. */
+  tint: string;
+  onSave: (next: { title: string; tint: string; cfg: any }) => void;
 };
 const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
 
@@ -1726,6 +1728,41 @@ const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
    ouverture du panneau : ce serait le figer, et un widget renommé « Dossiers SAV »
    garderait ce nom même après avoir changé de source. --- */
 const WidgetTitleCtx = createContext<string>("");
+
+/* --- TEINTE D'UN WIDGET — même logique que le titre -----------------------------
+   Une palette FERMÉE, et c'est le point : on choisit une CLÉ (`"teal"`), jamais une
+   couleur libre. Trois raisons qui tiennent dans la durée — un sélecteur libre
+   produirait des accueils illisibles (texte foncé sur fond saturé) ; les teintes
+   restent modifiables d'un seul endroit le jour où la charte bouge ; et le document de
+   disposition ne stocke pas de valeurs de style, donc rien à migrer.
+
+   La teinte habille l'EN-TÊTE et la pastille d'icône, pas le corps : sur un fond
+   coloré, une liste de statuts et de badges deviendrait un patchwork, et les couleurs
+   de sens (ambre « à compléter », rouge « panne ») perdraient leur force.
+
+   ⚠️ AUCUN ROUGE, ni orange vif, dans cette palette. Ce sont les couleurs d'ALERTE de
+   la charte : les proposer comme décor apprendrait à l'œil à les ignorer là où elles
+   comptent. Les pastels ci-dessous s'en tiennent volontairement à distance. --- */
+type WidgetTint = { key: string; label: string; head: string; ink: string; pill: string };
+const WIDGET_TINTS: WidgetTint[] = [
+  /* `head: ""` = pas de teinte → l'en-tête garde le blanc de la carte. C'est le défaut,
+     et il reste en tête de liste pour qu'on puisse toujours revenir en arrière. */
+  { key: "", label: "Aucune", head: "", ink: T.ink, pill: "" },
+  /* Les trois couleurs SUNLIB, reprises des tokens de la charte — pas des à-peu-près. */
+  { key: "teal", label: "Teal SunLib", head: T.brand050, ink: T.brand700, pill: T.brand100 },
+  { key: "vert", label: "Vert SunLib", head: T.ok050, ink: T.okInk, pill: "#CFEFDC" },
+  { key: "ambre", label: "Ambre solaire", head: T.solar050, ink: T.solar600, pill: T.solar100 },
+  /* Pastels de base. Le ciel vient des tokens `info`; lavande et rosé n'existent pas
+     dans la charte (qui n'a pas de teinte décorative) : ils sont définis ICI, assez
+     désaturés pour ne jamais passer pour un état, et assez distincts l'un de l'autre
+     pour rester reconnaissables en petite pastille. */
+  { key: "ciel", label: "Bleu ciel", head: T.info050, ink: T.infoInk, pill: "#D6E4FD" },
+  { key: "lavande", label: "Lavande", head: "#F2EFFC", ink: "#57489E", pill: "#E1DAF7" },
+  { key: "rose", label: "Rosé", head: "#FCEFF5", ink: "#9C4374", pill: "#F6DCE8" },
+  { key: "ardoise", label: "Ardoise", head: T.neutral050, ink: T.ink2, pill: T.line2 },
+];
+const tintOf = (key: string): WidgetTint => WIDGET_TINTS.find((t) => t.key === key) ?? WIDGET_TINTS[0];
+const WidgetTintCtx = createContext<string>("");
 
 /* --- ÉCRITURE DE SA PROPRE cfg PAR LE WIDGET -----------------------------------
    `WidgetOptionsCtx` sert le PANNEAU d'options ; celui-ci sert le CONTENU. Un
@@ -1845,10 +1882,11 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<any>(opts.cfg);
   const [draftTitle, setDraftTitle] = useState(opts.title);
+  const [draftTint, setDraftTint] = useState(opts.tint);
   const ref = useDismissOnOutside(open, setOpen);
-  // Brouillons toujours frais à l'ouverture (cfg ET titre).
-  const start = () => { setDraft(opts.cfg); setDraftTitle(opts.title); setOpen(true); };
-  const save = () => { opts.onSave({ title: draftTitle, cfg: draft }); setOpen(false); };
+  // Brouillons toujours frais à l'ouverture (cfg, titre ET teinte).
+  const start = () => { setDraft(opts.cfg); setDraftTitle(opts.title); setDraftTint(opts.tint); setOpen(true); };
+  const save = () => { opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft }); setOpen(false); };
   const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
   const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
@@ -1872,6 +1910,34 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
           <div id="slb-w-title-hint" style={{ margin: "4px 0 2px", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
             Laisser vide pour garder « {defaultTitle} ».
           </div>
+
+          {/* TEINTE — palette fermée (cf. WIDGET_TINTS), commune à tous les widgets.
+              Chaque pastille est un vrai bouton : le choix doit être atteignable au
+              clavier, et son `aria-label` NOMME la couleur — un utilisateur qui ne
+              distingue pas deux pastels doit pouvoir choisir quand même. */}
+          <span style={{ ...lbl, marginTop: "10px" }}>Couleur de l'en-tête</span>
+          <div role="group" aria-label="Couleur du widget" style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {WIDGET_TINTS.map((t) => {
+              const actif = draftTint === t.key;
+              return (
+                <button key={t.key || "none"} onClick={() => setDraftTint(t.key)}
+                  aria-label={t.label} aria-pressed={actif} title={t.label}
+                  style={{
+                    width: 26, height: 26, borderRadius: 999, cursor: "pointer", padding: 0,
+                    // Le contour teal marque la sélection ; la coche la double, pour ne
+                    // pas faire reposer l'information sur la seule couleur.
+                    border: actif ? `2px solid ${T.brand}` : `1px solid ${T.line2}`,
+                    background: t.head || T.surface,
+                    display: "grid", placeItems: "center",
+                  }}>
+                  {actif
+                    ? <Check aria-hidden style={{ width: 13, height: 13, color: t.ink }} />
+                    : !t.key ? <span aria-hidden style={{ width: 12, height: 1, background: T.ink4, transform: "rotate(-45deg)" }} /> : null}
+                </button>
+              );
+            })}
+          </div>
+
           {Form && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.line}` }}><Form cfg={draft} onChange={setDraft} /></div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${T.line}` }}>
             <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
@@ -1973,12 +2039,20 @@ function Widget({
      doit s'annoncer sous son nouveau nom. */
   const custom = useContext(WidgetTitleCtx).trim();
   const shown = custom || title;
+  /* TEINTE : elle habille l'en-tête et la pastille d'icône. Le titre passe à l'encre de
+     la teinte — un `T.ink` presque noir sur un pastel « fonctionne », mais l'ensemble a
+     l'air d'un accident plutôt que d'un choix. La pastille `solar` d'un outil solaire
+     garde la priorité : c'est un marqueur de SENS, pas une décoration. */
+  const tint = tintOf(useContext(WidgetTintCtx));
+  const headStyle: CSSProperties = tint.head
+    ? { ...WHEAD, background: tint.head, borderBottomColor: "transparent" }
+    : WHEAD;
   return (
     <Card style={CARD}>
       {/* L'EN-TÊTE est la zone de préhension, dans les deux modes (cf. WidgetGrabCtx).
           `cursor: grab` suffit comme affordance : pas de `title` ici, il se
           déclencherait au survol du titre du widget. */}
-      <div style={grab ? { ...WHEAD, cursor: "grab" } : WHEAD}
+      <div style={grab ? { ...headStyle, cursor: "grab" } : headStyle}
         draggable={!!grab} onDragStart={grab?.onDragStart} onDragEnd={grab?.onDragEnd}>
         {/* La poignée n'est montrée qu'en édition — hors édition, la préhension existe
             mais reste discrète : on ne veut pas d'un mors de déménageur sur chaque
@@ -1989,9 +2063,11 @@ function Widget({
             <GripVertical style={{ width: 17, height: 17 }} />
           </span>
         )}
-        <span style={icoPillSm(solar)}><Icon aria-hidden style={{ width: 15, height: 15 }} strokeWidth={1.7} /></span>
+        <span style={!solar && tint.pill ? { ...icoPillSm(false), background: tint.pill, color: tint.ink } : icoPillSm(solar)}>
+          <Icon aria-hidden style={{ width: 15, height: 15 }} strokeWidth={1.7} />
+        </span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={WTITLE}>{shown}</div>
+          <div style={tint.head ? { ...WTITLE, color: tint.ink } : WTITLE}>{shown}</div>
           {sub && <div style={WSUB}>{sub}</div>}
         </div>
         {editing ? (
@@ -5069,7 +5145,10 @@ type WidgetWidth = "half" | "full";
  *  l'instance et non dans la `cfg` parce qu'il ne dépend pas du type : les widgets sans
  *  formulaire d'options (pense-bête, embeds, journal des tâches) sont donc renommables
  *  comme les autres, sans une ligne de code par type. */
-type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize; preset?: string; title?: string };
+/*  `tint` : CLÉ de teinte (`WIDGET_TINTS`), jamais une couleur — le document ne stocke
+ *  aucune valeur de style, donc la charte peut évoluer sans migration, et une clé
+ *  inconnue retombe simplement sur « aucune ». Facultative, comme `title`. */
+type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize; preset?: string; title?: string; tint?: string };
 
 /** Longueur maximale d'un titre personnalisé. L'en-tête d'une carte est étroit : au-delà
  *  le texte serait tronqué à l'écran, autant le borner à la saisie. */
@@ -5281,6 +5360,12 @@ function coerceInstance(raw: unknown, seen: Set<string>): Instance | null {
     ...(typeof o.title === "string" && o.title.trim()
       ? { title: o.title.trim().slice(0, WIDGET_TITLE_MAX) }
       : {}),
+    /* Teinte : conservée SEULEMENT si la clé existe dans la palette. Une clé inconnue
+       (palette réduite depuis, document édité à la main) est écartée à la lecture — le
+       widget reprend l'en-tête blanc au lieu de perdre sa couleur de titre. */
+    ...(typeof o.tint === "string" && WIDGET_TINTS.some((t) => t.key === o.tint && t.key)
+      ? { tint: o.tint }
+      : {}),
   };
 }
 
@@ -5454,18 +5539,22 @@ function removeInstance(layout: Layout, id: string): Layout {
   return { ...layout, items: layout.items.filter((x) => x.id !== id) };
 }
 
-/** Renomme une instance — ou lui rend son titre par défaut si `title` est vide. PURE.
- *  Le champ est alors RETIRÉ de l'instance plutôt que mis à "" : le document ne garde
- *  pas trace d'un renommage annulé, et « pas de titre » n'a qu'une seule écriture. */
-function setInstanceTitle(layout: Layout, id: string, title: string): Layout {
+/** Renomme et teinte une instance — ou lui rend ses valeurs par défaut si `title` /
+ *  `tint` sont vides. PURE. Les champs sont alors RETIRÉS de l'instance plutôt que mis à
+ *  "" : le document ne garde pas trace d'un réglage annulé, et « aucun » n'a qu'une
+ *  seule écriture possible. Les deux vont ensemble parce que le panneau les édite
+ *  ensemble — deux fonctions séparées inviteraient à deux écritures, dont la seconde
+ *  écraserait la première (cf. `persistOptions`). */
+function setInstanceLook(layout: Layout, id: string, title: string, tint: string): Layout {
   if (idxOf(layout.items, id) < 0) return layout;
   const clean = title.trim().slice(0, WIDGET_TITLE_MAX);
+  const teinte = WIDGET_TINTS.some((t) => t.key === tint && t.key) ? tint : "";
   return {
     ...layout,
     items: layout.items.map((it) => {
       if (it.id !== id) return it;
-      const { title: _drop, ...rest } = it;
-      return clean ? { ...rest, title: clean } : rest;
+      const { title: _t, tint: _c, ...rest } = it;
+      return { ...rest, ...(clean ? { title: clean } : {}), ...(teinte ? { tint: teinte } : {}) };
     }),
   };
 }
@@ -5822,12 +5911,12 @@ function Dashboard() {
   const persistCfg = (id: string, cfg: unknown) =>
     void runSave({ ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) });
 
-  /** Enregistre le TITRE et la cfg en UNE écriture : le panneau ⋮ les édite ensemble,
+  /** Enregistre TITRE, TEINTE et cfg en UNE écriture : le panneau ⋮ les édite ensemble,
    *  et deux `runSave` successifs se marcheraient dessus (le second partirait de
    *  `current`, encore inchangé, et perdrait le premier). */
-  const persistOptions = (id: string, title: string, cfg: unknown) => {
+  const persistOptions = (id: string, title: string, tint: string, cfg: unknown) => {
     const withCfg = { ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) };
-    void runSave(setInstanceTitle(withCfg, id, title));
+    void runSave(setInstanceLook(withCfg, id, title, tint));
   };
 
   // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD. `id` = id d'INSTANCE.
@@ -6070,7 +6159,8 @@ function Dashboard() {
                         formulaire propre, un widget est renommable (`Form` est alors
                         `undefined` et le panneau n'affiche que le champ Titre). */}
                     <WidgetOptionsCtx.Provider value={!editing
-                      ? { cfg, Form: def.Options, title: inst.title ?? "", onSave: ({ title, cfg: c }) => persistOptions(id, title, c) }
+                      ? { cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
+                          onSave: ({ title, tint, cfg: c }) => persistOptions(id, title, tint, c) }
                       : null}>
                       {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
                           hors édition seulement — pendant l'édition, `draft` fait
@@ -6081,10 +6171,13 @@ function Dashboard() {
                         {/* Titre personnalisé : fourni dans les deux modes, sinon un
                             widget renommé reprendrait son nom d'origine en édition. */}
                         <WidgetTitleCtx.Provider value={inst.title ?? ""}>
-                          {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
-                          <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
-                            <Render id={id} cfg={cfg} />
-                          </WidgetHeightCtx.Provider>
+                          {/* Teinte : fournie dans les deux modes, comme le titre. */}
+                          <WidgetTintCtx.Provider value={inst.tint ?? ""}>
+                            {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
+                            <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
+                              <Render id={id} cfg={cfg} />
+                            </WidgetHeightCtx.Provider>
+                          </WidgetTintCtx.Provider>
                         </WidgetTitleCtx.Provider>
                       </WidgetGrabCtx.Provider>
                       </WidgetCfgCtx.Provider>
