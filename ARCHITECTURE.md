@@ -224,15 +224,21 @@ registre, et elle apparaît dans le panneau de tout le monde. Les `key` du regis
 stockées dans `cfg.show` : **ce sont des contrats de persistance**, comme les clés de type.
 
 **Deux présentations (2026-08-04)** — `cfg.layout` vaut `tuiles` (défaut) ou `lignes`, pour les
-**mêmes** valeurs : les tuiles reprennent la lecture d'un coup d'œil du tableau de bord du bloc SAV
-(libellé en petites capitales, grande valeur, détail dessous, barre pour les proportions), les
-lignes restent denses pour une colonne étroite. Le registre y gagne deux champs facultatifs :
-`sub` (le détail, **tuiles seulement** — il dit d'où sort la valeur, donc ce qu'il faut corriger
-pour la faire bouger) et `bar` (**réservée aux proportions** : une barre sur un montant ou un nombre
-de jours ne dirait pas de quoi elle est la fraction). En tuiles, la métrique `hero` rejoint la
-rangée, mise en avant par un liseré teal et non par une taille à part, qui casserait l'alignement.
-Le nombre de colonnes vient d'un `auto-fill`/`minmax` CSS — ni media query ni mesure JS, donc une
-tuile par ligne en demi-largeur et quatre de front en pleine largeur.
+**mêmes** valeurs : les lignes restent denses pour une colonne étroite, les tuiles **reprennent le
+dessin des cartes du tableau de bord du bloc SAV** — carte blanche à coins arrondis et ombre douce
+posée sur un **fond gris** (sans ce contraste, du blanc sur blanc ne tiendrait que par son ombre),
+libellé en petites capitales tronqué sur une ligne (deux lignes désaligneraient les valeurs d'une
+tuile à l'autre), valeur en `clamp(26px … 34px)`, barre **verte** pour les proportions, puis le
+détail. Les cartes sont **toutes dessinées pareil**, y compris la métrique `hero` qui rejoint la
+rangée : c'est l'ordre qui donne le rang, comme sur l'écran d'origine.
+
+Le registre y gagne trois champs facultatifs : `sub` (le détail, **tuiles seulement** — il dit d'où
+sort la valeur, donc ce qu'il faut corriger pour la faire bouger), `bar` (**réservée aux
+proportions** : une barre sur un montant ou un nombre de jours ne dirait pas de quoi elle est la
+fraction) et `warnSub`, qui passe le détail en **ambre** quand il énonce un manque — jamais en
+rouge, réservé aux pannes, et la couleur ne porte rien seule puisque le texte nomme déjà ce qui
+manque. Le nombre de colonnes vient d'un `auto-fill`/`minmax` CSS — ni media query ni mesure JS,
+donc une tuile par ligne en demi-largeur et quatre de front en pleine largeur.
 
 ⚠️ Une instance déjà posée **change d'apparence** (sa cfg ne porte pas `layout`, elle prend donc le
 défaut `tuiles`) ; ses valeurs, elles, sont identiques, et « Lignes » est à un clic.

@@ -3449,6 +3449,10 @@ type SavMetric = {
    *  SONT une proportion : une barre sur un montant ou un nombre de jours ne voudrait
    *  rien dire, rien ne disant de quoi ce serait la fraction. */
   bar?: (k: SavKpis) => number;
+  /** Le sous-texte énonce-t-il un MANQUE ? Il passe alors en ambre — une saisie à
+   *  compléter, jamais en rouge, qui est réservé aux pannes (charte). La couleur ne
+   *  porte rien seule : le texte dit déjà ce qui manque. */
+  warnSub?: (k: SavKpis) => boolean;
 };
 
 const SAV_METRICS: SavMetric[] = [
@@ -3479,7 +3483,8 @@ const SAV_METRICS: SavMetric[] = [
        laisserait croire à un total. */
     sub: (k) => (k.tiersSansCout
       ? `${k.avecTiers} avec tiers · ${k.tiersSansCout} sans coût rapproché`
-      : `${k.avecTiers} dossier${k.avecTiers > 1 ? "s" : ""} avec tiers mandaté`) },
+      : `${k.avecTiers} dossier${k.avecTiers > 1 ? "s" : ""} avec tiers mandaté`),
+    warnSub: (k) => k.tiersSansCout > 0 },
   /* Les deux métriques de QUALITÉ DE LA DONNÉE, ajoutées le 2026-08-04 sur le modèle
      du tableau de bord du bloc SAV (« matériel documenté », « dossiers rapprochés »).
      ⚠️ Elles mesurent ce que CE bloc peut voir — le remplissage des champs de la table
@@ -3493,11 +3498,13 @@ const SAV_METRICS: SavMetric[] = [
       const manque = k.dossiers - k.fabricantConnu;
       return manque ? `${manque} dossier${manque > 1 ? "s" : ""} sans fabricant renseigné` : "tous les dossiers renseignés";
     },
-    bar: (k) => k.partFabricant },
+    bar: (k) => k.partFabricant,
+    warnSub: (k) => k.fabricantConnu < k.dossiers },
   { key: "clientConnu", label: "Client rattaché", kind: "stat", icon: Users,
     value: (k) => `${k.clientConnu}`,
     sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} — ${Math.round(k.partClient * 100)} % nommés`,
-    bar: (k) => k.partClient },
+    bar: (k) => k.partClient,
+    warnSub: (k) => k.clientConnu < k.dossiers },
   { key: "causes", label: `Principales causes (${SAV_CAUSES_TOP})`, kind: "block" },
   { key: "qualite", label: "Qualité des données", kind: "block" },
 ];
@@ -3584,9 +3591,10 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
   const on = new Set(cfg.show);
   const picked = (kind: SavMetric["kind"]) => SAV_METRICS.filter((m) => m.kind === kind && on.has(m.key));
   const hero = picked("hero");
-  /* En TUILES, la métrique reine rejoint la rangée — c'est la lecture du tableau de
-     bord SAV : des tuiles homogènes, la première simplement mise en avant. En LIGNES
-     elle garde son grand chiffre au-dessus, sans quoi la vue perdrait sa tête. */
+  /* En TUILES, la métrique reine rejoint la rangée et n'y est PAS distinguée : sur le
+     tableau de bord SAV, les cartes sont toutes dessinées pareil et c'est l'ordre qui
+     donne le rang. En LIGNES elle garde son grand chiffre au-dessus, sans quoi la vue
+     perdrait sa tête. */
   const tiles = cfg.layout === "tuiles" ? [...hero, ...picked("stat")] : picked("stat");
   const stats = tiles;
   // Une alerte n'occupe la place que si elle a quelque chose à dire (count > 0).
@@ -3657,36 +3665,49 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
                widget, sans media query ni mesure JS — une tuile par ligne en colonne
                étroite, quatre de front en pleine largeur. C'est la seule façon d'avoir
                la rangée du bloc SAV ET un widget en demi-largeur lisible. */
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))", gap: "10px", padding: "12px 16px 14px" }}>
+            /* FOND GRIS derrière la grille, comme sur le tableau de bord SAV : sans lui,
+               des cartes blanches posées sur le blanc de la carte du widget ne se
+               détacheraient que par leur ombre — c'est ce contraste qui les fait exister. */
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px", background: T.surface2 }}>
               {stats.map((m) => {
                 const part = m.bar?.(k);
                 const detail = m.sub?.(k);
                 const Icon = m.icon;
-                // La métrique reine est mise en avant par un liseré et un fond teal
-                // très clair — pas par une taille différente, qui casserait la rangée.
-                const lead = m.kind === "hero";
+                /* Sous-texte AMBRE quand il énonce un manque (dossiers sans fabricant,
+                   tiers sans coût) : c'est le seul écart de couleur de la tuile, et il
+                   porte du sens — une saisie à compléter, pas une panne, donc ambre et
+                   jamais rouge (charte). Le texte dit déjà la même chose : la couleur
+                   ne porte rien seule. */
+                const alerte = !!detail && !!m.warnSub?.(k);
                 return (
-                  <div key={m.key} style={{ padding: "11px 12px 12px", borderRadius: T.rMd, border: `1px solid ${lead ? T.brand : T.line}`, background: lead ? T.brand050 : T.surface }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
-                      {Icon && <Icon aria-hidden style={{ width: 13, height: 13, color: lead ? T.brand700 : T.ink4, flex: "none" }} strokeWidth={1.8} />}
-                      {/* Libellé en petites capitales : il doit se lire comme une
-                          étiquette, pas concurrencer la valeur. */}
-                      <span style={{ minWidth: 0, fontSize: "10px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  /* Même dessin que les cartes du tableau de bord SAV : fond blanc, coins
+                     très arrondis, OMBRE DOUCE et pas de bordure marquée — la carte se
+                     détache du fond au lieu d'être encadrée. */
+                  <div key={m.key} style={{ padding: "15px 17px 16px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+                      {Icon && <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />}
+                      {/* Libellé en petites capitales : une étiquette, qui ne concurrence
+                          pas la valeur. Tronqué plutôt que replié — deux lignes de titre
+                          désaligneraient les valeurs d'une tuile à l'autre. */}
+                      <span style={{ minWidth: 0, fontSize: "11px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".055em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {m.label}
                       </span>
                     </div>
-                    <div style={{ marginTop: 6, fontSize: "24px", lineHeight: 1.05, fontWeight: 800, letterSpacing: "-.02em", color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+                    <div style={{ marginTop: 10, fontSize: "clamp(26px, 3.4vw, 34px)", lineHeight: 1.02, fontWeight: 800, letterSpacing: "-.025em", color: T.ink, fontVariantNumeric: "tabular-nums" }}>
                       {m.value?.(k)}
                     </div>
-                    {/* La barre ne s'affiche que pour une PROPORTION (cf. `bar`), et
-                        `aria-hidden` : elle redit la valeur déjà lue au-dessus. */}
+                    {/* La barre ne s'affiche que pour une PROPORTION (cf. `bar`), et reste
+                        `aria-hidden` : elle redit la valeur déjà lue au-dessus. Verte comme
+                        dans le bloc SAV — c'est une progression, pas une part de marque. */}
                     {part != null && (
-                      <span aria-hidden style={{ display: "block", height: 5, marginTop: 8, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
-                        <span style={{ display: "block", height: "100%", width: `${Math.round(Math.max(0, Math.min(1, part)) * 100)}%`, background: T.brand, borderRadius: 999 }} />
+                      <span aria-hidden style={{ display: "block", height: 7, marginTop: 11, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
+                        <span style={{ display: "block", height: "100%", width: `${Math.round(Math.max(0, Math.min(1, part)) * 100)}%`, background: T.ok, borderRadius: 999 }} />
                       </span>
                     )}
                     {detail && (
-                      <div style={{ marginTop: 6, fontSize: "11px", fontWeight: 500, color: T.ink4, lineHeight: 1.35 }}>{detail}</div>
+                      <div style={{ marginTop: part != null ? 8 : 9, fontSize: "12px", fontWeight: 500, color: alerte ? T.warnInk : T.ink3, lineHeight: 1.4 }}>
+                        {detail}
+                      </div>
                     )}
                   </div>
                 );
