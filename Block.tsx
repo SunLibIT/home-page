@@ -723,6 +723,12 @@ const SELECT_COM = q.select({
   dateSignature: "Date signature contrat",
   dateCreation: "date de création",
   installateur: "Nom de l'entreprise (from Installateur)",
+  /* Indicateurs globaux (§9-septies, `comGlobal`). Vérifiés le 2026-08-04 eux aussi.
+     `contratNonSigne` est une PIÈCE JOINTE comme `contratSigne` : c'est elle qui définit
+     un dossier « en attente de signature », donc le pipeline. */
+  kwc: "Puissance installe en KWC",
+  dateEdition: "Date édition contrat",
+  contratNonSigne: "Contrat d abonnement non signe",
 });
 
 /* --- SELECTS D'ÉCRITURE (§9-ter). Ce sont LES WHITELISTS : un alias absent d'ici
@@ -947,12 +953,27 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
           dateCreation: debut.toISOString(),
           dateSignature: signature.toISOString(),
           installateur: `Installateur ${(i % g.inst) + 1}`,
+          kwc: 9 + (i % 7) * 1.5,
+          dateEdition: "", contratNonSigne: [],   // signé : donc hors pipeline
         });
       }
     });
     // Les deux lignes qui doivent RESTER INVISIBLES au classement.
-    rows.push({ id: "m_nocontrat", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 200, etatFacture2: "", dateCreation: "", dateSignature: "", installateur: "" });
-    rows.push({ id: "m_nonassigne", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 300, etatFacture2: "Validée", dateCreation: "", dateSignature: "", installateur: "Installateur 1" });
+    rows.push({ id: "m_nocontrat", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 200, etatFacture2: "", dateCreation: "", dateSignature: "", installateur: "", kwc: 0, dateEdition: "", contratNonSigne: [] });
+    rows.push({ id: "m_nonassigne", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 300, etatFacture2: "Validée", dateCreation: "", dateSignature: "", installateur: "Installateur 1", kwc: 12, dateEdition: "", contratNonSigne: [] });
+    /* PIPELINE : contrat NON signé joint et édition récente. Deux dans la fenêtre de 30
+       jours, un HORS fenêtre (édité il y a 60 j) — sans lui, rien ne prouverait que la
+       borne est bien appliquée. */
+    [4, 18, 60].forEach((jours, i) => {
+      const edite = new Date(); edite.setDate(edite.getDate() - jours);
+      rows.push({
+        id: `m_pipe${i}`, commercial: "Julien RAMON", capex: 118_000 + i * 4000,
+        contratSigne: [], contratNonSigne: [{ url: "#", filename: "a-signer.pdf" }],
+        statutAbonne: "Actif", moisSignature: "", aboMoyen: 150, etatFacture2: "",
+        dateCreation: edite.toISOString(), dateSignature: "", installateur: "Installateur 2",
+        kwc: 8.5, dateEdition: edite.toISOString(),
+      });
+    });
     return rows;
   })(),
 };
@@ -1244,6 +1265,9 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       dateSignature: { label: "Date de signature", kind: "date" },
       dateCreation: { label: "Date de création", kind: "date" },
       installateur: { label: "Installateur", kind: "text" },
+      kwc: { label: "Puissance (kWc)", kind: "number" },
+      dateEdition: { label: "Date d'édition du contrat", kind: "date" },
+      contratNonSigne: { label: "Contrat en attente (pièce jointe)", kind: "bool" },
     },
     defaultSort: { by: "moisSignature", dir: "desc" },
   },
@@ -3852,6 +3876,72 @@ function SavOptions({ cfg, onChange }: { cfg: SavCfg; onChange: (next: SavCfg) =
   );
 }
 
+/* ============================================================================
+   TUILES D'INDICATEURS — un rendu, plusieurs widgets
+   ----------------------------------------------------------------------------
+   Le dessin des cartes du tableau de bord SAV : carte blanche à coins arrondis et
+   ombre douce posée sur un fond teinté, libellé en petites capitales, grande valeur,
+   barre pour les proportions, détail dessous. Extrait de `SavWidget` le 2026-08-04
+   quand un second widget en a eu besoin — deux copies auraient dérivé dès la première
+   retouche de charte.
+
+   Le composant reçoit des VALEURS DÉJÀ CALCULÉES (`Tile`), jamais des fonctions ni un
+   objet de KPI : c'est ce qui le rend indifférent à la source. Chaque widget garde donc
+   son propre registre de métriques et ne partage que la mise en page.
+   ============================================================================ */
+type Tile = {
+  key: string;
+  label: string;
+  icon?: LucideIcon;
+  value: string;
+  /** Détail sous la valeur. Il dit d'où sort le chiffre, donc ce qui le ferait bouger. */
+  sub?: string;
+  /** Le détail énonce-t-il un MANQUE ? Il passe alors en ambre — jamais en rouge, qui
+   *  reste aux pannes, et le texte nomme déjà ce qui manque (la couleur ne porte rien
+   *  seule). */
+  warn?: boolean;
+  /** Part de 0 à 1 → barre de progression. Réservée à ce qui EST une proportion. */
+  bar?: number;
+};
+
+function KpiTiles({ tiles, zone }: { tiles: Tile[]; zone: string }) {
+  return (
+    /* `auto-fill` + `minmax` : le nombre de colonnes suit la largeur RÉELLE du widget,
+       sans media query ni mesure JS — une tuile par ligne en demi-largeur, quatre ou
+       cinq de front en pleine largeur. */
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px", background: zone }}>
+      {tiles.map((t) => {
+        const Icon = t.icon;
+        return (
+          <div key={t.key} style={{ padding: "15px 17px 16px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+              {Icon && <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />}
+              {/* Libellé tronqué sur UNE ligne : deux lignes de titre désaligneraient les
+                  valeurs d'une tuile à l'autre. */}
+              <span style={{ minWidth: 0, fontSize: "11px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".055em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {t.label}
+              </span>
+            </div>
+            <div style={{ marginTop: 10, fontSize: "clamp(26px, 3.4vw, 34px)", lineHeight: 1.02, fontWeight: 800, letterSpacing: "-.025em", color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+              {t.value}
+            </div>
+            {t.bar != null && (
+              <span aria-hidden style={{ display: "block", height: 7, marginTop: 11, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
+                <span style={{ display: "block", height: "100%", width: `${Math.round(Math.max(0, Math.min(1, t.bar)) * 100)}%`, background: T.ok, borderRadius: 999 }} />
+              </span>
+            )}
+            {t.sub && (
+              <div style={{ marginTop: t.bar != null ? 8 : 9, fontSize: "12px", fontWeight: 500, color: t.warn ? T.warnInk : T.ink3, lineHeight: 1.4 }}>
+                {t.sub}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* Présentiel pur : reçoit un SourceApi et la cfg de l'instance. Ne connaît ni Softr
    ni le catalogue. Le rendu est PILOTÉ PAR LA CFG — plus une section en dur. */
 function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
@@ -3933,58 +4023,16 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
               présentations pour les mêmes valeurs (cf. `SavCfg.layout`) : des tuiles
               qui se lisent d'un coup d'œil, ou des lignes denses. */}
           {stats.length > 0 && (cfg.layout === "tuiles" ? (
-            /* `auto-fill` + `minmax` : le nombre de colonnes suit la largeur RÉELLE du
-               widget, sans media query ni mesure JS — une tuile par ligne en colonne
-               étroite, quatre de front en pleine largeur. C'est la seule façon d'avoir
-               la rangée du bloc SAV ET un widget en demi-largeur lisible. */
-            /* FOND GRIS derrière la grille, comme sur le tableau de bord SAV : sans lui,
-               des cartes blanches posées sur le blanc de la carte du widget ne se
-               détacheraient que par leur ombre — c'est ce contraste qui les fait exister. */
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px", background: zone }}>
-              {stats.map((m) => {
-                const part = m.bar?.(k);
-                const detail = m.sub?.(k);
-                const Icon = m.icon;
-                /* Sous-texte AMBRE quand il énonce un manque (dossiers sans fabricant,
-                   tiers sans coût) : c'est le seul écart de couleur de la tuile, et il
-                   porte du sens — une saisie à compléter, pas une panne, donc ambre et
-                   jamais rouge (charte). Le texte dit déjà la même chose : la couleur
-                   ne porte rien seule. */
-                const alerte = !!detail && !!m.warnSub?.(k);
-                return (
-                  /* Même dessin que les cartes du tableau de bord SAV : fond blanc, coins
-                     très arrondis, OMBRE DOUCE et pas de bordure marquée — la carte se
-                     détache du fond au lieu d'être encadrée. */
-                  <div key={m.key} style={{ padding: "15px 17px 16px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-                      {Icon && <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />}
-                      {/* Libellé en petites capitales : une étiquette, qui ne concurrence
-                          pas la valeur. Tronqué plutôt que replié — deux lignes de titre
-                          désaligneraient les valeurs d'une tuile à l'autre. */}
-                      <span style={{ minWidth: 0, fontSize: "11px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".055em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {m.label}
-                      </span>
-                    </div>
-                    <div style={{ marginTop: 10, fontSize: "clamp(26px, 3.4vw, 34px)", lineHeight: 1.02, fontWeight: 800, letterSpacing: "-.025em", color: T.ink, fontVariantNumeric: "tabular-nums" }}>
-                      {m.value?.(k)}
-                    </div>
-                    {/* La barre ne s'affiche que pour une PROPORTION (cf. `bar`), et reste
-                        `aria-hidden` : elle redit la valeur déjà lue au-dessus. Verte comme
-                        dans le bloc SAV — c'est une progression, pas une part de marque. */}
-                    {part != null && (
-                      <span aria-hidden style={{ display: "block", height: 7, marginTop: 11, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
-                        <span style={{ display: "block", height: "100%", width: `${Math.round(Math.max(0, Math.min(1, part)) * 100)}%`, background: T.ok, borderRadius: 999 }} />
-                      </span>
-                    )}
-                    {detail && (
-                      <div style={{ marginTop: part != null ? 8 : 9, fontSize: "12px", fontWeight: 500, color: alerte ? T.warnInk : T.ink3, lineHeight: 1.4 }}>
-                        {detail}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+            /* Le registre porte des FONCTIONS, `KpiTiles` attend des VALEURS : la
+               conversion tient ici, une ligne par champ. C'est ce qui permet au même
+               rendu de servir deux widgets dont les sources n'ont rien en commun. */
+            <KpiTiles zone={zone} tiles={stats.map((m) => ({
+              key: m.key, label: m.label, icon: m.icon,
+              value: m.value?.(k) ?? "",
+              sub: m.sub?.(k),
+              warn: !!m.warnSub?.(k),
+              bar: m.bar?.(k),
+            }))} />
           ) : (
             <div>
               {stats.map((m) => (
@@ -4214,6 +4262,190 @@ const coercePodiumCfg = (raw: unknown): PodiumCfg => {
   const p = asText(asObj(raw).periode);
   return { periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee" };
 };
+
+/* ── INDICATEURS GLOBAUX — la rangée de tuiles du bloc KPI ─────────────────────
+   Les mêmes chiffres que `comStats`, mais TOUS COMMERCIAUX CONFONDUS, plus deux que le
+   classement n'a pas : la puissance installée et le pipeline à signer.
+
+   ⚠️ Le PIPELINE ne se lit pas dans le portefeuille : par définition, un dossier « à
+   signer » n'a pas de contrat signé. Critère du bloc KPI (`buildPipeItems`) : une pièce
+   jointe « Contrat d abonnement non signe » ET une date d'édition dans les 30 derniers
+   jours. La fenêtre est GLISSANTE et volontairement indépendante de la période choisie
+   — « à signer » parle de ce qui est sur le bureau maintenant, pas d'un historique. --- */
+const PIPE_JOURS = 30;
+
+function comGlobal(rows: Row[], periode: PodiumPeriode, now: Date) {
+  const mCourant = moisCourant(now);
+  const annee = `${now.getFullYear()}`;
+  const dansPeriode = (r: Row) => {
+    const m = asText(r.moisSignature);
+    if (periode === "mois") return m === mCourant;
+    if (periode === "annee") return m.startsWith(annee);
+    return true;
+  };
+  const estAnnule = (r: Row) => asText(r.statutAbonne) === "Annulé";
+
+  const dansP = rows.filter((r) => hasFile(r.contratSigne) && dansPeriode(r));
+  const signes = dansP.filter((r) => !estAnnule(r));
+  const annules = dansP.filter(estAnnule);
+
+  // Pipeline : hors portefeuille, fenêtre glissante de 30 jours sur la date d'édition.
+  const plancher = now.getTime() - PIPE_JOURS * 864e5;
+  const aSigner = rows.filter((r) => {
+    if (!hasFile(r.contratNonSigne) || hasFile(r.contratSigne)) return false;
+    const t = savTime(r.dateEdition);
+    return Number.isFinite(t) && t >= plancher;
+  });
+
+  return {
+    contrats: signes.length,
+    annules: annules.length,
+    tauxAnnulation: pct(annules.length, dansP.length),
+    capex: signes.reduce((s, r) => s + savNum(r.capex), 0),
+    kwc: signes.reduce((s, r) => s + savNum(r.kwc), 0),
+    /* Installateurs et commerciaux ACTIFS = ceux qui ont au moins un contrat signé sur
+       la période. Les compter sur toute la table gonflerait les deux chiffres avec des
+       partenaires dormants. */
+    installateurs: new Set(signes.map((r) => asText(r.installateur)).filter(Boolean)).size,
+    commerciaux: new Set(signes.map((r) => asText(r.commercial).trim()).filter((n) => n && n !== PODIUM_NON_ASSIGNE)).size,
+    aSigner: aSigner.length,
+    capexASigner: aSigner.reduce((s, r) => s + savNum(r.capex), 0),
+  };
+}
+type ComGlobal = ReturnType<typeof comGlobal>;
+
+/** Nombre avec séparateur de milliers fin et une décimale — la forme du bloc KPI pour
+ *  les kWc (« 12 458,1 kWc »). */
+const fmtKwc = (n: number): string =>
+  `${n.toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWc`;
+
+/* Registre des indicateurs globaux — même principe que SAV_METRICS : ajouter une valeur
+   affichable = une entrée ici, et elle apparaît dans le panneau de tout le monde.
+   Les CLÉS sont un contrat de persistance (stockées dans `cfg.show`). */
+type ComMetric = {
+  key: string; label: string; icon?: LucideIcon;
+  value: (g: ComGlobal) => string;
+  sub?: (g: ComGlobal) => string;
+  warnSub?: (g: ComGlobal) => boolean;
+  bar?: (g: ComGlobal) => number;
+};
+const COM_METRICS: ComMetric[] = [
+  { key: "contrats", label: "Contrats signés", icon: CheckCircle,
+    value: (g) => `${g.contrats}`,
+    sub: () => "" },   // le sous-texte dépend de la période : rempli dans le widget
+  { key: "annules", label: "Annulés", icon: XCircle,
+    value: (g) => `${g.annules}`,
+    sub: (g) => `Taux d'annulation ${g.tauxAnnulation} %`,
+    warnSub: (g) => g.annules > 0 },
+  { key: "capex", label: "CAPEX signé HT", icon: BarChart3,
+    value: (g) => fmtMEur(g.capex),
+    sub: (g) => `${fmtKwc(g.kwc)} installés` },
+  { key: "installateurs", label: "Installateurs actifs", icon: HardHat,
+    value: (g) => `${g.installateurs}`,
+    sub: (g) => `${g.commerciaux} commercial${g.commerciaux > 1 ? "aux" : ""} au portefeuille` },
+  { key: "aSigner", label: `À signer (${PIPE_JOURS} j)`, icon: FileSignature,
+    value: (g) => `${g.aSigner}`,
+    sub: (g) => `${fmtMEur(g.capexASigner)} de CAPEX restant`,
+    warnSub: (g) => g.aSigner > 0 },
+];
+const COM_SHOW_DEFAULT = COM_METRICS.map((m) => m.key);
+
+type ComIndicsCfg = { periode: PodiumPeriode; show: string[] };
+const coerceComIndicsCfg = (raw: unknown): ComIndicsCfg => {
+  const o = asObj(raw);
+  const p = asText(o.periode);
+  const known = new Set(COM_METRICS.map((m) => m.key));
+  const periode: PodiumPeriode = PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "tout";
+  /* `show` ABSENT → tout ; PRÉSENT même vide → choix explicite respecté. Même règle que
+     `coerceSavCfg`, pour que les deux panneaux se comportent pareil. */
+  if (!Array.isArray(o.show)) return { periode, show: [...COM_SHOW_DEFAULT] };
+  return { periode, show: Array.from(new Set(o.show.filter((x: unknown): x is string => typeof x === "string" && known.has(x)))) };
+};
+
+function ComIndicsOptions({ cfg, onChange }: { cfg: ComIndicsCfg; onChange: (next: ComIndicsCfg) => void }) {
+  const on = new Set(cfg.show);
+  const toggle = (key: string) => {
+    const next = new Set(on);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    onChange({ ...cfg, show: COM_METRICS.filter((m) => next.has(m.key)).map((m) => m.key) });
+  };
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
+  const line: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 };
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
+  return (
+    <div>
+      <span style={lbl}>Période</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {PODIUM_PERIODES.map((p) => (
+          <button key={p.key} style={seg(cfg.periode === p.key)} onClick={() => onChange({ ...cfg, periode: p.key })}
+            aria-pressed={cfg.periode === p.key}>{p.label}</button>
+        ))}
+      </div>
+      <span style={{ ...lbl, marginTop: "10px" }}>Indicateurs affichés</span>
+      {COM_METRICS.map((m) => (
+        <label key={m.key} style={line}>
+          <input type="checkbox" checked={on.has(m.key)} onChange={() => toggle(m.key)}
+            style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: "pointer" }} />
+          <span>{m.label}</span>
+        </label>
+      ))}
+      <p style={{ margin: "8px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        « À signer » reste sur une fenêtre glissante de {PIPE_JOURS} jours, quelle que soit la période.
+      </p>
+    </div>
+  );
+}
+
+function ComIndicsWidget({ api, cfg }: { api: SourceApi; cfg: ComIndicsCfg }) {
+  const g = comGlobal(api.rows, cfg.periode, new Date());
+  const zone = tintOf(useContext(WidgetTintCtx)).head || T.surface2;
+  const periodeLabel = cfg.periode === "mois" ? "sur le mois en cours"
+    : cfg.periode === "annee" ? "sur l'année en cours" : "toutes périodes";
+  const on = new Set(cfg.show);
+  const tiles: Tile[] = COM_METRICS.filter((m) => on.has(m.key)).map((m) => ({
+    key: m.key, label: m.label, icon: m.icon,
+    value: m.value(g),
+    // Le sous-texte des contrats signés est le seul qui dépende de la période : il la
+    // NOMME, sinon « 782 » ne dirait pas de quoi il est le total.
+    sub: m.key === "contrats" ? periodeLabel : m.sub?.(g),
+    warn: !!m.warnSub?.(g),
+    bar: m.bar?.(g),
+  }));
+
+  return (
+    <Widget icon={BarChart3} title="Indicateurs commerciaux" sub={`Contrats et pipeline — ${periodeLabel}`}>
+      {api.error ? (
+        <EmptyState icon={BarChart3} dense title="Donnée indisponible"
+          hint="La source « Abonnés » n'a pas répondu. Les indicateurs complets restent dans le tableau de bord KPI." />
+      ) : api.loading ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px" }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} className="slb-skel" style={{ display: "block", height: 104, borderRadius: T.rLg, background: T.neutral050 }} />
+          ))}
+        </div>
+      ) : !tiles.length ? (
+        <EmptyState icon={BarChart3} dense title="Aucun indicateur affiché"
+          hint="Choisissez ce que ce widget doit montrer dans son menu ⋮ « Options »." />
+      ) : (
+        <>
+          <KpiTiles tiles={tiles} zone={zone} />
+          {api.partial && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "0 16px 14px" }}>
+              <Badge variant="warn" dot>Calcul partiel</Badge>
+              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+                Le parc dépasse ce que ce widget lit d'un coup : les totaux portent sur les dossiers les plus récents.
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </Widget>
+  );
+}
+
+function ComIndicsCard({ cfg }: { cfg: ComIndicsCfg }) {
+  return <SourceFeed source="comKpi">{(s) => <ComIndicsWidget api={s} cfg={cfg} />}</SourceFeed>;
+}
 
 /** Une ligne du classement. `monthly` = signés par mois, dans l'ordre de `mois`. */
 type ComStat = {
@@ -5047,7 +5279,7 @@ type WidgetTypeKey =
      posé depuis les presets `sav` du catalogue (§6-bis) — aucun code requis. */
   | "sav"
   /* ← Performance commerciale (§9-septies) : les seuls widgets qui agrègent sur tout le parc. */
-  | "podium" | "classementCom"
+  | "podium" | "classementCom" | "comIndics"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
   | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
@@ -5098,6 +5330,8 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
             defaults: () => coercePodiumCfg({}), coerce: coercePodiumCfg, Options: PodiumOptions },
   classementCom: { title: "Classement des commerciaux", icon: Users, Render: ClassementCard,
                    defaults: () => coerceClassementCfg({}), coerce: coerceClassementCfg, Options: ClassementOptions },
+  comIndics: { title: "Indicateurs commerciaux", icon: BarChart3, Render: ComIndicsCard,
+               defaults: () => coerceComIndicsCfg({}), coerce: coerceComIndicsCfg, Options: ComIndicsOptions },
   /* Utilitaires (§9-sexies). `memo` et `checklist` n'ont PAS d'`Options` : leur seul
      réglage serait leur contenu, et il s'édite dans le widget — pas derrière un ⋮. */
   horloge: { title: "Heure", icon: Clock, Render: HorlogeCard,
@@ -5272,6 +5506,8 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string }[] = [
   { type: "podium", h: "lg", group: "perf" },
   // Le classement est un TABLEAU de dix colonnes : à poser en pleine largeur et haut.
   { type: "classementCom", h: "lg", group: "perf" },
+  // Une rangée de tuiles : basse, mais large — cinq tuiles ne tiennent pas en demi-largeur.
+  { type: "comIndics", h: "sm", group: "perf" },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
   { type: "horloge", h: "sm", group: "outils" },
   { type: "memo", group: "outils" },

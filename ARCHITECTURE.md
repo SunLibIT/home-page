@@ -79,7 +79,8 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, les **4 contextes de widget** (`WidgetChromeCtx`, `WidgetOptionsCtx`, **`WidgetCfgCtx`**, **`WidgetGrabCtx`**) + `WidgetHeightCtx`, `useDismissOnOutside`/`hitsRect`, `WidgetEditMenu`, **`Widget`** (la coquille), `ScrollBody`, `PageNavBar`, `Hero`, **`topOrigin`/`softrPageUrl`**, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
-| **9-septies** | **Performance commerciale** : `comStats` (pure, le calcul partagé), `fmtMEur`, `Sparkline`, le **podium** (`PodiumWidget`/`PodiumCard`) et le **classement** (`ClassementWidget`/`ClassementCard`, 10 colonnes triables) — repris de l'onglet Commercial du bloc `dashboard-KPI` |
+| **9-septies** | **Performance commerciale** : `comStats` et `comGlobal` (pures, les deux calculs partagés), `fmtMEur`/`fmtKwc`, `Sparkline`, les **indicateurs** (`ComIndicsWidget`, registre `COM_METRICS`), le **podium** (`PodiumWidget`) et le **classement** (`ClassementWidget`, 10 colonnes triables) — repris de l'onglet Commercial du bloc `dashboard-KPI` |
+| **—** | **`KpiTiles`** + type `Tile` : le rendu des tuiles d'indicateurs, partagé par la synthèse SAV et les indicateurs commerciaux |
 | **9-sexies** | **Widgets UTILITAIRES sans source** : `HorlogeCard`/`HorlogeOptions`, `MemoCard` (+ `memoInline`/`MemoRead`, le texte balisé), `ChecklistCard` — leur contenu EST leur cfg |
 | **9-quinquies** | **Synthèse SAV** : helpers purs (`savNum`/`savTime`/`savDays`/`savTotal`/`savKpis`), **registre `SAV_METRICS`** (les valeurs cochables), `coerceSavCfg`, `SavOptions`, `SavWidget`, `SavCard` |
 | **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
@@ -891,9 +892,32 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 > Airtable le 2026-08-04. `Propio SOFTR` est un **singleSelect** : Softr peut le rendre en
 > objet `{ id, name }`, d'où le passage systématique par `asText`.
 
-### Performance commerciale — podium et classement (§9-septies)
+### Les tuiles d'indicateurs — un rendu, deux widgets
 
-Deux widgets, **un seul calcul** (`comStats`, pure) : les critères sont recopiés de `statsDe` du
+`KpiTiles` porte le dessin des cartes du tableau de bord SAV (carte blanche à ombre douce sur fond
+teinté, libellé en petites capitales, grande valeur, barre pour les proportions, détail dessous).
+Extrait de `SavWidget` le 2026-08-04 quand les indicateurs commerciaux en ont eu besoin — deux copies
+auraient dérivé dès la première retouche de charte.
+
+Le composant reçoit des **valeurs déjà calculées** (`Tile`), jamais des fonctions ni un objet de KPI :
+c'est ce qui le rend indifférent à la source. Chaque widget garde donc son propre registre de
+métriques (`SAV_METRICS`, `COM_METRICS`) et ne partage que la mise en page.
+
+### Performance commerciale — indicateurs, podium et classement (§9-septies)
+
+Trois widgets, **deux calculs** : `comStats` (par commercial) et `comGlobal` (tous confondus, plus la
+puissance installée et le pipeline), tous deux purs.
+
+⚠️ Le **pipeline « à signer »** ne se lit pas dans le portefeuille : par définition, un dossier à
+signer n'a pas de contrat signé. Critère du bloc KPI — pièce jointe « Contrat d abonnement non
+signe » **et** date d'édition dans les 30 derniers jours (`PIPE_JOURS`). La fenêtre est **glissante
+et indépendante de la période choisie** : « à signer » parle de ce qui est sur le bureau maintenant,
+pas d'un historique. Le panneau d'options le dit à l'utilisateur.
+
+« Installateurs actifs » et « commerciaux au portefeuille » se comptent sur les **signés de la
+période** : les compter sur toute la table gonflerait les deux chiffres de partenaires dormants.
+
+Pour le podium et le classement, **un seul calcul** (`comStats`, pure) : les critères sont recopiés de `statsDe` du
 bloc `dashboard-KPI` pour que les deux écrans donnent le **même** classement — portefeuille =
 contrat signé **joint** (annulés compris, ils ont bien été signés), `contrats`/`capex` sur les non
 annulés de la période, `tauxPose` = posés/signés (« Etat facture 2 » à « Validée »), `delaiMoy` =

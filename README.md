@@ -62,6 +62,9 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques).
    - **Pilotage SAV — synthèse** — les valeurs cochées dans son ⋮, en **tuiles** (grande valeur,
      détail dessous, barre pour les proportions) ou en **lignes** denses.
+   - **Indicateurs commerciaux** — rangée de tuiles : contrats signés, annulés (+ taux), CAPEX
+     signé HT et kWc, installateurs actifs, et le pipeline **« à signer (30 j) »** avec son CAPEX
+     restant. Période réglable, sauf le pipeline qui reste sur sa fenêtre glissante.
    - **Podium CAPEX HT** — les trois premiers commerciaux, marches 2·1·3, période réglable
      (mois / année / tout).
    - **Classement des commerciaux** — le tableau du bloc KPI : rang, avatar et abonnement moyen,
@@ -71,7 +74,7 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **Embeds Elfsight** (à la une, annonces) et les **utilitaires sans source** : Heure,
      Pense-bête, Liste à cocher.
 
-   ⚠️ Les deux widgets de **Performance** sont les seuls à **agréger sur tout le parc** (≈1 771
+   ⚠️ Les trois widgets de **Performance** sont les seuls à **agréger sur tout le parc** (≈1 771
    dossiers) : ils lisent donc leur source **page par page**, contrairement aux autres widgets qui
    montrent « les N plus récents ». Posés, ils coûtent cette lecture ; absents de la grille, ils ne
    coûtent **rien** — seules les instances affichées montent leur adapter. Si la lecture ne va pas
