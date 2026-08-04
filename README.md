@@ -71,6 +71,9 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      CAPEX HT avec barre, tendance, signés, annulés, taux de pose, délai de signature, courbe sur
      12 mois, installateurs. **Les en-têtes trient d'un clic**, et le tri est persisté.
      À poser en **pleine largeur** : dix colonnes ne tiennent pas dans une demi-colonne.
+   - **Exceptions** ⏳ — les 8 tuiles de volume et de **couverture du parc** (dossiers et
+     installateurs concernés, intensité par dossier), et le **Registre des exceptions** ligne par
+     ligne. *Ces deux widgets attendent la connexion de leurs tables (§4-A).*
    - **Embeds Elfsight** (à la une, annonces) et les **utilitaires sans source** : Heure,
      Pense-bête, Liste à cocher.
 
@@ -109,7 +112,11 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | `tachesPr` | « Taches prospect »                            | ✅ `9414183e-…` | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
 | `sav`      | « Tickets » (SAV) — *lecture seule*            | ✅ `3f5f8f6c-…` | 22 alias : ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût |
 | `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` |
+| `parcAbo`  | « Abonnés » **relue en 1 champ**, paginée       | ✅ (même `8fc957d0-…`) | ref `Contrat abonné` — dénominateur « % du parc » |
 | `notifC`   | « Notification Center » (BDD Abonné)           | ⏳ **à fournir** | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
+| `excAbo`   | « Projet solaire » (Bdd Installateurs)         | ⏳ **à fournir** | exceptions **abonné** : dossier `SL- Dossier` · description · categorie · sousCategorie · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe |
+| `excPart`  | « Partenaire »                                 | ⏳ **à fournir** | exceptions **partenaire** : nom `Name` + les mêmes champs, plus statut `Statut` |
+| `parcPart` | « BDD Installateur »                           | ⏳ **à fournir** | nom `Nom de l'entreprise` — dénominateur « % du parc partenaires » |
 
 > ⚠️ **Les datasources `Installateurs` et `Propects` (tables principales) ne sont utilisées par
 > AUCUN widget** : les notes/tâches vivent dans les tables enfants ci-dessus.

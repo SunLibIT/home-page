@@ -689,6 +689,34 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
   Notes, Dossiers SAV, Communication, Performance, Utilitaires, Autres), servies en **pastilles de
   filtre** dans la galerie.
 
+### Exceptions — tuiles de couverture et registre (§9-octies)
+
+Une exception est une règle dérogatoire accordée soit à **un dossier** (périmètre *abonné*, table
+« Projet solaire »), soit à **un partenaire** (périmètre *partenaire*, table « Partenaire »). Les deux
+tables n'ont pas les mêmes champs — le titre est le dossier d'un côté, `Name` de l'autre, et seule la
+seconde porte un statut — donc `excLignes` les **unit en une seule forme de ligne**, le périmètre
+venant de la source qui l'a lue. Cette divergence est résolue **une fois**, pas dans chaque widget.
+
+**Deux widgets** : `excIndics` (8 tuiles en deux groupes, séparés par l'intertitre « Couverture du
+parc & intensité » — « 21 exceptions » et « 0,3 % du parc » ne répondent pas à la même question) et
+`excRegistre` (le tableau, 9 colonnes, périmètre en badge, description clampée à deux lignes avec le
+texte entier en `title`).
+
+⚠️ **Ce sont des taux de couverture, donc ils ont des dénominateurs** : `parcAbo` (la table Abonnés
+relue en **un** champ, paginée) et `parcPart` (« BDD Installateur »). Un parc **incomplet ou vide vaut
+`null`**, et la tuile **tait alors son pourcentage** au lieu de le calculer : c'est exactement
+l'erreur qui affichait « 2 % du parc (100 dossiers) » pour 1 759 dossiers dans le bloc KPI. Un seul
+champ par parc, aussi : on ne veut que compter, et 1 771 lignes larges se paieraient à chaque
+affichage.
+
+Deux détails de lecture qui comptent : la comparaison des 30 jours **nomme** la période précédente
+(« aucune sur les 30 j précédents ») au lieu d'un pourcentage — passer de 0 à 21 ne fait pas
+« +2 100 % » ; et `fmtPct` écrit « 0,3 % » plutôt que « 0 % », qui se lirait comme *aucun* alors que
+six dossiers sont concernés.
+
+Non reprises du bloc KPI, faute de sens ici : le bouton « Rafraîchir » (les sources se relisent au
+montage) et l'ouverture d'une ligne en fiche détail.
+
 ### La galerie — feuille modale, recherche, miniatures (2026-08-04)
 
 Le dépliant par famille a été remplacé. Ce qui n'allait pas : la galerie n'existait **qu'en mode
@@ -906,6 +934,10 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 | `tachesPr` | « Taches prospect » (Bdd Installateurs, `tblYQaq030GsdnIdy`) | ✅ **connecté** | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
 | `sav` | « Tickets » (SAV, `tblf4KgGHCaZXKnBX`) | ✅ **connecté**, lecture seule | 22 alias (ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût) |
 | `notifC` | « Notification Center » (BDD Abonné, `tblqF71AO8nFVpWi5`) | ⏳ **non connecté** | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
+| `excAbo` | « Projet solaire » (Bdd Installateurs, `tblDiXeZn207S4hBE`) — exceptions **abonné** | ⏳ **non connecté** | dossier `SL- Dossier` · description · categorie `Catégorie` · sousCategorie `Sous catégorie` · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe `Date de création` |
+| `excPart` | « Partenaire » (`tbl6RsrSjP1FijHzJ`) — exceptions **partenaire** | ⏳ **non connecté** | nom `Name` · idem `excAbo` + statut `Statut` |
+| `parcPart` | « BDD Installateur » (`tblQLEpjqyUn54XTb`) — dénominateur | ⏳ **non connecté** | nom `Nom de l'entreprise` |
+| `parcAbo` | « Abonnés » **relue en 1 champ**, paginée — dénominateur | ✅ **connecté** (même `8fc957d0-…`) | ref `Contrat abonné` |
 | `comKpi` | « Abonnés » **relue** (même datasource que `abonnes`) | ✅ **connecté**, lecture seule **paginée** | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` |
 
 > **Deux entrées de catalogue pour une même table** (`abonnes` et `comKpi`) : une source

@@ -731,6 +731,52 @@ const SELECT_COM = q.select({
   contratNonSigne: "Contrat d abonnement non signe",
 });
 
+/* ── EXCEPTIONS ← deux tables, deux PÉRIMÈTRES ─────────────────────────────────
+   Le registre des exceptions du bloc `dashboard-KPI` est l'UNION de deux tables qui ne
+   portent pas les mêmes champs :
+     · « Projet solaire » (base Bdd Installateurs, tblDiXeZn207S4hBE) → exceptions
+       ABONNÉ. Son titre est le dossier (« SL- Dossier ») et elle n'a PAS de statut ;
+     · « Partenaire » (tbl6RsrSjP1FijHzJ) → exceptions PARTENAIRE. Son titre est
+       « Name », et elle porte un statut (« Validée »…).
+   Les deux alias sont volontairement IDENTIQUES quand le sens l'est (description,
+   categorie, valideur…) : c'est ce qui permet aux widgets de traiter une seule forme de
+   ligne, le périmètre étant porté par la source qui l'a lue.
+
+   ⚠️ Les ids de datasource du bloc `dashboard-KPI` (77b25e6b, ef44c8f5, 6415ed0c) NE
+   FONCTIONNENT PAS ici : un id appartient à UNE connexion d'UN bloc. Ces trois tables
+   sont donc à connecter à CE bloc, d'où leur `connected: false` au catalogue. */
+const SELECT_EXC_ABO = q.select({
+  dossier: "SL- Dossier",
+  description: "Description",
+  categorie: "Catégorie",
+  sousCategorie: "Sous catégorie",
+  service: "Tag",
+  valideur: "Valideur",
+  justificatif: "Justificatif",
+  installateur: "BDD Installateur",
+  creeLe: "Date de création",
+});
+const SELECT_EXC_PART = q.select({
+  nom: "Name",
+  description: "Description",
+  categorie: "Catégorie",
+  sousCategorie: "Sous catégorie",
+  service: "Tag",
+  valideur: "Valideur",
+  justificatif: "Justificatif",
+  installateur: "BDD Installateur",
+  statut: "Statut",
+  creeLe: "Date de création",
+});
+
+/* Dénominateurs des taux de couverture — deux PARCS, lus en UN SEUL CHAMP chacun.
+   ⚠️ Un seul champ, et c'est délibéré : on ne veut que COMPTER. Y ajouter des colonnes
+   ferait payer 1 771 lignes plus larges à chaque affichage, pour rien. Et ne JAMAIS
+   remplacer ces lectures par un total codé en dur : le parc grossit chaque semaine, et
+   un dénominateur figé fabriquerait un taux faux qui aurait l'air juste. */
+const SELECT_PARC_ABO = q.select({ ref: "Contrat abonné" });
+const SELECT_PARC_PART = q.select({ nom: "Nom de l'entreprise" });
+
 /* --- SELECTS D'ÉCRITURE (§9-ter). Ce sont LES WHITELISTS : un alias absent d'ici
    est physiquement inécrivable depuis le bloc (Softr répond 400), quoi que puisse
    déclarer le catalogue. N'y mettre que des champs que l'utilisateur a le droit de
@@ -976,6 +1022,32 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
     });
     return rows;
   })(),
+
+  /* ← SELECT_EXC_ABO / _PART. Les deux périmètres du registre, calibrés sur ce que les
+     tuiles doivent pouvoir dire : des exceptions récentes ET anciennes (fenêtre de 30
+     jours), des lignes SANS justificatif (le taux ambre), des statuts partenaire variés
+     (dont « Validée », qui alimente sa propre tuile), et plusieurs exceptions sur un même
+     dossier comme sur un même partenaire — sinon « exceptions / dossier » vaudrait 1,0 et
+     on ne verrait pas si la moyenne se calcule. */
+  excAbo: [
+    { id: "ea1", dossier: "SL-002104", description: "Dossier ZNI (dont Guadeloupe) : ATTENTION à la TVA applicable.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [{ url: "#", filename: "j.pdf" }], installateur: "Neosoleil", creeLe: daysAgo(3) },
+    { id: "ea2", dossier: "SL-002104", description: "Calepinage modifié après visite technique.", categorie: "Etude solaire", sousCategorie: "Calepinage", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Neosoleil", creeLe: daysAgo(9) },
+    { id: "ea3", dossier: "SL-001998", description: "Contractualisation : envoi du contrat en deux fois.", categorie: "Contractualisation", sousCategorie: "", service: "Service technique", valideur: "Julien RAMON", justificatif: [], installateur: "A.D.W", creeLe: daysAgo(17) },
+    { id: "ea4", dossier: "SL-001954", description: "Conditions spéciales Premium appliquées au dossier.", categorie: "Etude solaire", sousCategorie: "", service: "Commerce", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Premium Solar", creeLe: daysAgo(44) },
+    { id: "ea5", dossier: "SL-001901", description: "TVA Guadeloupe : justificatif fourni par l'installateur.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Julien RAMON", justificatif: [{ url: "#", filename: "tva.pdf" }], installateur: "CAPEO", creeLe: daysAgo(61) },
+  ],
+  excPart: [
+    { id: "ep1", nom: "Etude solaire", description: "Pour les dossiers CAPEO déposés dans le CRM avant juillet.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "CAPEO", statut: "Validée", creeLe: daysAgo(1) },
+    { id: "ep2", nom: "Contractualisation", description: "Dossiers avant la signature : le contrat est préparé en amont.", categorie: "Contractualisation", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [{ url: "#", filename: "c.pdf" }], installateur: "Premium Solar", statut: "Validée", creeLe: daysAgo(1) },
+    { id: "ep3", nom: "Etude solaire", description: "Les conditions spéciales Premium s'appliquent au périmètre entier.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Premium Solar", statut: "En attente", creeLe: daysAgo(2) },
+    { id: "ep4", nom: "Etude solaire", description: "Dossier GUADELOUPE : la TVA en Guadeloupe suit un régime propre.", categorie: "Etude solaire", sousCategorie: "Fiscalité", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Neosoleil", statut: "En attente", creeLe: daysAgo(5) },
+    { id: "ep5", nom: "Contractualisation", description: "Envoi contrat : prévoir l'envoi en recommandé.", categorie: "Contractualisation", sousCategorie: "", service: "Commerce", valideur: "Julien RAMON", justificatif: [], installateur: "A.D.W", statut: "Refusée", creeLe: daysAgo(12) },
+    { id: "ep6", nom: "Contrat Grande Distribution", description: "Pas de nécessité de contrat cadre pour ce partenaire.", categorie: "Contractualisation", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [{ url: "#", filename: "gd.pdf" }], installateur: "Premium Solar", statut: "Validée", creeLe: daysAgo(28) },
+  ],
+  /* Les deux PARCS : seul leur NOMBRE de lignes compte (dénominateurs). Assez de lignes
+     pour que les pourcentages de couverture ne soient pas absurdes en aperçu. */
+  parcAbo: Array.from({ length: 120 }, (_, i) => ({ id: `pa${i}`, ref: `SL-${1000 + i}` })),
+  parcPart: Array.from({ length: 40 }, (_, i) => ({ id: `pp${i}`, nom: `Partenaire ${i + 1}` })),
 };
 
 /* ============================================================================
@@ -993,7 +1065,8 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
    Monter/démonter des composants entiers est légal pour React : aucun hook n'est
    appelé dans `SourceFeed` lui-même.
    ============================================================================ */
-type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC" | "comKpi";
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC" | "comKpi"
+  | "excAbo" | "excPart" | "parcAbo" | "parcPart";
 
 // Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
 type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
@@ -1248,6 +1321,70 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
      ⚠️ `connected: true` sans nouvel id : elle lit `DS.abonnes`, déjà connectée. Une
      source du catalogue n'est pas une datasource, c'est une LECTURE — deux entrées
      peuvent viser la même table avec des selects et des volumes différents. */
+  /* ── EXCEPTIONS ── Deux périmètres, deux tables (cf. SELECT_EXC_*), plus les deux
+     PARCS qui servent de dénominateurs. Toutes techniques : on ne « pose » pas une
+     liste d'exceptions depuis la galerie, ce sont les deux widgets du §9-octies qui les
+     consomment. ⚠️ Trois d'entre elles attendent d'être connectées À CE BLOC. */
+  excAbo: {
+    key: "excAbo",
+    label: "Exceptions abonné — Projet solaire",
+    icon: "ClipboardList",
+    connected: false,   // ⚠️ à connecter (onglet Sources DE CE BLOC), puis id dans DS
+    technical: true,
+    fields: {
+      dossier: { label: "Dossier", kind: "text" },
+      description: { label: "Description", kind: "longtext" },
+      categorie: { label: "Catégorie", kind: "text" },
+      sousCategorie: { label: "Sous-catégorie", kind: "text" },
+      service: { label: "Service", kind: "text" },
+      valideur: { label: "Valideur", kind: "text" },
+      justificatif: { label: "Justificatif", kind: "bool" },
+      installateur: { label: "Partenaire", kind: "text" },
+      creeLe: { label: "Créée le", kind: "date" },
+    },
+    defaultSort: { by: "creeLe", dir: "desc" },
+  },
+  excPart: {
+    key: "excPart",
+    label: "Exceptions partenaire — Partenaire",
+    icon: "Handshake",
+    connected: false,   // ⚠️ idem
+    technical: true,
+    fields: {
+      nom: { label: "Exception", kind: "text" },
+      description: { label: "Description", kind: "longtext" },
+      categorie: { label: "Catégorie", kind: "text" },
+      sousCategorie: { label: "Sous-catégorie", kind: "text" },
+      service: { label: "Service", kind: "text" },
+      valideur: { label: "Valideur", kind: "text" },
+      justificatif: { label: "Justificatif", kind: "bool" },
+      installateur: { label: "Partenaire", kind: "text" },
+      statut: { label: "Statut", kind: "badge", options: ["Validée", "En attente", "Refusée"],
+                variants: { "Validée": "ok", "En attente": "warn", "Refusée": "danger" } },
+      creeLe: { label: "Créée le", kind: "date" },
+    },
+    defaultSort: { by: "creeLe", dir: "desc" },
+  },
+  /* Parc DOSSIERS : `DS.abonnes` relue en UN champ, paginée. C'est le dénominateur de
+     « X % du parc » — le compte doit être JUSTE, donc lu, jamais figé. */
+  parcAbo: {
+    key: "parcAbo",
+    label: "Parc dossiers (dénominateur)",
+    icon: "Users",
+    connected: true,
+    technical: true,
+    fields: { ref: { label: "Contrat abonné", kind: "text" } },
+    defaultSort: { by: "ref", dir: "asc" },
+  },
+  parcPart: {
+    key: "parcPart",
+    label: "Parc partenaires (dénominateur)",
+    icon: "Handshake",
+    connected: false,   // ⚠️ « BDD Installateur » à connecter à ce bloc
+    technical: true,
+    fields: { nom: { label: "Nom de l'entreprise", kind: "text" } },
+    defaultSort: { by: "nom", dir: "asc" },
+  },
   comKpi: {
     key: "comKpi",
     label: "Performance commerciale — Abonnés",
@@ -1492,6 +1629,34 @@ function ComKpiSource({ children }: { children: SourceChildren }) {
   return <>{children({ ...liveState(res), partial })}</>;
 }
 
+/* Parc DOSSIERS : même datasource qu'`abonnes`, UN champ, pagination complète. C'est un
+   COMPTEUR, pas une liste — d'où le select minimal. */
+function ParcAboSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.abonnes, select: SELECT_PARC_ABO });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial })}</>;
+}
+
+/* ⚠️ Les trois sources d'exceptions attendent leur connexion À CE BLOC. Adapters prêts à
+   décommenter le jour où les ids entrent dans `DS` — ils sont paginés comme ParcAbo,
+   parce que les deux widgets AGRÈGENT (un registre tronqué mentirait sur ses totaux) :
+
+     function ExcAboSource({ children }: { children: SourceChildren }) {
+       const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
+       const { partial } = useDrainPages(res, COM_MAX_PAGES);
+       return <>{children({ ...liveState(res), partial })}</>;
+     }
+     function ExcPartSource({ children }: { children: SourceChildren }) {
+       const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
+       const { partial } = useDrainPages(res, COM_MAX_PAGES);
+       return <>{children({ ...liveState(res), partial })}</>;
+     }
+     function ParcPartSource({ children }: { children: SourceChildren }) {
+       const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
+       const { partial } = useDrainPages(res, COM_MAX_PAGES);
+       return <>{children({ ...liveState(res), partial })}</>;
+     } */
+
 function NotesInsSource({ children }: { children: SourceChildren }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
   const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
@@ -1585,6 +1750,10 @@ function SourceFeed({ source, children }: { source: SourceKey; children: SourceC
     case "tachesPr": return <TachesPrSource>{children}</TachesPrSource>;
     case "sav":      return <SavSource>{children}</SavSource>;
     case "comKpi":   return <ComKpiSource>{children}</ComKpiSource>;
+    case "parcAbo":  return <ParcAboSource>{children}</ParcAboSource>;
+    // case "excAbo":   return <ExcAboSource>{children}</ExcAboSource>;      // à connecter
+    // case "excPart":  return <ExcPartSource>{children}</ExcPartSource>;    // à connecter
+    // case "parcPart": return <ParcPartSource>{children}</ParcPartSource>;  // à connecter
     // case "notifC": return <NotifCSource>{children}</NotifCSource>;   // à connecter
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
@@ -4904,6 +5073,401 @@ function ClassementCard({ id, cfg }: { id: string; cfg: ClassementCfg }) {
 }
 
 /* ============================================================================
+   9-octies. EXCEPTIONS — les tuiles de couverture et le registre
+   ----------------------------------------------------------------------------
+   Reprise de l'onglet Exceptions du bloc `dashboard-KPI`. Une exception est une règle
+   dérogatoire accordée soit à UN DOSSIER (périmètre « abonné », table « Projet
+   solaire »), soit à UN PARTENAIRE (périmètre « partenaire », table « Partenaire »).
+   Les deux tables sont lues séparément puis UNIES en une seule forme de ligne, le
+   périmètre venant de la source qui l'a lue (cf. SELECT_EXC_*).
+
+   ⚠️ CES CHIFFRES SONT DES TAUX DE COUVERTURE, donc ils ont des DÉNOMINATEURS : le parc
+   de dossiers et le parc de partenaires, lus eux aussi (jamais figés — le parc grossit
+   chaque semaine). Quand un parc n'est pas lisible, le pourcentage n'est PAS affiché
+   plutôt que calculé sur un compte partiel : c'est très exactement l'erreur qui faisait
+   dire « 2 % du parc (100 dossiers) » pour 1 759 dossiers dans le bloc KPI.
+   ============================================================================ */
+type ExcLigne = {
+  id: string; perimetre: "abonne" | "partenaire";
+  titre: string; description: string;
+  categorie: string; sousCategorie: string; service: string;
+  partenaire: string; valideur: string; statut: string;
+  justifie: boolean; creeLe: string;
+};
+
+/** Union des deux périmètres en UNE forme de ligne. PURE. Le titre d'une exception
+ *  abonné est son dossier, celui d'une exception partenaire est son nom : c'est la seule
+ *  vraie divergence des deux tables, et elle est résolue ici, une fois. */
+function excLignes(abo: Row[], part: Row[]): ExcLigne[] {
+  const commun = (r: Row) => ({
+    description: asText(r.description),
+    categorie: asText(r.categorie),
+    sousCategorie: asText(r.sousCategorie),
+    service: asText(r.service),
+    partenaire: asText(r.installateur),
+    valideur: asText(r.valideur),
+    justifie: hasFile(r.justificatif),
+    creeLe: asText(r.creeLe),
+  });
+  return [
+    ...abo.map((r) => ({ id: r.id, perimetre: "abonne" as const, titre: asText(r.dossier), statut: "", ...commun(r) })),
+    ...part.map((r) => ({ id: r.id, perimetre: "partenaire" as const, titre: asText(r.nom), statut: asText(r.statut), ...commun(r) })),
+  ].sort((a, b) => b.creeLe.localeCompare(a.creeLe));
+}
+
+const EXC_FENETRE_J = 30;
+
+function excKpis(lignes: ExcLigne[], parcDossiers: number | null, parcPartenaires: number | null, now: Date) {
+  const t = now.getTime();
+  const dans = (l: ExcLigne, depuis: number, jusqu: number) => {
+    const d = savTime(l.creeLe);
+    return Number.isFinite(d) && d >= t - depuis * 864e5 && d < t - jusqu * 864e5;
+  };
+  const abonne = lignes.filter((l) => l.perimetre === "abonne");
+  const partenaire = lignes.filter((l) => l.perimetre === "partenaire");
+  const recentes = lignes.filter((l) => dans(l, EXC_FENETRE_J, 0));
+  const precedentes = lignes.filter((l) => dans(l, EXC_FENETRE_J * 2, EXC_FENETRE_J));
+  const validees = partenaire.filter((l) => l.statut === "Validée");
+  const sansJustif = lignes.filter((l) => !l.justifie);
+  /* Les DOSSIERS et PARTENAIRES concernés se comptent en distinct : dix exceptions sur
+     un même dossier ne font toujours qu'un dossier couvert. C'est ce qui distingue la
+     COUVERTURE (combien sont touchés) de l'INTENSITÉ (combien par touché). */
+  const dossiers = new Set(abonne.map((l) => l.titre).filter(Boolean)).size;
+  const partenaires = new Set(lignes.map((l) => l.partenaire).filter(Boolean)).size;
+  return {
+    total: lignes.length,
+    abonne: abonne.length,
+    partenaire: partenaire.length,
+    recentes: recentes.length,
+    precedentes: precedentes.length,
+    validees: validees.length,
+    partValidees: partenaire.length ? validees.length / partenaire.length : 0,
+    sansJustif: sansJustif.length,
+    partSansJustif: lignes.length ? sansJustif.length / lignes.length : 0,
+    dossiers,
+    parcDossiers,
+    partDossiers: parcDossiers ? dossiers / parcDossiers : null,
+    parDossier: dossiers ? abonne.length / dossiers : 0,
+    partenaires,
+    parcPartenaires,
+    partPartenaires: parcPartenaires ? partenaires / parcPartenaires : null,
+    parPartenaire: partenaires ? lignes.length / partenaires : 0,
+  };
+}
+type ExcKpis = ReturnType<typeof excKpis>;
+
+/** Nombre à une décimale, virgule française — « 2,5 exceptions par installateur ». */
+const fmtDec = (n: number): string => n.toFixed(1).replace(".", ",");
+/** Pourcentage lisible même très petit : « 0,3 % » plutôt que « 0 % », qui se lirait
+ *  comme « aucun » alors que six dossiers sont concernés. */
+const fmtPct = (p: number): string => (p > 0 && p < 0.01 ? fmtDec(p * 100) : `${Math.round(p * 100)}`) + " %";
+
+type ExcMetric = {
+  key: string; label: string; icon?: LucideIcon; groupe: "volume" | "couverture";
+  value: (k: ExcKpis) => string;
+  sub?: (k: ExcKpis) => string;
+  warnSub?: (k: ExcKpis) => boolean;
+  bar?: (k: ExcKpis) => number | undefined;
+};
+const EXC_METRICS: ExcMetric[] = [
+  { key: "total", label: "Exceptions", icon: ClipboardList, groupe: "volume",
+    value: (k) => `${k.total}`,
+    sub: (k) => `${k.abonne} abonné · ${k.partenaire} partenaire` },
+  { key: "recentes", label: `${EXC_FENETRE_J} derniers jours`, icon: CalendarClock, groupe: "volume",
+    value: (k) => `${k.recentes}`,
+    /* La comparaison NOMME la période précédente au lieu d'afficher un pourcentage :
+       passer de 0 à 21 ne fait pas « +2 100 % », ça fait « aucune avant ». */
+    sub: (k) => (k.precedentes
+      ? `${k.precedentes} sur les ${EXC_FENETRE_J} j précédents`
+      : `aucune sur les ${EXC_FENETRE_J} j précédents`) },
+  { key: "validees", label: "Validées (partenaire)", icon: CheckCircle, groupe: "volume",
+    value: (k) => `${k.validees}`,
+    sub: (k) => `${fmtPct(k.partValidees)} du périmètre partenaire`,
+    bar: (k) => k.partValidees },
+  { key: "sansJustif", label: "Sans justificatif", icon: FileSignature, groupe: "volume",
+    value: (k) => `${k.sansJustif}`,
+    sub: (k) => `${fmtPct(k.partSansJustif)} des exceptions`,
+    warnSub: (k) => k.sansJustif > 0 },
+  { key: "dossiers", label: "Dossiers avec exceptions", icon: Users, groupe: "couverture",
+    value: (k) => `${k.dossiers}`,
+    /* Sans dénominateur SÛR, on dit le compte lu et on TAIT le pourcentage : un taux sur
+       un parc partiel serait surévalué sans que rien ne le signale. */
+    sub: (k) => (k.partDossiers != null
+      ? `${fmtPct(k.partDossiers)} du parc (${k.parcDossiers} dossiers)`
+      : "parc non lu : pas de taux"),
+    bar: (k) => k.partDossiers ?? undefined },
+  { key: "parDossier", label: "Exceptions / dossier", icon: BarChart3, groupe: "couverture",
+    value: (k) => fmtDec(k.parDossier),
+    sub: (k) => (k.dossiers ? `moyenne sur les ${k.dossiers} dossiers concernés` : "aucun dossier concerné") },
+  { key: "partenaires", label: "Installateurs avec exceptions", icon: HardHat, groupe: "couverture",
+    value: (k) => `${k.partenaires}`,
+    sub: (k) => (k.partPartenaires != null
+      ? `${fmtPct(k.partPartenaires)} du parc (${k.parcPartenaires} partenaires)`
+      : "parc non lu : pas de taux"),
+    bar: (k) => k.partPartenaires ?? undefined },
+  { key: "parPartenaire", label: "Exceptions / installateur", icon: BarChart3, groupe: "couverture",
+    value: (k) => fmtDec(k.parPartenaire),
+    sub: (k) => (k.partenaires ? `moyenne sur les ${k.partenaires} installateurs concernés` : "aucun installateur concerné") },
+];
+const EXC_SHOW_DEFAULT = EXC_METRICS.map((m) => m.key);
+
+type ExcIndicsCfg = { show: string[] };
+const coerceExcIndicsCfg = (raw: unknown): ExcIndicsCfg => {
+  const o = asObj(raw);
+  const known = new Set(EXC_METRICS.map((m) => m.key));
+  if (!Array.isArray(o.show)) return { show: [...EXC_SHOW_DEFAULT] };
+  return { show: Array.from(new Set(o.show.filter((x: unknown): x is string => typeof x === "string" && known.has(x)))) };
+};
+
+function ExcIndicsOptions({ cfg, onChange }: { cfg: ExcIndicsCfg; onChange: (next: ExcIndicsCfg) => void }) {
+  const on = new Set(cfg.show);
+  const toggle = (key: string) => {
+    const next = new Set(on);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    onChange({ show: EXC_METRICS.filter((m) => next.has(m.key)).map((m) => m.key) });
+  };
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "8px 0 4px" };
+  const line: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 };
+  const bloc = (g: ExcMetric["groupe"], titre: string) => (
+    <>
+      <span style={lbl}>{titre}</span>
+      {EXC_METRICS.filter((m) => m.groupe === g).map((m) => (
+        <label key={m.key} style={line}>
+          <input type="checkbox" checked={on.has(m.key)} onChange={() => toggle(m.key)}
+            style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: "pointer" }} />
+          <span>{m.label}</span>
+        </label>
+      ))}
+    </>
+  );
+  return <div>{bloc("volume", "Volume")}{bloc("couverture", "Couverture du parc & intensité")}</div>;
+}
+
+function ExcIndicsWidget({ cfg, abo, part, parcA, parcP }: {
+  cfg: ExcIndicsCfg; abo: SourceApi; part: SourceApi; parcA: SourceApi; parcP: SourceApi;
+}) {
+  const zone = tintOf(useContext(WidgetTintCtx)).head || T.surface2;
+  const lignes = excLignes(abo.rows, part.rows);
+  /* Un parc n'est un dénominateur QUE s'il est complet : `partial` ou vide → `null`, et
+     les tuiles concernées taisent leur pourcentage. */
+  const parcDossiers = parcA.partial || !parcA.rows.length ? null : parcA.rows.length;
+  const parcPartenaires = parcP.partial || !parcP.rows.length ? null : parcP.rows.length;
+  const k = excKpis(lignes, parcDossiers, parcPartenaires, new Date());
+  const on = new Set(cfg.show);
+  const tuiles = (g: ExcMetric["groupe"]): Tile[] => EXC_METRICS.filter((m) => m.groupe === g && on.has(m.key)).map((m) => ({
+    key: m.key, label: m.label, icon: m.icon,
+    value: m.value(k), sub: m.sub?.(k), warn: !!m.warnSub?.(k), bar: m.bar?.(k),
+  }));
+  const volume = tuiles("volume");
+  const couverture = tuiles("couverture");
+  const chargement = abo.loading || part.loading;
+  const enErreur = abo.error || part.error;
+  /* Sources non connectées : `rows` est vide en production, et un écran de zéros se
+     lirait comme « aucune exception ». On dit ce qui manque. */
+  const muet = !CATALOG.excAbo.connected && !CATALOG.excPart.connected && !lignes.length;
+
+  return (
+    <Widget icon={ClipboardList} title="Exceptions" sub="Volume, couverture du parc et intensité">
+      {enErreur ? (
+        <EmptyState icon={ClipboardList} dense title="Donnée indisponible"
+          hint="Les tables d'exceptions n'ont pas répondu. Le détail complet reste dans le tableau de bord KPI." />
+      ) : chargement ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px" }}>
+          {[0, 1, 2, 3].map((i) => (
+            <span key={i} className="slb-skel" style={{ display: "block", height: 104, borderRadius: T.rLg, background: T.neutral050 }} />
+          ))}
+        </div>
+      ) : muet ? (
+        <EmptyState icon={ClipboardList} dense title="Sources d'exceptions non connectées"
+          hint="Les tables « Projet solaire » et « Partenaire » doivent être connectées à ce bloc pour que ces chiffres existent." />
+      ) : !volume.length && !couverture.length ? (
+        <EmptyState icon={ClipboardList} dense title="Aucun indicateur affiché"
+          hint="Choisissez ce que ce widget doit montrer dans son menu ⋮ « Options »." />
+      ) : (
+        <div style={{ background: zone }}>
+          {volume.length > 0 && <KpiTiles tiles={volume} zone={zone} />}
+          {/* L'INTERTITRE sépare le volume de la couverture, comme sur le tableau de bord
+              KPI : « 21 exceptions » et « 0,3 % du parc » ne répondent pas à la même
+              question, et les aligner sans rien dire les ferait lire comme une suite. */}
+          {couverture.length > 0 && (
+            <>
+              <div style={{ padding: volume.length ? "2px 16px 0" : "12px 16px 0", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em" }}>
+                Couverture du parc &amp; intensité
+              </div>
+              <KpiTiles tiles={couverture} zone={zone} />
+            </>
+          )}
+          {(abo.partial || part.partial) && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "0 16px 14px" }}>
+              <Badge variant="warn" dot>Calcul partiel</Badge>
+              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+                Toutes les exceptions n'ont pas pu être lues d'un coup : ces totaux sont incomplets.
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+    </Widget>
+  );
+}
+
+/* Quatre sources imbriquées — deux périmètres et deux parcs. Le dispatch statique les
+   monte une par une ; celles qui ne sont pas connectées servent leur mock en aperçu et
+   une liste vide en production (§6-bis), donc le widget vit avant leur branchement. */
+function ExcIndicsCard({ cfg }: { cfg: ExcIndicsCfg }) {
+  return (
+    <SourceFeed source="excAbo">{(abo) => (
+      <SourceFeed source="excPart">{(part) => (
+        <SourceFeed source="parcAbo">{(parcA) => (
+          <SourceFeed source="parcPart">{(parcP) => (
+            <ExcIndicsWidget cfg={cfg} abo={abo} part={part} parcA={parcA} parcP={parcP} />
+          )}</SourceFeed>
+        )}</SourceFeed>
+      )}</SourceFeed>
+    )}</SourceFeed>
+  );
+}
+
+/* ── LE REGISTRE — le tableau des exceptions, ligne par ligne ───────────────────
+   Neuf colonnes, dont le périmètre en badge et la description sous le titre. Le tri par
+   date vit dans la cfg (donc persisté), comme celui du classement des commerciaux. --- */
+type ExcRegistreCfg = { perimetre: "tous" | "abonne" | "partenaire"; dir: "asc" | "desc"; limite: number };
+const EXC_LIMITES = [10, 25, 50, 100];
+const coerceExcRegistreCfg = (raw: unknown): ExcRegistreCfg => {
+  const o = asObj(raw);
+  const p = asText(o.perimetre);
+  const n = Number(o.limite);
+  return {
+    perimetre: p === "abonne" || p === "partenaire" ? p : "tous",
+    dir: o.dir === "asc" ? "asc" : "desc",
+    limite: EXC_LIMITES.includes(n) ? n : 25,
+  };
+};
+
+function ExcRegistreOptions({ cfg, onChange }: { cfg: ExcRegistreCfg; onChange: (next: ExcRegistreCfg) => void }) {
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "8px 0 4px" };
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
+  return (
+    <div>
+      <span style={{ ...lbl, marginTop: "2px" }}>Périmètre</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {([["tous", "Tous"], ["abonne", "Abonné"], ["partenaire", "Partenaire"]] as const).map(([k, l]) => (
+          <button key={k} style={seg(cfg.perimetre === k)} onClick={() => onChange({ ...cfg, perimetre: k })}
+            aria-pressed={cfg.perimetre === k}>{l}</button>
+        ))}
+      </div>
+      <span style={lbl}>Les plus</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <button style={seg(cfg.dir === "desc")} onClick={() => onChange({ ...cfg, dir: "desc" })} aria-pressed={cfg.dir === "desc"}>Récentes</button>
+        <button style={seg(cfg.dir === "asc")} onClick={() => onChange({ ...cfg, dir: "asc" })} aria-pressed={cfg.dir === "asc"}>Anciennes</button>
+      </div>
+      <span style={lbl}>Nombre de lignes</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {EXC_LIMITES.map((n) => (
+          <button key={n} style={seg(cfg.limite === n)} onClick={() => onChange({ ...cfg, limite: n })} aria-pressed={cfg.limite === n}>{n}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExcRegistreWidget({ cfg, abo, part }: { cfg: ExcRegistreCfg; abo: SourceApi; part: SourceApi }) {
+  const toutes = excLignes(abo.rows, part.rows);
+  const filtrees = cfg.perimetre === "tous" ? toutes : toutes.filter((l) => l.perimetre === cfg.perimetre);
+  const lignes = (cfg.dir === "asc" ? [...filtrees].reverse() : filtrees).slice(0, cfg.limite);
+  const zone = tintOf(useContext(WidgetTintCtx)).head || T.surface2;
+
+  const TH: CSSProperties = { position: "sticky", top: 0, zIndex: 1, background: zone, padding: "9px 10px", textAlign: "left", fontSize: "10.5px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}` };
+  const TD: CSSProperties = { padding: "10px", borderBottom: `1px solid ${T.line}`, fontSize: "12.5px", fontWeight: 500, color: T.ink2, verticalAlign: "top" };
+  const muet = !CATALOG.excAbo.connected && !CATALOG.excPart.connected && !toutes.length;
+  /* Une valeur absente s'écrit avec le tiret cadratin du bloc, jamais une case vide :
+     « — » dit « rien à cet endroit », le vide dit « colonne cassée ». */
+  const ou = (v: string) => v || DASH;
+
+  return (
+    <Widget icon={ClipboardList} title="Registre des exceptions"
+      sub={`${filtrees.length} exception${filtrees.length > 1 ? "s" : ""}${cfg.perimetre === "tous" ? "" : ` — périmètre ${cfg.perimetre === "abonne" ? "abonné" : "partenaire"}`}`}>
+      {abo.error || part.error ? (
+        <EmptyState icon={ClipboardList} dense title="Donnée indisponible"
+          hint="Les tables d'exceptions n'ont pas répondu." />
+      ) : abo.loading || part.loading ? (
+        <div style={{ padding: "14px 16px" }}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <span key={i} className="slb-skel" style={{ display: "block", height: 34, marginBottom: 8, borderRadius: T.rSm, background: T.neutral050 }} />
+          ))}
+        </div>
+      ) : muet ? (
+        <EmptyState icon={ClipboardList} dense title="Sources d'exceptions non connectées"
+          hint="Les tables « Projet solaire » et « Partenaire » doivent être connectées à ce bloc." />
+      ) : !lignes.length ? (
+        <EmptyState icon={ClipboardList} dense title="Aucune exception sur ce périmètre"
+          hint="Changez de périmètre dans le menu ⋮ « Options »." />
+      ) : (
+        <ScrollBody>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
+              <thead>
+                <tr>
+                  <th style={TH}>Périmètre</th>
+                  <th style={TH}>Exception</th>
+                  <th style={TH}>Catégorie</th>
+                  <th style={TH}>Sous-catégorie</th>
+                  <th style={TH}>Service</th>
+                  <th style={TH}>Partenaire</th>
+                  <th style={TH}>Valideur</th>
+                  <th style={TH}>Statut</th>
+                  <th style={{ ...TH, textAlign: "right" }}>Créée le</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lignes.map((l) => (
+                  <tr key={`${l.perimetre}:${l.id}`}>
+                    <td style={TD}>
+                      {/* Le périmètre est une CATÉGORIE, pas un état : badge neutre côté
+                          abonné, « info » côté partenaire — jamais vert ni rouge, qui
+                          feraient croire à une validation. */}
+                      <Badge variant={l.perimetre === "partenaire" ? "info" : "neutral"} icon={l.perimetre === "partenaire" ? Handshake : Users}>
+                        {l.perimetre === "partenaire" ? "Partenaire" : "Abonné"}
+                      </Badge>
+                    </td>
+                    <td style={{ ...TD, minWidth: 240, maxWidth: 320 }}>
+                      <div style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>{ou(l.titre)}</div>
+                      {/* Description CLAMPÉE à deux lignes : ces textes font parfois un
+                          paragraphe, et une ligne de tableau haute de 8 lignes rendrait
+                          le registre illisible. Le texte entier reste dans le `title`. */}
+                      {l.description && (
+                        <div title={l.description} style={{ marginTop: 2, fontSize: "11.5px", fontWeight: 500, color: T.ink3, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                          {l.description}
+                        </div>
+                      )}
+                    </td>
+                    <td style={TD}>{l.categorie ? <Badge variant="neutral">{l.categorie}</Badge> : DASH}</td>
+                    <td style={TD}>{l.sousCategorie ? <Badge variant="neutral">{l.sousCategorie}</Badge> : DASH}</td>
+                    <td style={TD}>{l.service ? <Badge variant="brand">{l.service}</Badge> : DASH}</td>
+                    <td style={{ ...TD, whiteSpace: "nowrap" }}>{ou(l.partenaire)}</td>
+                    <td style={{ ...TD, whiteSpace: "nowrap" }}>{ou(l.valideur)}</td>
+                    <td style={TD}>{l.statut ? <StatusBadge value={l.statut} /> : DASH}</td>
+                    <td style={{ ...TD, textAlign: "right", whiteSpace: "nowrap" }} title={fmtDate(l.creeLe)}>{fmtDate(l.creeLe)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </ScrollBody>
+      )}
+    </Widget>
+  );
+}
+
+function ExcRegistreCard({ cfg }: { cfg: ExcRegistreCfg }) {
+  return (
+    <SourceFeed source="excAbo">{(abo) => (
+      <SourceFeed source="excPart">{(part) => <ExcRegistreWidget cfg={cfg} abo={abo} part={part} />}</SourceFeed>
+    )}</SourceFeed>
+  );
+}
+
+/* ============================================================================
    9-sexies. WIDGETS UTILITAIRES — sans source de données
    ----------------------------------------------------------------------------
    Trois widgets qui ne lisent AUCUNE table : leur contenu est leur cfg, donc il
@@ -5280,6 +5844,8 @@ type WidgetTypeKey =
   | "sav"
   /* ← Performance commerciale (§9-septies) : les seuls widgets qui agrègent sur tout le parc. */
   | "podium" | "classementCom" | "comIndics"
+  /* ← Exceptions (§9-octies) : les tuiles de couverture et le registre. */
+  | "excIndics" | "excRegistre"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
   | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
@@ -5332,6 +5898,11 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
                    defaults: () => coerceClassementCfg({}), coerce: coerceClassementCfg, Options: ClassementOptions },
   comIndics: { title: "Indicateurs commerciaux", icon: BarChart3, Render: ComIndicsCard,
                defaults: () => coerceComIndicsCfg({}), coerce: coerceComIndicsCfg, Options: ComIndicsOptions },
+  /* Exceptions (§9-octies). */
+  excIndics: { title: "Exceptions", icon: ClipboardList, Render: ExcIndicsCard,
+               defaults: () => coerceExcIndicsCfg({}), coerce: coerceExcIndicsCfg, Options: ExcIndicsOptions },
+  excRegistre: { title: "Registre des exceptions", icon: ClipboardList, Render: ExcRegistreCard,
+                 defaults: () => coerceExcRegistreCfg({}), coerce: coerceExcRegistreCfg, Options: ExcRegistreOptions },
   /* Utilitaires (§9-sexies). `memo` et `checklist` n'ont PAS d'`Options` : leur seul
      réglage serait leur contenu, et il s'édite dans le widget — pas derrière un ⋮. */
   horloge: { title: "Heure", icon: Clock, Render: HorlogeCard,
@@ -5569,6 +6140,7 @@ const GALLERY_GROUPS: { key: string; label: string; icon: string }[] = [
   { key: "sav", label: "Dossiers SAV", icon: "Ticket" },
   { key: "comm", label: "Communication", icon: "Newspaper" },
   { key: "perf", label: "Performance", icon: "Trophy" },
+  { key: "exceptions", label: "Exceptions", icon: "ClipboardList" },
   { key: "outils", label: "Utilitaires", icon: "Clock" },
   // Repli OBLIGATOIRE : voir groupOfSource ci-dessous. Ne pas retirer cette ligne.
   { key: "autres", label: "Autres", icon: "LayoutGrid" },
@@ -5603,6 +6175,9 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string; shape:
   // Une rangée de tuiles : basse, mais large — cinq tuiles ne tiennent pas en demi-largeur.
   { type: "comIndics", h: "sm", group: "perf", shape: "tiles", desc: "Contrats, CAPEX, installateurs actifs et pipeline à signer." },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
+  // Exceptions : les tuiles sont basses et larges, le registre est un tableau.
+  { type: "excIndics", h: "md", group: "exceptions", shape: "tiles", desc: "Volume des exceptions, couverture du parc et intensité par dossier." },
+  { type: "excRegistre", h: "lg", group: "exceptions", shape: "table", desc: "Le registre ligne par ligne : périmètre, catégorie, service, valideur, statut." },
   { type: "horloge", h: "sm", group: "outils", shape: "clock", desc: "L'heure et la date du jour. Ne lit aucune donnée." },
   { type: "memo", group: "outils", shape: "text", desc: "Un pense-bête personnel, avec gras, italique et puces." },
   { type: "checklist", group: "outils", shape: "check", desc: "Une liste à cocher, visible de vous seul." },
