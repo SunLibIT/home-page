@@ -32,8 +32,8 @@
                                   « Derniers dossiers » sans état lu / non lu
      B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. Les 8
                                   pages de l'espace sont renseignées ; il ne manque que
-                                  les 4 OUTILS EXTERNES (You Sign, Calculette, Sellsy,
-                                  Tik&Lib), rendus en tuiles désactivées
+                                  3 OUTILS EXTERNES (You Sign, Sellsy, Tik&Lib),
+                                  rendus en tuiles désactivées
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
      D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
                                   CONFIRMER que Softr attend bien « recordId »
@@ -150,7 +150,11 @@ const PAGE_RECORD_PARAM = "recordId";
 /** Outils externes (nouvel onglet). Même règle : "" = adresse inconnue → tuile inerte. */
 const TOOLS = {
   youSign: "",
-  calculette: "",
+  /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE : elle
+     pourrait donc devenir un onglet embarqué comme les trois ci-dessous, au lieu d'un
+     lien vers un nouvel onglet — à décider, c'est un choix de navigation, pas une
+     contrainte technique. */
+  calculette: "https://sunlib-simulation-economique.vercel.app/",
   sellsy: "",
   tikLib: "",
   /* Apps Vercel PUBLIQUES embarquées en iframe dans les onglets (§7) : ce ne sont pas

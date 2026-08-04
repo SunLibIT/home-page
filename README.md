@@ -158,9 +158,10 @@ l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en p
 C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.partenaires`) là où
 l'espace garde ses adresses historiques (`/clients-list`).
 
-**Restent vides : les 4 outils externes** (You Sign, Calculette, Sellsy, Tik&Lib). Une entrée vide
-est un **choix explicite** : la tuile s'affiche **désactivée** (mention « bientôt ») au lieu de
-promettre un clic qui ne mène nulle part. Renseigner l'URL l'active, sans autre changement.
+**Restent vides : 3 outils externes** (You Sign, Sellsy, Tik&Lib) — la Calculette d'abonnement
+pointe sur `sunlib-simulation-economique.vercel.app`. Une entrée vide est un **choix explicite** :
+la tuile s'affiche **désactivée** (mention « bientôt ») au lieu de promettre un clic qui ne mène
+nulle part. Renseigner l'URL l'active, sans autre changement.
 
 ⚠️ **À confirmer** : le nom du paramètre des pages de détail (`PAGE_RECORD_PARAM = "recordId"`, la
 convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son URL.
