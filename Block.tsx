@@ -1524,10 +1524,29 @@ const WidgetChromeCtx = createContext<WidgetChrome | null>(null);
       le contexte est volontairement agnostique. --- */
 type WidgetOptions = {
   cfg: any;
-  Form: FC<{ cfg: any; onChange: (next: any) => void }>;
-  onSave: (next: any) => void;
+  /** Formulaire propre au TYPE. Absent = ce type n'a pas de réglages ; le panneau
+   *  n'en garde alors que le champ « Titre », commun à tous (voir `title`). */
+  Form?: FC<{ cfg: any; onChange: (next: any) => void }>;
+  /** Titre choisi par l'utilisateur pour CETTE instance ("" = titre par défaut). */
+  title: string;
+  onSave: (next: { title: string; cfg: any }) => void;
 };
 const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
+
+/* --- TITRE PERSONNALISÉ, valable pour TOUS les widgets ------------------------
+   Le titre est une propriété de l'INSTANCE, pas du type : il ne vit donc ni dans la
+   `cfg` (où chaque type aurait dû le redéclarer, et où les types sans formulaire
+   n'auraient jamais pu l'offrir) ni dans le code du widget. Le Dashboard le sert par
+   ce contexte, la coquille `Widget` l'applique par-dessus le titre que le composant
+   lui passe, et n'importe quel widget devient renommable sans une ligne de plus.
+
+   Chaîne VIDE = « garder le titre par défaut ». C'est ce qui rend le geste réversible
+   sans bouton dédié : on vide le champ, le titre d'origine revient — et il continue de
+   suivre ses évolutions (le titre d'un widget `data` suit sa source, par exemple).
+   ⚠️ Le titre par défaut n'est donc PAS recopié dans l'instance à la première
+   ouverture du panneau : ce serait le figer, et un widget renommé « Dossiers SAV »
+   garderait ce nom même après avoir changé de source. --- */
+const WidgetTitleCtx = createContext<string>("");
 
 /* --- ÉCRITURE DE SA PROPRE cfg PAR LE WIDGET -----------------------------------
    `WidgetOptionsCtx` sert le PANNEAU d'options ; celui-ci sert le CONTENU. Un
@@ -1643,13 +1662,17 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
 /* --- Menu ⋮ du mode normal : ouvre le formulaire d'options du widget. Édition
       LOCALE (brouillon) jusqu'à « Enregistrer » — même règle que la grille : on
       n'écrit jamais en base à chaque frappe. Fermeture Échap / clic extérieur. --- */
-function WidgetOptionsMenu({ opts, title }: { opts: WidgetOptions; title: string }) {
+function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions; title: string; defaultTitle: string }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<any>(opts.cfg);
+  const [draftTitle, setDraftTitle] = useState(opts.title);
   const ref = useDismissOnOutside(open, setOpen);
-  const start = () => { setDraft(opts.cfg); setOpen(true); };   // brouillon toujours frais à l'ouverture
-  const save = () => { opts.onSave(draft); setOpen(false); };
+  // Brouillons toujours frais à l'ouverture (cfg ET titre).
+  const start = () => { setDraft(opts.cfg); setDraftTitle(opts.title); setOpen(true); };
+  const save = () => { opts.onSave({ title: draftTitle, cfg: draft }); setOpen(false); };
   const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
   const Form = opts.Form;
   return (
     <div ref={ref} style={{ position: "relative", flex: "none" }}>
@@ -1660,7 +1683,17 @@ function WidgetOptionsMenu({ opts, title }: { opts: WidgetOptions; title: string
       {open && (
         <div role="dialog" aria-label={`Options — ${title}`}
           style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, width: 292, maxHeight: "min(70vh, 460px)", overflowY: "auto", padding: "12px", backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" }}>
-          <Form cfg={draft} onChange={setDraft} />
+          {/* TITRE — en premier, et présent pour TOUS les types (c'est le seul réglage
+              de ceux qui n'ont pas de formulaire). Le `placeholder` montre le titre par
+              défaut : vider le champ le rétablit, sans bouton « réinitialiser ». */}
+          <label style={lbl} htmlFor="slb-w-title">Titre du widget</label>
+          <input id="slb-w-title" style={field} value={draftTitle} placeholder={defaultTitle}
+            maxLength={WIDGET_TITLE_MAX} aria-describedby="slb-w-title-hint"
+            onChange={(e) => setDraftTitle(e.target.value)} />
+          <div id="slb-w-title-hint" style={{ margin: "4px 0 2px", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
+            Laisser vide pour garder « {defaultTitle} ».
+          </div>
+          {Form && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.line}` }}><Form cfg={draft} onChange={setDraft} /></div>}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${T.line}` }}>
             <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
             <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
@@ -1754,6 +1787,13 @@ function Widget({
   const opts = useContext(WidgetOptionsCtx);
   const grab = useContext(WidgetGrabCtx);
   const editing = chrome !== null;
+  /* TITRE : celui de l'instance s'il existe, sinon celui que le composant a passé.
+     `title` (la prop) reste donc le titre PAR DÉFAUT — c'est lui que le panneau montre
+     en `placeholder`, et lui qui revient si l'utilisateur vide le champ. `shown` sert
+     partout ailleurs, y compris dans les `aria-label` des menus : un widget renommé
+     doit s'annoncer sous son nouveau nom. */
+  const custom = useContext(WidgetTitleCtx).trim();
+  const shown = custom || title;
   return (
     <Card style={CARD}>
       {/* L'EN-TÊTE est la zone de préhension, dans les deux modes (cf. WidgetGrabCtx).
@@ -1772,17 +1812,18 @@ function Widget({
         )}
         <span style={icoPillSm(solar)}><Icon aria-hidden style={{ width: 15, height: 15 }} strokeWidth={1.7} /></span>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={WTITLE}>{title}</div>
+          <div style={WTITLE}>{shown}</div>
           {sub && <div style={WSUB}>{sub}</div>}
         </div>
         {editing ? (
-          <WidgetEditMenu chrome={chrome} title={title} />
+          <WidgetEditMenu chrome={chrome} title={shown} />
         ) : (
           <>
             {headActions}
-            {/* ⋮ affiché SEULEMENT si le type expose des options : plus de bouton
-                décoratif sans action (c'était le TODO de la v1). */}
-            {opts && <WidgetOptionsMenu opts={opts} title={title} />}
+            {/* ⋮ affiché pour TOUS les widgets depuis le 2026-08-04 : même un type sans
+                réglages propres est RENOMMABLE, donc le bouton a toujours quelque chose
+                à offrir — il n'est plus décoratif pour autant. */}
+            {opts && <WidgetOptionsMenu opts={opts} title={shown} defaultTitle={title} />}
           </>
         )}
       </div>
@@ -2997,10 +3038,12 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
 
   return (
     <div>
-      <label style={lbl} htmlFor="slb-opt-title">Titre</label>
-      <input id="slb-opt-title" style={field} value={cfg.title} placeholder={desc.label}
-        onChange={(e) => set({ title: e.target.value })} />
-
+      {/* PAS de champ « Titre » ici depuis le 2026-08-04 : il est monté d'un étage, dans
+          l'en-tête du panneau ⋮, où il vaut pour TOUS les types de widget. En laisser un
+          second ici aurait donné deux saisies pour un même affichage, dont une seule
+          gagne — la pire des ambiguïtés. `cfg.title` existe toujours : c'est le titre
+          que POSE un preset (« SAV — priorité élevée »), donc le titre par défaut, et
+          celui que montre le placeholder du champ commun. */}
       <label style={lbl} htmlFor="slb-opt-src">Source de données</label>
       <select id="slb-opt-src" style={field} value={cfg.source}
         onChange={(e) => set({ source: e.target.value as SourceKey })}>
@@ -4202,7 +4245,18 @@ type WidgetWidth = "half" | "full";
  *  — leur clé de modèle EST leur clé de type (cf. `CUSTOM_TYPES`). Un ancien widget
  *  `data` sans `preset` ne bloque donc rien : on tolère l'existant plutôt que de
  *  réécrire des documents déjà en base. */
-type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize; preset?: string };
+/*  `title` : titre choisi par l'utilisateur, valable pour N'IMPORTE QUEL type
+ *  (2026-08-04). Facultatif et ABSENT par défaut — absent ou vide signifie « garder le
+ *  titre du widget », ce qui garde le geste réversible et laisse le titre par défaut
+ *  continuer d'évoluer (celui d'un widget `data` suit sa source). Il vit sur
+ *  l'instance et non dans la `cfg` parce qu'il ne dépend pas du type : les widgets sans
+ *  formulaire d'options (pense-bête, embeds, journal des tâches) sont donc renommables
+ *  comme les autres, sans une ligne de code par type. */
+type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize; preset?: string; title?: string };
+
+/** Longueur maximale d'un titre personnalisé. L'en-tête d'une carte est étroit : au-delà
+ *  le texte serait tronqué à l'écran, autant le borner à la saisie. */
+const WIDGET_TITLE_MAX = 48;
 
 /** `items` : visibles — l'ordre du tableau EST l'ordre d'affichage.
  *  `parked`: types inconnus du code courant — ni rendus, ni perdus (compat descendante).
@@ -4399,6 +4453,12 @@ function coerceInstance(raw: unknown, seen: Set<string>): Instance | null {
     w: o.w === "full" ? "full" : "half",                         // clamp
     h: o.h === "sm" || o.h === "lg" ? o.h : "md",                // clamp ("md" par défaut)
     ...(typeof o.preset === "string" && o.preset ? { preset: o.preset } : {}),
+    /* Titre personnalisé : borné et débarrassé de ses espaces, et OMIS s'il ne reste
+       rien — un `title: ""` stocké ne dirait pas autre chose que son absence, autant
+       ne pas alourdir le document. */
+    ...(typeof o.title === "string" && o.title.trim()
+      ? { title: o.title.trim().slice(0, WIDGET_TITLE_MAX) }
+      : {}),
   };
 }
 
@@ -4570,6 +4630,22 @@ function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetSize =
 function removeInstance(layout: Layout, id: string): Layout {
   if (idxOf(layout.items, id) < 0) return layout;
   return { ...layout, items: layout.items.filter((x) => x.id !== id) };
+}
+
+/** Renomme une instance — ou lui rend son titre par défaut si `title` est vide. PURE.
+ *  Le champ est alors RETIRÉ de l'instance plutôt que mis à "" : le document ne garde
+ *  pas trace d'un renommage annulé, et « pas de titre » n'a qu'une seule écriture. */
+function setInstanceTitle(layout: Layout, id: string, title: string): Layout {
+  if (idxOf(layout.items, id) < 0) return layout;
+  const clean = title.trim().slice(0, WIDGET_TITLE_MAX);
+  return {
+    ...layout,
+    items: layout.items.map((it) => {
+      if (it.id !== id) return it;
+      const { title: _drop, ...rest } = it;
+      return clean ? { ...rest, title: clean } : rest;
+    }),
+  };
 }
 
 /* ============================================================================
@@ -4924,6 +5000,14 @@ function Dashboard() {
   const persistCfg = (id: string, cfg: unknown) =>
     void runSave({ ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) });
 
+  /** Enregistre le TITRE et la cfg en UNE écriture : le panneau ⋮ les édite ensemble,
+   *  et deux `runSave` successifs se marcheraient dessus (le second partirait de
+   *  `current`, encore inchangé, et perdrait le premier). */
+  const persistOptions = (id: string, title: string, cfg: unknown) => {
+    const withCfg = { ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) };
+    void runSave(setInstanceTitle(withCfg, id, title));
+  };
+
   // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD. `id` = id d'INSTANCE.
   const onMoveUp = (id: string) => setDraft((d) => moveWidget(d, id, -1));
   const onMoveDown = (id: string) => setDraft((d) => moveWidget(d, id, 1));
@@ -5160,19 +5244,26 @@ function Dashboard() {
                     boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined,
                     position: isTarget ? "relative" : undefined, zIndex: isTarget ? 4 : undefined }}>
                   <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onRemove: () => onRemove(id) } : null}>
-                    {/* Options : mode NORMAL uniquement (en édition, le ⋮ porte les
-                        actions de disposition et le corps est inerte). */}
-                    <WidgetOptionsCtx.Provider value={!editing && def.Options ? { cfg, Form: def.Options, onSave: (c) => persistCfg(id, c) } : null}>
+                    {/* Options : mode NORMAL, et pour TOUS les types — même sans
+                        formulaire propre, un widget est renommable (`Form` est alors
+                        `undefined` et le panneau n'affiche que le champ Titre). */}
+                    <WidgetOptionsCtx.Provider value={!editing
+                      ? { cfg, Form: def.Options, title: inst.title ?? "", onSave: ({ title, cfg: c }) => persistOptions(id, title, c) }
+                      : null}>
                       {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
                           hors édition seulement — pendant l'édition, `draft` fait
                           autorité et deux écrivains s'écraseraient. */}
                       <WidgetCfgCtx.Provider value={!editing ? { save: (c) => persistCfg(id, c) } : null}>
                       {/* Préhension par l'en-tête — fournie dans LES DEUX modes. */}
                       <WidgetGrabCtx.Provider value={grabOf(id, i)}>
-                        {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
-                        <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
-                          <Render id={id} cfg={cfg} />
-                        </WidgetHeightCtx.Provider>
+                        {/* Titre personnalisé : fourni dans les deux modes, sinon un
+                            widget renommé reprendrait son nom d'origine en édition. */}
+                        <WidgetTitleCtx.Provider value={inst.title ?? ""}>
+                          {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
+                          <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
+                            <Render id={id} cfg={cfg} />
+                          </WidgetHeightCtx.Provider>
+                        </WidgetTitleCtx.Provider>
                       </WidgetGrabCtx.Provider>
                       </WidgetCfgCtx.Provider>
                     </WidgetOptionsCtx.Provider>

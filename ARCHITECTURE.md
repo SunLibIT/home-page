@@ -215,7 +215,7 @@ Trois familles de types cohabitent volontairement :
 | Source de données | une ou deux, via `SourceFeed` | une, choisie dans les Options | **aucune** — le contenu EST la cfg |
 | Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `dataType(...)` | présentiel seul |
 | Interactions propres | oui (marquer comme vu, onglets, embed) | non | oui (saisie, cases) |
-| ⋮ Options | **au cas par cas** : aucun pour `taches`/les embeds, **oui pour `notifs`** (champs affichés, nombre de lignes, gestes) et **pour `sav`** (registre `SAV_METRICS`, §9-quinquies) | **oui** — un formulaire unique (§9-quater) | `horloge` oui ; `memo`/`checklist` **non**, leur seul réglage serait leur contenu et il s'édite dans le widget |
+| ⋮ Options | **tous** en ont un (au minimum le titre) ; réglages propres pour `notifs` (champs affichés, nombre de lignes, gestes) et `sav` (registre `SAV_METRICS`, §9-quinquies), aucun pour `taches`/les embeds | **oui** — un formulaire unique (§9-quater) | `horloge` a deux réglages ; `memo`/`checklist` n'ont que le titre, leur contenu s'éditant dans le widget |
 
 Le cas `sav` est le patron à suivre pour rendre configurable un widget sur-mesure : le
 formulaire n'énumère rien en dur, il est **généré depuis un registre de métriques** (`key`,
@@ -427,21 +427,47 @@ actions et la création se testent sans base.
 
 ### La coquille `Widget`, le contexte d'édition et le ⋮ « Options »
 
-`Widget({ icon, title, sub, solar, headActions, children, footer })` lit **quatre** contextes :
+`Widget({ icon, title, sub, solar, headActions, children, footer })` lit **cinq** contextes :
 
 | Contexte | Quand | Effet |
 |---|---|---|
 | `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
-| `WidgetOptionsCtx` non-null | mode normal **et** type configurable | bouton ⋮ → `WidgetOptionsMenu` : le formulaire du type, brouillon local, « Annuler » / « Enregistrer » |
+| `WidgetOptionsCtx` non-null | mode normal, **tous les types** | bouton ⋮ → `WidgetOptionsMenu` : champ **Titre** (commun) + le formulaire du type s'il en a un, brouillon local, « Annuler » / « Enregistrer » |
+| **`WidgetTitleCtx`** | **les deux modes** | titre personnalisé de l'instance, appliqué **par-dessus** la prop `title` |
 | **`WidgetCfgCtx`** non-null | mode normal | le widget écrit **sa propre cfg** sans passer par un formulaire — c'est ce qui rend le pense-bête et la liste à cocher possibles |
 | **`WidgetGrabCtx`** non-null | **les deux modes** | l'**en-tête** de la carte devient saisissable (`draggable` + `cursor: grab`), image de glissement forcée sur la carte entière |
 
 Le chrome injecté est
 `{ index, total, isWide, size, onMoveUp, onMoveDown, onSetWide, onSetSize, onRemove }` ; les options
-`{ cfg, Form, onSave }`. Le widget lui-même ne connaît **rien** du layout : c'est le `Dashboard` qui
-fournit tout via contexte. Un type sans `Options` n'affiche **aucun** bouton ⋮ en mode normal (plus
-de bouton décoratif sans action). « Enregistrer » appelle `persistCfg(id, cfg)` → même pipeline que
-la grille (optimiste + toast, un seul document `layout_json`).
+`{ cfg, Form?, title, onSave }`. Le widget lui-même ne connaît **rien** du layout : c'est le
+`Dashboard` qui fournit tout via contexte. « Enregistrer » appelle
+`persistOptions(id, title, cfg)` → même pipeline que la grille (optimiste + toast, un seul document
+`layout_json`), et **une seule** écriture pour les deux : deux `runSave` successifs partiraient tous
+deux de `current` et le second perdrait le premier.
+
+### Renommer un widget — n'importe lequel (2026-08-04)
+
+Le titre est une propriété de l'**instance** (`Instance.title`), pas du type. Conséquence directe :
+**tout** widget est renommable, y compris ceux qui n'ont aucun réglage propre (journal des tâches,
+embeds Elfsight, pense-bête, liste à cocher) — sans une ligne de code par type. C'est pourquoi le ⋮
+est désormais fourni pour **tous** les types en mode normal : même sans `Options`, il a quelque
+chose à offrir, donc il n'est pas redevenu le bouton décoratif que la v1 avait supprimé.
+
+- **Chaîne vide = titre par défaut.** Le champ affiche le titre d'origine en `placeholder` et le
+  vider le rétablit : le geste est réversible sans bouton dédié. `setInstanceTitle` **retire** alors
+  le champ de l'instance plutôt que d'y écrire `""` — un renommage annulé ne laisse pas de trace.
+- **Le titre par défaut n'est jamais recopié dans l'instance.** Le figer priverait le widget de ses
+  évolutions : celui d'un widget `data` suit sa source, et un widget renommé automatiquement
+  « Dossiers SAV » garderait ce nom après un changement de source.
+- `Widget` applique `titreInstance || propTitle`, et `shown` sert **aussi** dans les `aria-label` des
+  menus : un widget renommé s'annonce sous son nouveau nom.
+- **Le champ « Titre » a quitté `DataOptions`** : en garder un second aurait donné deux saisies pour
+  un même affichage, dont une seule gagne. `cfg.title` demeure — c'est le titre que *pose un preset*
+  (« SAV — priorité élevée »), donc le titre par défaut de ces widgets, et ce que montre le
+  `placeholder`. Aucune migration : les titres déjà saisis dans l'ancien champ continuent de
+  s'afficher par ce chemin.
+- Borné à `WIDGET_TITLE_MAX` (48) : l'en-tête d'une carte est étroit, autant borner à la saisie
+  plutôt que tronquer à l'écran.
 
 **Pourquoi `WidgetCfgCtx` n'existe qu'en mode normal** : pendant l'édition, le brouillon `draft`
 fait autorité, et deux chemins d'écriture concurrents sur la même instance produiraient un
@@ -534,6 +560,7 @@ type Instance = {
   w: "half" | "full";
   h: "sm" | "md" | "lg";
   preset?: string;     // modèle de galerie d'origine → un seul exemplaire par modèle
+  title?: string;      // titre choisi par l'utilisateur ; absent = titre par défaut du widget
 };
 
 type Layout = {
@@ -555,7 +582,7 @@ type Layout = {
 Toute la logique vit dans des fonctions **pures** (aucune logique dans les handlers) :
 `normalizeLayout(saved, knownTypes?)`, `migrateV1`, `seed`, `coerceInstance`, `cloneInstance`,
 `cloneCfg`, `reorder(list, from, to)`, `moveWidget`, `setWidgetWide`,
-`setWidgetSize`, **`addInstance`, `removeInstance`**, `newInstanceId`,
+`setWidgetSize`, **`addInstance`, `removeInstance`, `setInstanceTitle`**, `newInstanceId`,
 `takenIds`, `cloneDefault`, `emptyLayout`, `idxOf`, `uniqueStrings`.
 
 `normalizeLayout` est la brique de compatibilité, appliquée à **toute** lecture (BDD *et* cache

@@ -63,8 +63,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **Pilotage SAV — synthèse**, **embeds Elfsight** (à la une, annonces),
      et les **utilitaires sans source** : Heure, Pense-bête, Liste à cocher.
 
-   Chaque widget se règle par son ⋮ ; « Personnaliser » ouvre la galerie (dépliants par famille,
-   un exemplaire par modèle), et toute la disposition est **persistée par utilisateur**.
+   Chaque widget se règle par son ⋮, et **tous sont renommables** (champ « Titre du widget » en tête
+   du panneau ; vider le champ rend le titre d'origine). « Personnaliser » ouvre la galerie
+   (dépliants par famille, un exemplaire par modèle), et toute la disposition — titres compris —
+   est **persistée par utilisateur**.
 
 ## 4. Branchement Airtable — état au 2026-08-04
 
