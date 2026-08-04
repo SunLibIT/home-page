@@ -158,10 +158,16 @@ l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en p
 C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.partenaires`) là où
 l'espace garde ses adresses historiques (`/clients-list`).
 
-**Restent vides : 3 outils externes** (You Sign, Sellsy, Tik&Lib) — la Calculette d'abonnement
-pointe sur `sunlib-simulation-economique.vercel.app`. Une entrée vide est un **choix explicite** :
-la tuile s'affiche **désactivée** (mention « bientôt ») au lieu de promettre un clic qui ne mène
-nulle part. Renseigner l'URL l'active, sans autre changement.
+**Restent vides : 2 outils externes** (You Sign, Sellsy). La Calculette d'abonnement pointe sur
+`sunlib-simulation-economique.vercel.app`, Tik&Lib sur `ticketing2-six.vercel.app`. Une entrée vide
+est un **choix explicite** : la tuile s'affiche **désactivée** (mention « bientôt ») au lieu de
+promettre un clic qui ne mène nulle part. Renseigner l'URL l'active, sans autre changement.
+
+**Trois cibles, trois comportements** — et c'est le type de l'entrée qui décide, jamais le
+composant : une entrée de `PAGES` ouvre en **`_top`** (page de l'espace, on quitte l'accueil), une
+entrée de `TOOLS` utilisée comme `url` ouvre dans un **nouvel onglet** (`_blank` + `noopener`), et
+une entrée de `TOOLS` utilisée comme `embed` s'affiche **dans la page** (onglet à iframe). On ne
+navigue jamais **dans** l'iframe du bloc : le CRM autour disparaîtrait.
 
 ⚠️ **À confirmer** : le nom du paramètre des pages de détail (`PAGE_RECORD_PARAM = "recordId"`, la
 convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son URL.

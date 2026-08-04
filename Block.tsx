@@ -32,8 +32,8 @@
                                   « Derniers dossiers » sans état lu / non lu
      B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. Les 8
                                   pages de l'espace sont renseignées ; il ne manque que
-                                  3 OUTILS EXTERNES (You Sign, Sellsy, Tik&Lib),
-                                  rendus en tuiles désactivées
+                                  2 OUTILS EXTERNES (You Sign, Sellsy), rendus en
+                                  tuiles désactivées
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
      D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
                                   CONFIRMER que Softr attend bien « recordId »
@@ -156,7 +156,11 @@ const TOOLS = {
      contrainte technique. */
   calculette: "https://sunlib-simulation-economique.vercel.app/",
   sellsy: "",
-  tikLib: "",
+  /* Tik&Lib — le ticketing (fourni le 2026-08-04). Ouvert dans un NOUVEL ONGLET, pas
+     embarqué : c'est déjà ce que fait toute entrée de `TOOLS` (`target="_blank"`), là
+     où une entrée de `PAGES` ouvre en `_top`. On ne navigue JAMAIS dans l'iframe du
+     bloc, qui ferait disparaître le CRM autour. */
+  tikLib: "https://ticketing2-six.vercel.app/",
   /* Apps Vercel PUBLIQUES embarquées en iframe dans les onglets (§7) : ce ne sont pas
      des liens mais des sources d'iframe — d'où leur place à part. */
   formulaireContact: "https://formulairedecontact.vercel.app/",
