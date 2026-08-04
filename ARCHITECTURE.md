@@ -506,9 +506,15 @@ de teinte purement décorative — assez désaturés pour ne jamais passer pour 
 
 - ⚠️ **Aucun rouge ni orange vif** : ce sont les couleurs d'**alerte**. Les proposer comme décor
   apprendrait à l'œil à les ignorer là où elles comptent.
-- La teinte habille **l'en-tête, pas le corps** : sur un fond coloré, une liste de statuts et de
-  badges devient un patchwork, et les couleurs de sens (ambre « à compléter », rouge « panne »)
-  perdent leur force.
+- La teinte habille **la carte entière** — fond, bordure assortie, encre du titre, pastille d'icône
+  et filets de séparation. Ce qu'elle ne touche pas, volontairement : les contenus **blancs** (tuiles
+  de la synthèse SAV, zone de saisie du pense-bête), qui ressortent alors comme des cartes posées
+  dessus, et les couleurs de **sens** (badges de statut, alertes), qui gardent leur force partout.
+- ⚠️ **Les fonds opaques posés dans le corps doivent suivre la teinte**, sinon ils coupent la carte
+  d'une bande morte. Deux cas traités : la zone de tuiles de `SavWidget`, et l'en-tête **collant** du
+  tableau de classement — celui-ci ne peut pas devenir transparent (les lignes défileraient en
+  transparence dessous), il prend donc la teinte. Tout nouveau fond opaque dans un corps de widget
+  doit lire `WidgetTintCtx`.
 - La pastille **`solar`** d'un outil solaire garde la priorité sur la teinte : c'est un marqueur de
   **sens**, pas une décoration.
 - Sélection marquée par un contour teal **et une coche** — jamais par la seule couleur ; chaque

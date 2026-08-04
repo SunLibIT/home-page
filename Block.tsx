@@ -2039,16 +2039,23 @@ function Widget({
      doit s'annoncer sous son nouveau nom. */
   const custom = useContext(WidgetTitleCtx).trim();
   const shown = custom || title;
-  /* TEINTE : elle habille l'en-tête et la pastille d'icône. Le titre passe à l'encre de
-     la teinte — un `T.ink` presque noir sur un pastel « fonctionne », mais l'ensemble a
-     l'air d'un accident plutôt que d'un choix. La pastille `solar` d'un outil solaire
-     garde la priorité : c'est un marqueur de SENS, pas une décoration. */
+  /* TEINTE : elle habille LA CARTE ENTIÈRE — fond, bordure assortie, encre du titre et
+     pastille d'icône. L'en-tête, lui, ne porte plus de fond propre : il garde son filet
+     de séparation, assombri à la teinte pour rester visible sur le pastel.
+     Ce que la teinte ne touche PAS, volontairement : les contenus blancs (tuiles de la
+     synthèse SAV, zone de saisie du pense-bête) qui ressortent alors comme des cartes
+     posées dessus, et les couleurs de SENS (badges de statut, alertes ambre ou rouges),
+     qui doivent garder leur force partout. La pastille `solar` d'un outil solaire
+     l'emporte aussi sur la teinte : c'est un marqueur, pas une décoration. */
   const tint = tintOf(useContext(WidgetTintCtx));
+  const cardStyle: CSSProperties = tint.head
+    ? { ...CARD, backgroundColor: tint.head, border: `1px solid ${tint.pill || T.line}` }
+    : CARD;
   const headStyle: CSSProperties = tint.head
-    ? { ...WHEAD, background: tint.head, borderBottomColor: "transparent" }
+    ? { ...WHEAD, borderBottom: `1px solid ${tint.pill || T.line}` }
     : WHEAD;
   return (
-    <Card style={CARD}>
+    <Card style={cardStyle}>
       {/* L'EN-TÊTE est la zone de préhension, dans les deux modes (cf. WidgetGrabCtx).
           `cursor: grab` suffit comme affordance : pas de `title` ici, il se
           déclencherait au survol du titre du widget. */}
@@ -2085,7 +2092,7 @@ function Widget({
       <div style={editing ? { pointerEvents: "none", userSelect: "none" } : undefined}>
         {children}
         {footer && (
-          <div style={{ display: "flex", justifyContent: "center", padding: "8px 16px", borderTop: `1px solid ${T.line}` }}>
+          <div style={{ display: "flex", justifyContent: "center", padding: "8px 16px", borderTop: `1px solid ${tint.head ? tint.pill || T.line : T.line}` }}>
             {footer}
           </div>
         )}
@@ -3535,17 +3542,19 @@ function TachesCard() {
    12 catégories complètes, les classements partenaires, les KPI du parc.
 
    ⚠️ LES SEUILS ET LES FORMULES SONT RECOPIÉS DU BLOC SAV (`useKpis`), pas
-   réinventés : mêmes statuts « clos », même seuil de priorité élevée (≥ 8), même
-   définition de l'ancienneté. Deux écrans qui comptent différemment le même chiffre
-   sont pires qu'un écran en moins. Si `useKpis` change là-bas, ces constantes
-   changent ici.
+   réinventés : mêmes statuts « clos », même définition de l'ancienneté. Deux écrans qui
+   comptent différemment le même chiffre sont pires qu'un écran en moins. Si `useKpis`
+   change là-bas, ces constantes changent ici.
 
-   DEUX ÉCARTS ASSUMÉS, tous deux parce que l'accueil parle d'ACTION :
-   · `prioHaute` est compté sur les dossiers OUVERTS (le bloc SAV le compte sur
-     tous) : un dossier clos en priorité 9 n'appelle plus rien.
-   · la qualité des données compte les DOSSIERS à corriger, là où le bloc SAV
-     compte les anomalies — un dossier peut en porter trois. D'où le libellé
-     « dossiers », pour que l'écart se lise au lieu de surprendre.
+   ÉCART ASSUMÉ, parce que l'accueil parle d'ACTION : la qualité des données compte les
+   DOSSIERS à corriger, là où le bloc SAV compte les anomalies — un dossier peut en
+   porter trois. D'où le libellé « dossiers », pour que l'écart se lise au lieu de
+   surprendre.
+
+   NB : l'alerte « priorité élevée » a été retirée du registre le 2026-08-04. Le calcul
+   `prioHaute` reste ci-dessous, sur les dossiers OUVERTS (un dossier clos en priorité 9
+   n'appelle plus rien) : il ne coûte rien, et il est prêt si la métrique revient. Le
+   preset de galerie « Dossiers SAV prioritaires », lui, filtre toujours sur la priorité.
    ============================================================================ */
 
 /* Les 12 catégories d'intervention, dans l'ordre FIGÉ du classeur partenaire.
@@ -3714,8 +3723,12 @@ const SAV_METRICS: SavMetric[] = [
   { key: "ouverts", label: "Dossiers ouverts", kind: "hero", icon: Ticket,
     value: (k) => `${k.ouverts}`,
     sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} suivi${k.dossiers > 1 ? "s" : ""}` },
-  { key: "prioHaute", label: "Alerte — priorité élevée", kind: "alert",
-    count: (k) => k.prioHaute, text: (n) => `${n} en priorité élevée` },
+  /* ⚠️ Plus d'alerte « priorité élevée » — RETIRÉE du registre le 2026-08-04, sur
+     demande. Elle ne peut donc plus être cochée, et `coerceSavCfg` écarte sa clé des
+     `cfg.show` déjà enregistrées : elle disparaît aussi des widgets qui l'affichaient.
+     La remettre = ré-ajouter cette entrée ici (le seuil vit dans le bloc SAV,
+     `priority()`, p >= 8) ; les utilisateurs qui l'avaient cochée la retrouveraient,
+     puisque le stockage n'a jamais été « réparé ». */
   { key: "vieux", label: `Alerte — ouverts > ${SAV_VIEUX_J} j`, kind: "alert",
     count: (k) => k.vieux, text: (n) => `${n} ouvert${n > 1 ? "s" : ""} > ${SAV_VIEUX_J} j`, icon: Clock },
   { key: "dossiers", label: "Dossiers au total", kind: "stat", icon: ClipboardList,
@@ -3769,7 +3782,7 @@ const SAV_METRICS: SavMetric[] = [
    ⚠️ Les deux métriques de qualité n'y sont PAS : elles s'ajoutent d'un clic, mais
    les ajouter d'office changerait ce que voient les utilisateurs qui ont déjà réglé
    leur widget. */
-const SAV_SHOW_DEFAULT = ["ouverts", "prioHaute", "vieux", "taux", "ancienneteMoy", "interventions", "coutTiers", "causes", "qualite"];
+const SAV_SHOW_DEFAULT = ["ouverts", "vieux", "taux", "ancienneteMoy", "interventions", "coutTiers", "causes", "qualite"];
 
 /** `layout` : deux présentations des MÊMES valeurs. Les LIGNES sont denses, lisibles
  *  dans une colonne étroite ; les TUILES reprennent la lecture d'un coup d'œil du
@@ -3843,6 +3856,10 @@ function SavOptions({ cfg, onChange }: { cfg: SavCfg; onChange: (next: SavCfg) =
    ni le catalogue. Le rendu est PILOTÉ PAR LA CFG — plus une section en dur. */
 function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
   const k = savKpis(api.rows);
+  /* Fond de la zone de tuiles : gris quand la carte est blanche, TEINTE quand elle est
+     colorée. Poser le gris par-dessus un pastel y ferait une bande morte au milieu de
+     la carte ; les tuiles, elles, restent blanches et ressortent des deux façons. */
+  const zone = tintOf(useContext(WidgetTintCtx)).head || T.surface2;
   const on = new Set(cfg.show);
   const picked = (kind: SavMetric["kind"]) => SAV_METRICS.filter((m) => m.kind === kind && on.has(m.key));
   const hero = picked("hero");
@@ -3923,7 +3940,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
             /* FOND GRIS derrière la grille, comme sur le tableau de bord SAV : sans lui,
                des cartes blanches posées sur le blanc de la carte du widget ne se
                détacheraient que par leur ombre — c'est ce contraste qui les fait exister. */
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px", background: T.surface2 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(182px, 1fr))", gap: "14px", padding: "14px 16px 16px", background: zone }}>
               {stats.map((m) => {
                 const part = m.bar?.(k);
                 const detail = m.sub?.(k);
@@ -4491,7 +4508,11 @@ function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: Classemen
   const tries = [...stats].sort((a, b) => (a[cfg.tri] - b[cfg.tri]) * signe);
   const maxCapex = Math.max(1, ...stats.map((c) => c.capex));
 
-  const TH: CSSProperties = { position: "sticky", top: 0, zIndex: 1, background: T.surface2, padding: "9px 10px", textAlign: "left", fontSize: "10.5px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}` };
+  /* ⚠️ L'en-tête collant DOIT avoir un fond OPAQUE, sinon les lignes défilent en
+     transparence dessous. D'où la teinte de la carte plutôt que `transparent` quand une
+     couleur est choisie — un gris posé sur un pastel couperait la carte en deux. */
+  const zone = tintOf(useContext(WidgetTintCtx)).head || T.surface2;
+  const TH: CSSProperties = { position: "sticky", top: 0, zIndex: 1, background: zone, padding: "9px 10px", textAlign: "left", fontSize: "10.5px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".05em", whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}` };
   const THN: CSSProperties = { ...TH, textAlign: "right" };
   const TD: CSSProperties = { padding: "10px", borderBottom: `1px solid ${T.line}`, fontSize: "12.5px", fontWeight: 500, color: T.ink2, verticalAlign: "middle" };
   const TDN: CSSProperties = { ...TD, textAlign: "right", fontVariantNumeric: "tabular-nums" };
