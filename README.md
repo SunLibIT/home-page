@@ -142,13 +142,25 @@ portent que des références. **Une adresse qui change se change là, une fois.*
 Ce sont des **slugs**, pas des URLs : `pageUrl()` y ajoute l'origine de la page **parente**, lue à
 l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en production**.
 
-| Renseignées ✅ | Encore vides ⏳ |
-| --- | --- |
-| `abonne` → `abonn-s-details-3` · `installateur` → `installateurs-details` · `sav` → `sav` · `kpi` → `dashboard-kpi` | `prospects` · `partenaires` · `contactPartenaire` · `abonnes` (liste) · les 4 outils externes (You Sign, Calculette, Sellsy, Tik&Lib) |
+**Les 8 pages de l'espace sont renseignées** (2026-08-04) :
 
-Une entrée vide est un **choix explicite** : la tuile s'affiche **désactivée** (mention « bientôt »)
-au lieu de promettre un clic qui ne mène nulle part. Renseigner le slug l'active, sans autre
-changement.
+| Clé (métier) | Slug de l'espace | |
+| --- | --- | --- |
+| `abonne` | `abonn-s-details-3` | fiche d'un abonné (attend un `recordId`) |
+| `installateur` | `installateurs-details` | fiche d'un installateur (déclarée, pas encore utilisée) |
+| `abonnes` | `abonn-s` | liste des abonnés |
+| `partenaires` | `clients-list` | ⚠️ le slug ne suit pas le vocabulaire du CRM |
+| `prospects` | `tous-les-prospects` | ⚠️ idem |
+| `contactPartenaire` | `contact-partenaire` | |
+| `sav` | `sav` | Pilotage SAV |
+| `kpi` | `dashboard-kpi` | Tableau de bord KPI |
+
+C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.partenaires`) là où
+l'espace garde ses adresses historiques (`/clients-list`).
+
+**Restent vides : les 4 outils externes** (You Sign, Calculette, Sellsy, Tik&Lib). Une entrée vide
+est un **choix explicite** : la tuile s'affiche **désactivée** (mention « bientôt ») au lieu de
+promettre un clic qui ne mène nulle part. Renseigner l'URL l'active, sans autre changement.
 
 ⚠️ **À confirmer** : le nom du paramètre des pages de détail (`PAGE_RECORD_PARAM = "recordId"`, la
 convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son URL.

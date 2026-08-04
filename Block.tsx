@@ -30,10 +30,10 @@
      A) datasource.define        → §6 : 6 des 7 sources connectées ; il manque
                                   `notifC` (Notification Center), d'où un widget
                                   « Derniers dossiers » sans état lu / non lu
-     B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. 4 pages
-                                  de l'espace sont connues (abonné, installateur, SAV,
-                                  KPI) ; les 4 autres et les 4 outils externes sont
-                                  vides, donc rendus en tuiles désactivées
+     B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. Les 8
+                                  pages de l'espace sont renseignées ; il ne manque que
+                                  les 4 OUTILS EXTERNES (You Sign, Calculette, Sellsy,
+                                  Tik&Lib), rendus en tuiles désactivées
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
      D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
                                   CONFIRMER que Softr attend bien « recordId »
@@ -132,13 +132,14 @@ const PAGES = {
   sav: "sav",                            // Pilotage SAV
   kpi: "dashboard-kpi",                  // Tableau de bord KPI
 
-  /* ⏳ PAS ENCORE FOURNIES. Les laisser vides est délibéré : la tuile
-     correspondante s'affiche alors désactivée, au lieu de promettre un clic qui ne
-     mène nulle part. Renseigner le slug suffit à l'activer. */
-  prospects: "",
-  partenaires: "",
-  contactPartenaire: "",
-  abonnes: "",                           // LISTE des abonnés (≠ `abonne`, qui est la fiche)
+  /* LISTES (fournies le 2026-08-04). ⚠️ Les noms de slug ne suivent pas le
+     vocabulaire du CRM : « partenaires » vit sur /clients-list et « prospects » sur
+     /tous-les-prospects. C'est la raison d'être de ce registre — le code parle métier
+     (`PAGES.partenaires`), l'espace Softr garde ses adresses historiques. */
+  abonnes: "abonn-s",                    // LISTE des abonnés (≠ `abonne`, qui est la fiche)
+  partenaires: "clients-list",
+  prospects: "tous-les-prospects",
+  contactPartenaire: "contact-partenaire",
 } as const;
 
 /** Nom du paramètre d'URL qui porte l'enregistrement ciblé sur une page de détail.
