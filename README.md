@@ -60,8 +60,22 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **Journal des tâches** — onglets denses Prospects | Partenaires (pastilles compteur), badge
      d'échéance par seuil (vert > 14 j, ambre 3–14 j, rouge < 3 j), case **« Fait » qui écrit en base**.
    - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques).
-   - **Pilotage SAV — synthèse**, **embeds Elfsight** (à la une, annonces),
-     et les **utilitaires sans source** : Heure, Pense-bête, Liste à cocher.
+   - **Pilotage SAV — synthèse** — les valeurs cochées dans son ⋮, en **tuiles** (grande valeur,
+     détail dessous, barre pour les proportions) ou en **lignes** denses.
+   - **Podium CAPEX HT** — les trois premiers commerciaux, marches 2·1·3, période réglable
+     (mois / année / tout).
+   - **Classement des commerciaux** — le tableau du bloc KPI : rang, avatar et abonnement moyen,
+     CAPEX HT avec barre, tendance, signés, annulés, taux de pose, délai de signature, courbe sur
+     12 mois, installateurs. **Les en-têtes trient d'un clic**, et le tri est persisté.
+     À poser en **pleine largeur** : dix colonnes ne tiennent pas dans une demi-colonne.
+   - **Embeds Elfsight** (à la une, annonces) et les **utilitaires sans source** : Heure,
+     Pense-bête, Liste à cocher.
+
+   ⚠️ Les deux widgets de **Performance** sont les seuls à **agréger sur tout le parc** (≈1 771
+   dossiers) : ils lisent donc leur source **page par page**, contrairement aux autres widgets qui
+   montrent « les N plus récents ». Posés, ils coûtent cette lecture ; absents de la grille, ils ne
+   coûtent **rien** — seules les instances affichées montent leur adapter. Si la lecture ne va pas
+   au bout, ils affichent **« Calcul partiel »** plutôt qu'un classement faux.
 
    Chaque widget se règle par son ⋮, et **tous sont renommables** (champ « Titre du widget » en tête
    du panneau ; vider le champ rend le titre d'origine). « Personnaliser » ouvre la galerie
@@ -70,8 +84,8 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 
 ## 4. Branchement Airtable — état au 2026-08-04
 
-**`USE_MOCK = false` : le bloc lit Airtable en direct.** 6 des 7 sources du catalogue sont
-connectées ; il reste `notifC` et les URLs des outils.
+**`USE_MOCK = false` : le bloc lit Airtable en direct.** 7 des 8 sources du catalogue sont
+connectées ; il ne reste que `notifC`.
 
 ### A — Datasources & champs (`Block.tsx` §6) ✅
 `datasource.define` unique, IDs en **littéraux**. Les noms de champs ont été **revérifiés
@@ -85,10 +99,19 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | `tachesPa` | « Taches » (Bdd Installateurs)                 | ✅ `7198b954-…` | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` |
 | `tachesPr` | « Taches prospect »                            | ✅ `9414183e-…` | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
 | `sav`      | « Tickets » (SAV) — *lecture seule*            | ✅ `3f5f8f6c-…` | 22 alias : ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût |
+| `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` |
 | `notifC`   | « Notification Center » (BDD Abonné)           | ⏳ **à fournir** | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
 
 > ⚠️ **Les datasources `Installateurs` et `Propects` (tables principales) ne sont utilisées par
 > AUCUN widget** : les notes/tâches vivent dans les tables enfants ci-dessus.
+> ⚠️ **`abonnes` et `comKpi` sont DEUX lectures de la même table**, sur la même datasource : une
+> source du catalogue n'est pas une datasource. `abonnes` lit large sur les 12 derniers dossiers,
+> `comKpi` lit 10 champs sur **tout le parc** pour le podium et le classement. Les fusionner ferait
+> payer au widget « Derniers dossiers » le prix d'un parc entier, ou aux deux autres l'inexactitude
+> d'un échantillon.
+> ⚠️ **Deux lookups d'installateur cohabitent dans « Abonnés »**, et les confondre casse la lecture :
+> `Nom de l'entreprise (from Installateur )` **avec** espace avant la parenthèse (`abonnes`) et
+> `Nom de l'entreprise (from Installateur)` **sans** espace (`comKpi`).
 > ⚠️ **Un id de datasource appartient à UNE connexion d'UN bloc**, pas à une table : « Notification
 > Center » est déjà lue par deux blocs de page, il faut néanmoins la connecter à **celui-ci**
 > (onglet *Sources*), puis relever son id (onglet *Chat*).
@@ -108,10 +131,16 @@ Détails du choix :
 - **Pas de création de note ni de tâche depuis l'accueil** : le rattachement passe par un champ
   **lien** Airtable, qui attend un record id et non un nom — une ligne créée d'ici n'apparaîtrait
   sur la fiche de personne.
+- **Performance commerciale** (podium + classement) : critères **recopiés** de l'onglet Commercial
+  du bloc `dashboard-KPI`, pour que les deux écrans donnent le **même** classement — portefeuille =
+  contrat signé **joint** (une pièce jointe, pas un statut), annulés exclus des contrats et du
+  CAPEX, « Non assigné » exclu du classement (ce n'est pas une personne, il finirait premier).
+  ⚠️ La colonne **« Installs. » compte des installateurs distincts, pas des installations** : le
+  libellé vient du bloc KPI et il est trompeur.
 
-### B — URLs (`Block.tsx` §7)
-- `NAV_TABS[].href` : pages de l'espace (gardent `target="_top"`).
-- `QUICK_LINKS[].href` : outils. Ajouter `target="_blank" rel="noopener"` (outil externe) ou `target="_top"` (page de l'espace) selon la cible.
+### B — URLs (`Block.tsx` §0-bis) ✅
+Tout est dans le registre `PAGES` / `TOOLS` — voir la section **E** ci-dessous. Aucune URL n'est
+écrite ailleurs, et une adresse qui change se change là, une fois.
 
 ### C — Embed LinkedIn ✅ intégré
 Widget **Elfsight** (bannière SunLib) `elfsight-app-488a28ed-…` intégré tel quel dans
@@ -186,6 +215,10 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
 ### F — Reste à faire
 - **Vérifier à l'écran**, sur la page publiée et connecté, ce qui ne se manifeste qu'à la souris
   et en session : cocher « Fait », glisser un widget par son en-tête, régler une poignée.
+- **Vérifier la pagination des deux widgets de Performance** : ils lisent le parc page par page, et
+  l'aperçu local ne peut pas le révéler (le mock rend tout d'un coup). Si « Calcul partiel »
+  s'affiche alors que le parc fait moins de 4 000 dossiers, la taille de page est plus petite que
+  prévu et il faut relever `COM_MAX_PAGES`.
 
 ## 5. Règles Softr respectées
 
