@@ -685,9 +685,38 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
   widget supprimé) + les presets déclarés par chaque source du catalogue (à défaut, un modèle liste
   sur son `defaultMap`). Brancher une source la fait apparaître dans la galerie sans une ligne de
   code de plus.
-- **`GALLERY_GROUPS` / `SOURCE_GROUP` / `PRESET_GROUPS`** — la galerie est un **dépliant par
-  famille métier** (Abonnés, Tâches, Notes, Dossiers SAV, Communication, **Utilitaires**, Autres),
-  un seul groupe ouvert à la fois. Le regroupement suit le **domaine**, pas le mécanisme : la synthèse SAV
+- **`GALLERY_GROUPS` / `SOURCE_GROUP` / `PRESET_GROUPS`** — les familles métier (Abonnés, Tâches,
+  Notes, Dossiers SAV, Communication, Performance, Utilitaires, Autres), servies en **pastilles de
+  filtre** dans la galerie.
+
+### La galerie — feuille modale, recherche, miniatures (2026-08-04)
+
+Le dépliant par famille a été remplacé. Ce qui n'allait pas : la galerie n'existait **qu'en mode
+Personnaliser** (il fallait entrer dans un mode pour ajouter une carte), il fallait **deviner** dans
+quel dépliant chercher, et un libellé plus une icône ne disent pas **à quoi ressemblera** le widget.
+
+- **Feuille modale** (`WidgetGallery`) : voile + `backdropFilter: blur`, panneau centré à coins
+  arrondis, en-tête fixe (recherche + pastilles de familles), corps qui défile.
+  ⚠️ `position: fixed` **dans une iframe** se réfère au viewport de l'**iframe** : la feuille couvre
+  le bloc, jamais l'app autour — c'est voulu, et c'est déjà le cas du toast. D'où `maxHeight: 86%`
+  et un corps défilant, pour qu'aucune carte ne finisse hors de portée si le bloc est très haut.
+- **Recherche** sur le libellé **et** la description, insensible aux accents (« a signer » trouve
+  « À signer ») : personne ne tape les accents dans un champ de recherche. Le nombre de résultats est
+  affiché — sans lui, une recherche vide ressemble à un écran cassé.
+- **Miniatures dessinées** (`PresetShape`, 9 archétypes) et **non le widget réel en réduction** :
+  un vrai widget est illisible sous 120 px, et surtout **il monterait sa source** — ouvrir la galerie
+  déclencherait toutes les lectures du bloc, dont le parc entier pour la Performance. Une galerie ne
+  doit rien coûter. Pour les presets `data`, l'archétype se **déduit de `view.kind`** : un preset qui
+  passe en tableau change de miniature tout seul.
+- **Descriptions** : écrites à la main pour les types sur-mesure (`CUSTOM_TYPES.desc`), **générées**
+  pour les presets de source (« Tableau sur « Dossiers SAV » … ») — un texte par preset serait à
+  écrire à chaque source branchée, donc oublié une fois sur deux.
+- **Accessible dans les deux modes**, depuis un bouton « Ajouter un widget » de la barre. Hors mode
+  l'ajout est **écrit immédiatement** (silencieux si tout va bien) ; en mode Personnaliser il va dans
+  le brouillon. Entrer ou sortir du mode **ferme la feuille** : le même bouton alimenterait sinon
+  deux régimes différents, ce qui finirait par perdre un widget.
+- La feuille **reste ouverte** après un ajout (on en pose souvent deux ou trois), et la carte passe à
+  « Ajouté » — la règle « un exemplaire par modèle » reste celle d'`addInstance`. Le regroupement suit le **domaine**, pas le mécanisme : la synthèse SAV
   (sur-mesure) et les vues `data` sur les tickets sont dans le même groupe. Une source absente de
   `SOURCE_GROUP` tombe dans « Autres » plutôt que de disparaître — c'est ce repli qui préserve la
   promesse « brancher une source suffit ». L'ordre de `GALLERY_GROUPS` est l'ordre d'affichage.

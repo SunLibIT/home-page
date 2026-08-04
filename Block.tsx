@@ -5454,7 +5454,101 @@ const DEFAULT_INSTANCES: Instance[] = [
    Brancher une source la fait donc apparaître ici sans une ligne de code de plus.
    La cfg d'un preset est COPIÉE dans l'instance à la pose : l'instance est
    autoportante et ne bougera plus si le preset évolue. --- */
-type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetSize; group: string };
+type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetSize; group: string; shape: ShapeKind; desc: string };
+
+/* ── MINIATURES DE LA GALERIE ─────────────────────────────────────────────────
+   Une maquette DESSINÉE par archétype de rendu, et non le widget réel en réduction.
+   Deux raisons, la seconde étant décisive :
+     · un vrai widget en miniature reste illisible sous 120 px de haut ;
+     · surtout, il MONTERAIT SA SOURCE. Ouvrir la galerie déclencherait alors toutes
+       les lectures du bloc à la fois — dont le parc entier pour les widgets de
+       Performance. Une galerie ne doit rien coûter.
+   Les maquettes sont donc de simples `div` : zéro requête, zéro dépendance, et elles
+   disent ce qui compte — la FORME du widget qu'on s'apprête à poser. --- */
+type ShapeKind = "list" | "table" | "kpi" | "tiles" | "podium" | "text" | "check" | "clock" | "embed";
+
+function PresetShape({ kind }: { kind: ShapeKind }) {
+  const bar = (w: string, c = T.line2): CSSProperties => ({ height: 6, width: w, borderRadius: 3, background: c });
+  const box: CSSProperties = { height: 74, borderRadius: T.rSm, background: T.surface, border: `1px solid ${T.line}`, padding: "9px 10px", display: "flex", flexDirection: "column", gap: "7px", overflow: "hidden" };
+  const rowOf = (i: number) => (
+    <div key={i} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+      <span style={{ width: 12, height: 12, borderRadius: 4, background: T.brand100, flex: "none" }} />
+      <span style={bar(`${64 - i * 12}%`)} />
+      <span style={{ ...bar("14px", T.brand100), marginLeft: "auto" }} />
+    </div>
+  );
+  switch (kind) {
+    case "table":
+      return (
+        <div style={box}>
+          <div style={{ display: "flex", gap: "5px" }}>
+            {[26, 20, 14, 18].map((w, i) => <span key={i} style={bar(`${w}%`, T.line)} />)}
+          </div>
+          {[0, 1, 2].map((i) => (
+            <div key={i} style={{ display: "flex", gap: "5px" }}>
+              {[26, 20, 14, 18].map((w, j) => <span key={j} style={bar(`${w}%`, j === 0 ? T.line2 : T.line)} />)}
+            </div>
+          ))}
+        </div>
+      );
+    case "kpi":
+      return (
+        <div style={{ ...box, justifyContent: "center", gap: "9px" }}>
+          <span style={{ width: 54, height: 20, borderRadius: 5, background: T.brand100 }} />
+          <span style={bar("46%")} />
+        </div>
+      );
+    case "tiles":
+      return (
+        <div style={{ ...box, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <span key={i} style={{ borderRadius: 5, background: i < 3 ? T.brand050 : T.neutral050, border: `1px solid ${T.line}` }} />
+          ))}
+        </div>
+      );
+    case "podium":
+      return (
+        <div style={{ ...box, flexDirection: "row", alignItems: "flex-end", justifyContent: "center", gap: "7px" }}>
+          {[22, 38, 15].map((h, i) => (
+            <span key={i} style={{ width: 16, height: h, borderRadius: "4px 4px 0 0", background: i === 1 ? T.solar050 : T.neutral050, border: `1px solid ${i === 1 ? T.solar100 : T.line2}` }} />
+          ))}
+        </div>
+      );
+    case "text":
+      return (
+        <div style={box}>
+          {["78%", "92%", "60%", "84%"].map((w, i) => <span key={i} style={bar(w, i === 0 ? T.line2 : T.line)} />)}
+        </div>
+      );
+    case "check":
+      return (
+        <div style={box}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+              <span style={{ width: 11, height: 11, borderRadius: 3, border: `1px solid ${T.line2}`, background: i === 0 ? T.brand100 : T.surface, flex: "none" }} />
+              <span style={bar(`${70 - i * 14}%`)} />
+            </div>
+          ))}
+        </div>
+      );
+    case "clock":
+      return (
+        <div style={{ ...box, alignItems: "center", justifyContent: "center" }}>
+          <span style={{ width: 34, height: 34, borderRadius: 999, border: `2px solid ${T.line2}`, display: "grid", placeItems: "center" }}>
+            <span style={{ width: 2, height: 12, background: T.ink4, borderRadius: 2, transform: "translateY(-2px)" }} />
+          </span>
+        </div>
+      );
+    case "embed":
+      return (
+        <div style={{ ...box, alignItems: "center", justifyContent: "center", background: T.surface2 }}>
+          <span style={{ width: "72%", height: 30, borderRadius: 5, background: T.surface, border: `1px dashed ${T.line2}` }} />
+        </div>
+      );
+    default:
+      return <div style={box}>{[0, 1, 2].map(rowOf)}</div>;
+  }
+}
 
 /* ── GROUPES DE LA GALERIE ────────────────────────────────────────────────────
    La galerie était une liste PLATE : dix-huit boutons alignés, où « Dossiers SAV
@@ -5494,24 +5588,24 @@ const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
 
 /* Types sur-mesure proposés dans la galerie, avec leur hauteur de départ (une barre
    d'annonces n'a pas besoin d'un widget de 340 px) et leur groupe de galerie. */
-const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string }[] = [
-  { type: "notifs", group: "abonnes" },
-  { type: "taches", group: "taches" },
-  { type: "linkedin", group: "comm" },
-  { type: "linkedinBanner", h: "sm", group: "comm" },
-  { type: "annonces", h: "sm", group: "comm" },
+const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string; shape: ShapeKind; desc: string }[] = [
+  { type: "notifs", group: "abonnes", shape: "list", desc: "Les derniers dossiers créés, avec leur statut et un accès à la fiche." },
+  { type: "taches", group: "taches", shape: "list", desc: "Vos tâches prospects et partenaires, avec leur échéance et la case « Fait »." },
+  { type: "linkedin", group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
+  { type: "linkedinBanner", h: "sm", group: "comm", shape: "embed", desc: "La bannière « À la une » : webinaires et annonces." },
+  { type: "annonces", h: "sm", group: "comm", shape: "embed", desc: "La barre d'annonces internes." },
   // Posé en "lg" : la synthèse SAV a quatre sections, elle scrolle en "md".
-  { type: "sav", h: "lg", group: "sav" },
+  { type: "sav", h: "lg", group: "sav", shape: "tiles", desc: "Les chiffres clés du SAV, en tuiles ou en lignes, à choisir." },
   // Le podium a besoin de hauteur : avatars, montants et marches s'empilent.
-  { type: "podium", h: "lg", group: "perf" },
+  { type: "podium", h: "lg", group: "perf", shape: "podium", desc: "Les trois premiers commerciaux par CAPEX signé." },
   // Le classement est un TABLEAU de dix colonnes : à poser en pleine largeur et haut.
-  { type: "classementCom", h: "lg", group: "perf" },
+  { type: "classementCom", h: "lg", group: "perf", shape: "table", desc: "Le tableau complet : CAPEX, tendance, taux de pose, délai, courbe sur 12 mois." },
   // Une rangée de tuiles : basse, mais large — cinq tuiles ne tiennent pas en demi-largeur.
-  { type: "comIndics", h: "sm", group: "perf" },
+  { type: "comIndics", h: "sm", group: "perf", shape: "tiles", desc: "Contrats, CAPEX, installateurs actifs et pipeline à signer." },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
-  { type: "horloge", h: "sm", group: "outils" },
-  { type: "memo", group: "outils" },
-  { type: "checklist", group: "outils" },
+  { type: "horloge", h: "sm", group: "outils", shape: "clock", desc: "L'heure et la date du jour. Ne lit aucune donnée." },
+  { type: "memo", group: "outils", shape: "text", desc: "Un pense-bête personnel, avec gras, italique et puces." },
+  { type: "checklist", group: "outils", shape: "check", desc: "Une liste à cocher, visible de vous seul." },
 ];
 
 /** Presets d'une source : ceux du descripteur, ou un modèle liste par défaut. */
@@ -5522,21 +5616,33 @@ function presetsOf(s: SourceKey): Preset[] {
   const declared = desc.presets ?? [];
   const list: PresetDesc[] = declared.length ? declared
     : [{ label: `Liste — ${desc.label}`, cfg: { source: s } }];
-  return list.map((p, i) => ({
-    key: `${s}:${i}`,
-    label: p.label,
-    hint,
-    icon: iconOf(p.icon ?? desc.icon),
-    type: "data" as WidgetTypeKey,
-    // `coerceCfg` complète le preset avec les défauts du descripteur (mappage, tri).
-    cfg: () => coerceCfg({ ...p.cfg, source: s }, cfgOfSource(s)),
-    h: p.h,
-    group: groupOfSource(s),
-  }));
+  return list.map((p, i) => {
+    /* La FORME se déduit de la vue déclarée par le preset : aucun archétype à saisir à
+       la main, et un preset qui passe en tableau change de miniature tout seul. */
+    const vue = (p.cfg as { view?: { kind?: string } }).view?.kind;
+    const shape: ShapeKind = vue === "table" ? "table" : vue === "kpi" ? "kpi" : "list";
+    const quoi = vue === "table" ? "Tableau" : vue === "kpi" ? "Indicateur" : "Liste";
+    return {
+      key: `${s}:${i}`,
+      label: p.label,
+      hint,
+      icon: iconOf(p.icon ?? desc.icon),
+      type: "data" as WidgetTypeKey,
+      // `coerceCfg` complète le preset avec les défauts du descripteur (mappage, tri).
+      cfg: () => coerceCfg({ ...p.cfg, source: s }, cfgOfSource(s)),
+      h: p.h,
+      group: groupOfSource(s),
+      shape,
+      /* Description GÉNÉRÉE : « Tableau — Dossiers SAV ». Un texte par preset serait à
+         écrire pour chaque source branchée, donc oublié une fois sur deux ; celle-ci dit
+         déjà l'essentiel (quelle forme, quelle table) et reste juste automatiquement. */
+      desc: `${quoi} sur « ${desc.label} ». Filtres, tri et champs réglables ensuite.`,
+    };
+  });
 }
 
 const PRESETS: Preset[] = [
-  ...CUSTOM_TYPES.map(({ type: t, h, group }) => ({
+  ...CUSTOM_TYPES.map(({ type: t, h, group, shape, desc }) => ({
     key: t,
     label: WIDGET_REGISTRY[t].title,
     icon: WIDGET_REGISTRY[t].icon,
@@ -5544,6 +5650,8 @@ const PRESETS: Preset[] = [
     cfg: () => ({}),
     h,
     group,
+    shape,
+    desc,
   })),
   ...(Object.keys(CATALOG) as SourceKey[]).flatMap(presetsOf),
 ];
@@ -5561,6 +5669,160 @@ const PRESET_GROUPS = GALLERY_GROUPS
     items: PRESETS.filter((p) => (GROUP_KEYS.has(p.group) ? p.group : "autres") === g.key),
   }))
   .filter((g) => g.items.length > 0);
+
+/* ============================================================================
+   LA GALERIE — feuille modale, recherche, miniatures
+   ----------------------------------------------------------------------------
+   Elle remplace le dépliant par famille (2026-08-04). Ce qui n'allait pas, et que
+   chaque point ci-dessous corrige :
+     · elle n'existait qu'en mode Personnaliser — il fallait entrer dans un mode pour
+       ajouter une carte ;
+     · il fallait DEVINER dans quel dépliant chercher, sans recherche ;
+     · un libellé et une icône ne disent pas à quoi ressemblera le widget.
+
+   ⚠️ `position: fixed` DANS UNE IFRAME se réfère au viewport de l'iframe, pas à celui
+   de la page Softr : la feuille couvre donc le bloc, jamais l'app autour. C'est le
+   comportement voulu, et c'est déjà celui du toast (§11). En revanche, si le bloc est
+   plus haut que la fenêtre, le centrage se fait sur le bloc — d'où `maxHeight: 86%` et
+   un corps qui défile, pour qu'aucune carte ne finisse hors de portée.
+   ============================================================================ */
+function WidgetGallery({ posed, onAdd, onClose }: {
+  posed: Set<string>;
+  onAdd: (p: Preset) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [groupe, setGroupe] = useState("");     // "" = tous
+  const champRef = useRef<HTMLInputElement | null>(null);
+
+  /* Le champ prend le focus à l'ouverture : la galerie s'utilise au clavier, on tape
+     trois lettres et on valide. Échap ferme — c'est le réflexe attendu d'une feuille. */
+  useEffect(() => {
+    champRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  /* Recherche sur le libellé ET la description : « pipeline » doit trouver les
+     indicateurs commerciaux, même si le mot n'est pas dans leur titre. Insensible aux
+     accents — personne ne tape « à signer » avec l'accent dans un champ de recherche. */
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const terme = norm(q.trim());
+  const visibles = PRESETS.filter((p) => {
+    if (groupe && (GROUP_KEYS.has(p.group) ? p.group : "autres") !== groupe) return false;
+    if (!terme) return true;
+    return norm(`${p.label} ${p.desc}`).includes(terme);
+  });
+
+  /* Les pastilles ne listent que les groupes RÉELLEMENT peuplés : un onglet vide serait
+     un cul-de-sac. Le compte de résultats est affiché — sans lui, une recherche sans
+     réponse ressemble à un écran cassé. */
+  const pills = [{ key: "", label: "Tous" }, ...PRESET_GROUPS.map((g) => ({ key: g.key, label: g.label }))];
+  const pill = (actif: boolean): CSSProperties => ({
+    padding: "6px 13px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
+    fontSize: "12.5px", fontWeight: 600, whiteSpace: "nowrap",
+    border: `1px solid ${actif ? T.brand : T.line}`,
+    background: actif ? T.brand : T.surface,
+    color: actif ? "#fff" : T.ink2,
+  });
+
+  return (
+    <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "20px",
+        // Voile + flou : la grille reste devinée derrière, ce qui situe la feuille au
+        // lieu de la faire surgir de nulle part.
+        background: "rgba(16,26,40,.30)", backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)",
+        animation: "slb-fade .16s ease both",
+      }}>
+      <div role="dialog" aria-modal="true" aria-label="Ajouter un widget"
+        style={{
+          width: "min(880px, 100%)", maxHeight: "86%", display: "flex", flexDirection: "column",
+          background: T.surface, borderRadius: T.rXl, boxShadow: T.shMd, border: `1px solid ${T.line}`,
+          overflow: "hidden", animation: "slb-fade .18s ease both",
+        }}>
+        {/* En-tête : titre, fermeture, recherche, familles. Il ne défile pas. */}
+        <div style={{ padding: "16px 18px 12px", borderBottom: `1px solid ${T.line}`, flex: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={icoPillSm(false)}><Plus aria-hidden style={{ width: 15, height: 15 }} /></span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: "15px", fontWeight: 700, color: T.ink }}>Ajouter un widget</div>
+              <div style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+                {visibles.length} modèle{visibles.length > 1 ? "s" : ""} disponible{visibles.length > 1 ? "s" : ""}
+              </div>
+            </div>
+            <button className="slb-nbtn" style={NBTN_SM} onClick={onClose} aria-label="Fermer la galerie" title="Fermer">
+              <X aria-hidden style={{ width: 16, height: 16 }} />
+            </button>
+          </div>
+
+          <div style={{ position: "relative", marginTop: "12px" }}>
+            <SlidersHorizontal aria-hidden style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", width: 15, height: 15, color: T.ink4 }} />
+            <input ref={champRef} value={q} onChange={(e) => setQ(e.target.value)}
+              placeholder="Rechercher un widget…" aria-label="Rechercher un widget"
+              style={{ width: "100%", boxSizing: "border-box", padding: "9px 12px 9px 34px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2, color: T.ink, fontFamily: "inherit", fontSize: "13px", fontWeight: 500 }} />
+          </div>
+
+          <div style={{ display: "flex", gap: "6px", marginTop: "10px", overflowX: "auto", paddingBottom: "2px" }}>
+            {pills.map((p) => (
+              <button key={p.key || "tous"} style={pill(groupe === p.key)} onClick={() => setGroupe(p.key)}
+                aria-pressed={groupe === p.key}>{p.label}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Corps : la grille de cartes, seule zone qui défile. */}
+        <div className="slb-scrolly" style={{ overflowY: "auto", padding: "16px 18px 20px", background: T.surface2 }}>
+          {!visibles.length ? (
+            <EmptyState icon={LayoutGrid} title="Aucun widget ne correspond"
+              hint={terme ? `Rien pour « ${q.trim()} ». Essayez un autre mot, ou changez de famille.` : "Cette famille est vide."} />
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(214px, 1fr))", gap: "14px" }}>
+              {visibles.map((p) => {
+                /* Modèle déjà posé : la carte reste VISIBLE et lisible, simplement inerte
+                   et marquée « Ajouté ». La masquer ferait croire qu'il n'existe plus. */
+                const deja = posed.has(p.key);
+                const Icon = p.icon;
+                return (
+                  <div key={p.key}
+                    style={{ display: "flex", flexDirection: "column", gap: "9px", padding: "12px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm, opacity: deja ? 0.72 : 1 }}>
+                    <PresetShape kind={p.shape} />
+                    <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+                      <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />
+                      <span style={{ minWidth: 0, fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label}</span>
+                    </div>
+                    <div style={{ flex: 1, fontSize: "11.5px", fontWeight: 500, color: T.ink3, lineHeight: 1.4 }}>{p.desc}</div>
+                    {/* Le `hint` du preset (« source non connectée ») est une réserve sur
+                        la donnée, pas une description : il garde sa place à part, en ambre. */}
+                    {p.hint && (
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: T.warnInk }}>{p.hint}</div>
+                    )}
+                    <button className={deja ? undefined : "slb-btnp"} onClick={() => onAdd(p)} disabled={deja}
+                      aria-label={deja ? `${p.label} — déjà sur votre tableau de bord` : `Ajouter ${p.label}`}
+                      title={deja ? "Déjà sur votre tableau de bord" : undefined}
+                      style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                        padding: "8px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700,
+                        cursor: deja ? "default" : "pointer",
+                        border: deja ? `1px solid ${T.line}` : "none",
+                        background: deja ? T.surface2 : T.brand, color: deja ? T.ink4 : "#fff",
+                      }}>
+                      {deja
+                        ? <><Check aria-hidden style={{ width: 14, height: 14 }} />Ajouté</>
+                        : <><Plus aria-hidden style={{ width: 14, height: 14 }} />Ajouter</>}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* Copie défensive d'une instance. La cfg est clonée EN PROFONDEUR (elle contient
    des objets imbriqués : `map`, `sort`) : deux instances issues d'un même modèle,
@@ -6043,8 +6305,8 @@ function Dashboard() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Layout>(() => cloneDefault());
   const [confirmReset, setConfirmReset] = useState(false);
-  // Dépliant de la galerie : clé du groupe ouvert, ou null (tout replié).
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  // Galerie d'ajout : une feuille modale, ouvrable dans les DEUX modes.
+  const [gallery, setGallery] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; layout?: Layout; error?: string } | null>(null);
@@ -6141,9 +6403,12 @@ function Dashboard() {
     return () => ro.disconnect();
   });
 
-  // La galerie s'ouvre toujours REPLIÉE : c'est l'intérêt du dépliant.
-  const enterEdit = () => { setDraft(current); setConfirmReset(false); setOpenGroup(null); setEditing(true); };
-  const cancel = () => { setEditing(false); setConfirmReset(false); resetDrag(); };
+  /* Entrer en édition ferme la galerie si elle était ouverte : son bouton « Ajouter »
+     alimenterait le BROUILLON alors qu'elle a été ouverte hors mode, où l'ajout est écrit
+     directement. Deux régimes derrière un même bouton, c'est le genre d'ambiguïté qui
+     finit par perdre un widget. */
+  const enterEdit = () => { setDraft(current); setConfirmReset(false); setGallery(false); setEditing(true); };
+  const cancel = () => { setEditing(false); setConfirmReset(false); setGallery(false); resetDrag(); };
   /** `silent` : succès sans toast. Réservé aux gestes DIRECTS et répétés (déplacer un
    *  widget hors mode Personnaliser) — un bandeau de confirmation à chaque glissement
    *  serait du bruit. L'ÉCHEC reste toujours annoncé : une écriture perdue en silence
@@ -6183,7 +6448,14 @@ function Dashboard() {
   const onSetSize = (id: string, s: WidgetSize) => setDraft((d) => setWidgetSize(d, id, s));
   // Multi-instances (mode Personnaliser) — tout reste dans le brouillon jusqu'à « Enregistrer ».
   const onRemove = (id: string) => setDraft((d) => removeInstance(d, id));
-  const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md", p.key));
+  /* Ajout — DEUX RÉGIMES, comme le déplacement : en mode Personnaliser il va dans le
+     brouillon (« Annuler » le jette), hors mode il n'y a pas de brouillon, donc il est
+     écrit IMMÉDIATEMENT. Silencieux si tout va bien, toast en cas d'échec (`runSave`) :
+     poser un widget est un geste courant, il n'a pas à s'annoncer. */
+  const onAdd = (p: Preset) => {
+    if (editing) setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md", p.key));
+    else void runSave(addInstance(current, p.type, p.cfg(), p.h ?? "md", p.key), true);
+  };
   // Modèles déjà sur la grille — la galerie les grise (un seul exemplaire par modèle).
   const posed = usedPresets(shown);
 
@@ -6308,11 +6580,21 @@ function Dashboard() {
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
         <h2 style={{ ...H2, flex: 1, minWidth: 120 }}>Tableau de bord</h2>
         {loading ? null : !editing ? (
-          <button className="slb-btng" style={btn} onClick={enterEdit}>
-            <SlidersHorizontal aria-hidden style={{ width: 16, height: 16 }} />Personnaliser
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            {/* AJOUTER sans entrer dans un mode : c'est le geste le plus fréquent, il
+                n'a pas à coûter deux clics. « Personnaliser » reste pour réorganiser,
+                redimensionner et supprimer. */}
+            <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
+              <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget
+            </button>
+            <button className="slb-btng" style={btn} onClick={enterEdit}>
+              <SlidersHorizontal aria-hidden style={{ width: 16, height: 16 }} />Personnaliser
+            </button>
+          </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <button className="slb-btng" style={btn} onClick={() => setGallery(true)}>
+              <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter</button>
             {!confirmReset ? (
               <button className="slb-btng" style={btn} onClick={() => setConfirmReset(true)}>
                 <RotateCcw aria-hidden style={{ width: 15, height: 15 }} />Réinitialiser
@@ -6336,7 +6618,7 @@ function Dashboard() {
 
       {editing && (
         <p style={{ margin: "-4px 0 14px", fontSize: "12.5px", fontWeight: 500, color: T.ink3 }}>
-          Glissez les cartes pour réordonner ; poignées latérales = largeur (moitié / pleine), poignée du bas = hauteur ; ou tout régler via le menu ⋮ (Largeur, Taille, Supprimer).
+          Glissez les cartes pour réordonner ; poignées latérales = largeur (moitié / pleine), poignée du bas = hauteur ; ou tout régler via le menu ⋮ (Largeur, Taille, Supprimer). Rien n'est écrit avant « Enregistrer ».
         </p>
       )}
 
@@ -6351,14 +6633,14 @@ function Dashboard() {
       ) : shown.items.length === 0 ? (
         <Card style={CARD}>
           <EmptyState icon={LayoutGrid} title="Aucun widget affiché"
-            hint={editing ? "Posez des widgets depuis « Ajouter un widget » ci-dessous." : "Vous avez supprimé tous vos widgets. Ouvrez « Personnaliser » pour en ajouter."} />
-          {!editing && (
-            <div style={{ display: "flex", justifyContent: "center", paddingBottom: "22px" }}>
-              <button className="slb-btnp" style={btnPrimary} onClick={enterEdit}>
-                <SlidersHorizontal aria-hidden style={{ width: 16, height: 16 }} />Personnaliser
-              </button>
-            </div>
-          )}
+            hint="Ouvrez la galerie pour composer votre tableau de bord : chaque modèle montre à quoi il ressemble avant d'être posé." />
+          {/* Un état vide guidant DOIT porter le geste qui en sort (charte) — et ce geste
+              est maintenant à un clic, dans les deux modes. */}
+          <div style={{ display: "flex", justifyContent: "center", paddingBottom: "22px" }}>
+            <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
+              <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget
+            </button>
+          </div>
         </Card>
       ) : (
         /* `minHeight` = verrou de hauteur pendant un glissement de poignée : la page
@@ -6474,76 +6756,17 @@ function Dashboard() {
           la galerie ci-dessous est désormais le seul endroit d'où un widget revient
           sur la grille. */}
 
-      {/* Panneau « Ajouter un widget » — visible seulement en édition. Les modèles
-          sont GÉNÉRÉS (types sur-mesure + les presets de chaque source du catalogue),
-          puis regroupés par famille métier en DÉPLIANTS (`PRESET_GROUPS`) : brancher
-          une source la fait apparaître ici automatiquement, dans son groupe ou dans
-          « Autres ». Un seul groupe ouvert à la fois — c'est ce qui garde le panneau
-          court, qui était la raison de le replier. */}
-      {editing && (
-        <Card style={{ ...CARD, marginTop: "12px", padding: "14px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <Plus aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
-            <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>Ajouter un widget</span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {PRESET_GROUPS.map((g) => {
-              const GIcon = iconOf(g.icon);
-              const open = openGroup === g.key;
-              const panelId = `slb-grp-${g.key}`;
-              return (
-                <div key={g.key} style={{ border: `1px solid ${T.line}`, borderRadius: T.rMd, overflow: "hidden", background: open ? T.surface2 : T.surface }}>
-                  <button className="slb-btng" aria-expanded={open} aria-controls={panelId}
-                    onClick={() => setOpenGroup(open ? null : g.key)}
-                    style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 12px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left", color: T.ink }}>
-                    <GIcon aria-hidden style={{ width: 15, height: 15, color: T.ink3, flex: "none" }} />
-                    <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 700 }}>{g.label}</span>
-                    {/* Pastille compteur (charte §2) : combien de modèles derrière. */}
-                    <span style={{ flex: "none", padding: "1px 7px", borderRadius: 999, background: T.neutral050, color: T.ink3, fontSize: "11px", fontWeight: 700 }}>{g.items.length}</span>
-                    {open
-                      ? <ChevronUp aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none" }} />
-                      : <ChevronDown aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none" }} />}
-                  </button>
-                  {open && (
-                    <div id={panelId} style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "2px 12px 12px" }}>
-                      {g.items.map((p) => {
-                        const Icon = p.icon;
-                        /* Modèle déjà posé : bouton GRISÉ et non masqué. Retirer la
-                           ligne laisserait croire que le modèle n'existe plus ; la
-                           griser dit « tu l'as déjà », ce qui est l'information utile. */
-                        const already = posed.has(p.key);
-                        return (
-                          <button key={p.key} className={already ? undefined : "slb-btng"} onClick={() => onAdd(p)}
-                            disabled={already}
-                            title={already ? "Déjà sur votre tableau de bord" : undefined}
-                            aria-label={already ? `${p.label} — déjà posé` : `Ajouter — ${p.label}`}
-                            style={{ ...btn, padding: "7px 12px", alignItems: "center",
-                              ...(already ? { background: T.surface2, color: T.ink4, cursor: "not-allowed" } : {}) }}>
-                            <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink4 }} />
-                            <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
-                              <span style={{ fontSize: "12.5px", fontWeight: 600 }}>{p.label}</span>
-                              {(already || p.hint) && (
-                                <span style={{ fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
-                                  {already ? "déjà posé" : p.hint}
-                                </span>
-                              )}
-                            </span>
-                            {already
-                              ? <Check aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />
-                              : <Plus aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <p style={{ margin: "12px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-            Le widget ajouté arrive en fin de grille. Réglez ensuite son contenu via le menu ⋮ « Options » (hors mode Personnaliser).
-          </p>
-        </Card>
+      {/* LA GALERIE — feuille modale, ouverte depuis le bouton « Ajouter un widget » de
+          la barre, dans LES DEUX MODES. Les modèles y sont toujours GÉNÉRÉS (types
+          sur-mesure + presets de chaque source du catalogue) : brancher une source la
+          fait apparaître sans une ligne de code. */}
+      {gallery && (
+        <WidgetGallery posed={posed} onClose={() => setGallery(false)}
+          onAdd={(p) => {
+            onAdd(p);
+            /* La feuille RESTE OUVERTE : on pose souvent deux ou trois widgets d'affilée,
+               et la carte passe à « Ajouté » — le retour est immédiat sans fermer. */
+          }} />
       )}
 
       {/* Toast discret : succès (disparition auto) / échec + Réessayer.

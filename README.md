@@ -84,9 +84,12 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    widget » puis une palette de 8 teintes qui colorent **toute la carte** — les 3 couleurs SunLib
    (teal, vert, ambre) et 4 pastels, plus « Aucune ». Vider le titre rend celui d'origine ;
    « Aucune » rend la carte blanche. *(Ni rouge ni orange vif dans la palette : ce sont les couleurs d'alerte de la charte, et
-   les banaliser en décor les affaiblirait là où elles comptent.)* « Personnaliser » ouvre la galerie
-   (dépliants par famille, un exemplaire par modèle), et toute la disposition — titres compris —
-   est **persistée par utilisateur**.
+   les banaliser en décor les affaiblirait là où elles comptent.)*
+
+   **Ajouter un widget** se fait depuis une **galerie en feuille modale**, ouvrable dans les deux
+   modes : recherche, filtres par famille, et une **miniature** par modèle qui montre sa forme avant
+   de le poser. « Personnaliser » reste pour réorganiser, redimensionner et supprimer. Toute la
+   disposition — titres et couleurs compris — est **persistée par utilisateur**.
 
 ## 4. Branchement Airtable — état au 2026-08-04
 
