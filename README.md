@@ -158,10 +158,19 @@ l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en p
 C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.partenaires`) là où
 l'espace garde ses adresses historiques (`/clients-list`).
 
-**Restent vides : 2 outils externes** (You Sign, Sellsy). La Calculette d'abonnement pointe sur
-`sunlib-simulation-economique.vercel.app`, Tik&Lib sur `ticketing2-six.vercel.app`. Une entrée vide
-est un **choix explicite** : la tuile s'affiche **désactivée** (mention « bientôt ») au lieu de
-promettre un clic qui ne mène nulle part. Renseigner l'URL l'active, sans autre changement.
+**✅ Plus aucune adresse manquante.** Outils externes : You Sign (`yousign.app`), Calculette
+d'abonnement (`sunlib-simulation-economique.vercel.app`), Tik&Lib (`ticketing2-six.vercel.app`).
+« Services Sellsy » a été **retiré** des Outils le 2026-08-04.
+
+Le mécanisme de repli reste en place pour la suite : une entrée vide est un **choix explicite**, la
+tuile s'affiche alors **désactivée** (mention « bientôt ») au lieu de promettre un clic qui ne mène
+nulle part.
+
+⚠️ **Ne jamais coller dans ce registre une URL copiée depuis une barre d'adresse en cours de
+session.** Celle de You Sign avait été fournie sous la forme d'une page de connexion Auth0 portant
+un jeton (`auth.yousign.app/u/login/identifier?state=…`) : ces paramètres expirent, et le lien
+aurait mené à une erreur d'authentification. C'est la **racine** de l'app qui est enregistrée —
+elle redirige d'elle-même vers le login, et ne périme pas.
 
 **Trois cibles, trois comportements** — et c'est le type de l'entrée qui décide, jamais le
 composant : une entrée de `PAGES` ouvre en **`_top`** (page de l'espace, on quitte l'accueil), une

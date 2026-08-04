@@ -30,10 +30,9 @@
      A) datasource.define        → §6 : 6 des 7 sources connectées ; il manque
                                   `notifC` (Notification Center), d'où un widget
                                   « Derniers dossiers » sans état lu / non lu
-     B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. Les 8
-                                  pages de l'espace sont renseignées ; il ne manque que
-                                  2 OUTILS EXTERNES (You Sign, Sellsy), rendus en
-                                  tuiles désactivées
+     B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. ✅ plus
+                                  aucune adresse manquante (8 pages de l'espace,
+                                  3 outils externes, 3 apps embarquées)
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
      D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
                                   CONFIRMER que Softr attend bien « recordId »
@@ -149,13 +148,25 @@ const PAGE_RECORD_PARAM = "recordId";
 
 /** Outils externes (nouvel onglet). Même règle : "" = adresse inconnue → tuile inerte. */
 const TOOLS = {
-  youSign: "",
+  /* You Sign — signature électronique.
+     ⚠️ C'est la RACINE de l'app, et c'est délibéré. L'URL fournie le 2026-08-04 était
+     une page de connexion Auth0 portant un JETON DE SESSION
+     (`auth.yousign.app/u/login/identifier?state=…&tid=…&cid=…`) : ces paramètres
+     expirent, donc figée dans un lien permanent elle aurait envoyé tout le monde sur
+     une erreur d'authentification au bout de quelques minutes. La racine redirige
+     d'elle-même vers ce même écran de connexion, puis vers le tableau de bord — et
+     elle ne périme pas. Règle générale pour ce registre : ne jamais y coller une URL
+     copiée depuis une barre d'adresse en cours de session. */
+  youSign: "https://yousign.app/",
   /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE : elle
      pourrait donc devenir un onglet embarqué comme les trois ci-dessous, au lieu d'un
      lien vers un nouvel onglet — à décider, c'est un choix de navigation, pas une
      contrainte technique. */
   calculette: "https://sunlib-simulation-economique.vercel.app/",
-  sellsy: "",
+  /* Plus d'entrée « Sellsy » : la tuile « Services Sellsy » a été RETIRÉE des Outils le
+     2026-08-04 (demande explicite). La remettre = une entrée ici + une dans
+     QUICK_LINKS (§7) ; l'icône `Briefcase` est toujours importée, elle sert à la map
+     ICONS. */
   /* Tik&Lib — le ticketing (fourni le 2026-08-04). Ouvert dans un NOUVEL ONGLET, pas
      embarqué : c'est déjà ce que fait toute entrée de `TOOLS` (`target="_blank"`), là
      où une entrée de `PAGES` ouvre en `_top`. On ne navigue JAMAIS dans l'iframe du
@@ -1413,7 +1424,6 @@ const QUICK_LINKS: { label: string; icon: LucideIcon; page?: string; url?: strin
   // Outils externes.
   { label: "You Sign", icon: FileSignature, url: TOOLS.youSign },
   { label: "Calculette d'abonnement", icon: Calculator, url: TOOLS.calculette, solar: true },
-  { label: "Services Sellsy", icon: Briefcase, url: TOOLS.sellsy },
   { label: "Tik&Lib", icon: Ticket, url: TOOLS.tikLib },
   // Simulateur Grille & Formulaire de contact retirés d'ici : ce sont désormais
   // des onglets (embarqués en iframe). Ne pas les redédoubler dans les Outils.

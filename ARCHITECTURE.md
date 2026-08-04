@@ -827,9 +827,11 @@ Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son cô
   `EmbedTab` — Formulaire de contact `formulairedecontact.vercel.app`, Simulateur Grille
   `simulateur-grille-v2.vercel.app`, Bibliothèque `documentation-interne.vercel.app` (toutes
   vérifiées iframables). ⚠️ la CSP de l'iframe Softr doit autoriser `frame-src https://*.vercel.app`.
-- **`QUICK_LINKS`** (section Outils) — raccourcis pages d'espace en `target=_top` (Prospects,
-  Partenaires, Contact Partenaire, Abonnés, KPI) + outils externes (You Sign, Calculette, Sellsy,
-  Tik&Lib). **Les 9 URLs sont encore `#`** — à compléter. Idem `SAV_PAGE_HREF`.
+- **`QUICK_LINKS`** (section Outils) — raccourcis vers les pages de l'espace en `target=_top`
+  (Prospects, Partenaires, Contact Partenaire, Abonnés, Pilotage SAV, KPI) + outils externes
+  (Calculette d'abonnement, Tik&Lib, et You Sign dont l'URL manque encore). « Services Sellsy » a
+  été **retiré** le 2026-08-04. Les adresses elles-mêmes sont dans le registre ci-dessous.
+
 ### Les adresses — un registre unique en tête de fichier (§0-bis)
 
 **Aucune URL n'est écrite ailleurs.** `PAGES` (slugs des pages de l'espace) et `TOOLS` (outils
