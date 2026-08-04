@@ -30,7 +30,7 @@
      A) USE_MOCK / datasource.define / SELECT_*  → §6 (IDs + noms de champs)
      B) NAV_TABS.href / QUICK_LINKS.href         → §7 (URLs des pages & outils)
      C) LinkedInSection                          → embed LinkedIn existant
-     D) « Marquer comme lue »                    → §9 (champ Airtable "Lu")
+     D) Page « Détail » d'un abonné              → ABONNE_PAGE_SLUG / _PARAM (§9)
    Tant que USE_MOCK=true, l'aperçu tourne sur les données mock du prototype.
    ============================================================================ */
 
@@ -44,15 +44,16 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type FC,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import {
   UserPlus, Handshake, BookUser, Users, Library, BarChart3, Trash2,
-  FileSignature, Calculator, LayoutGrid, Briefcase, Ticket, Mail,
+  FileSignature, Calculator, LayoutGrid, Briefcase, Ticket, Mail, Pencil, Bold, Italic, Strikethrough, List,
   ChevronRight, Bell,
-  CheckCheck, Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
+  Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Save, X, Newspaper, Megaphone, Sparkles,
@@ -443,7 +444,9 @@ const DS = datasource.define({
 //    « date ») ou une casse précise (« date de fin » vs « Date de fin ») : NE PAS
 //    normaliser — Softr résout le champ par ce nom littéral.
 
-// Notifs ← « Abonnés ». Pas de champ « Lu » → « marquer comme lu » = masquage local.
+// Derniers dossiers ← « Abonnés ». Il n'y a PAS de champ « Lu » dans cette table, et
+// le widget n'en simule plus un (cf. la note sur NotifsCard) : c'est une liste, pas
+// une file de notifications.
 const SELECT_ABONNE = q.select({
   nom: "Nom",
   prenom: "Prenom",
@@ -480,6 +483,42 @@ const SELECT_TACHE_PR = q.select({
   fin: "Date de fin",  // ⚠️ majuscule
   fait: "Fait",
 });
+
+/* ── NOTIFICATION CENTER ← base « BDD Abonné » (appe55vTZRk6Ssd2w) · table
+   « Notification Center » (tblqF71AO8nFVpWi5, ~2 130 lignes au 2026-08-03).
+   Relevé sur Airtable ce jour-là. C'est la table qui porte l'état LU / NON LU des
+   dossiers abonnés — le widget « Derniers dossiers Abonné » y écrit.
+
+   ⚠️⚠️⚠️ LE SENS DE LA CASE EST INVERSÉ PAR RAPPORT À SON NOM, et c'est vérifié sur
+   les données, pas supposé :
+
+       « Statut de lecture » COCHÉE   →  « Statut de la notification » = « Non lue »
+       « Statut de lecture » DÉCOCHÉE →  « Statut de la notification » = « Lue »
+
+   La case veut donc dire « À LIRE », pas « lue ». Arbitrage du 2026-08-03 : on
+   s'adapte à l'existant, on ne touche PAS aux formules Airtable — d'autres écrans les
+   consomment et s'inverseraient. Conséquence dans tout le code qui suit :
+       marquer comme vu  =  ÉCRIRE false  (décocher)
+       non lu            =  case à true
+   L'alias est nommé `aLire` et non `lu` exprès : un alias qui mentirait sur son
+   contenu rendrait chaque relecture de ce fichier dangereuse.
+
+   ⚠️ Seul « Statut de lecture » est ÉCRIVABLE. Tout le reste est formule ou lookup
+   (`… (from Liens BDD)`) : les déclarer en écriture ferait échouer l'écriture du
+   record entier — même règle que « Total interventions » côté SAV.
+   ⚠️ DEUX DÉFAUTS CONNUS de cette table, à traiter côté base et non ici : chaque
+   événement crée DEUX lignes (une « Lue », une « Non lue », à quelques secondes), et
+   ~380 lignes n'ont aucun lien vers un abonné. Le widget ne peut que les subir.
+   ⚠️ Aucun champ destinataire : l'état de lecture est GLOBAL, pas par utilisateur.
+   Cocher vaut pour tout le monde — à dire aux utilisateurs. */
+const SELECT_NOTIF_C = q.select({
+  liens: "Liens BDD",                 // lien vers l'abonné → sert la jointure
+  aLire: "Statut de lecture",         // ⚠️ COCHÉE = NON LUE (voir ci-dessus)
+  etat: "Statut de la notification",  // formule « Lue » / « Non lue » (lecture seule)
+  creeLe: "Created Date",
+});
+/* WHITELIST d'écriture : la case, et rien d'autre. */
+const SELECT_NOTIF_C_W = q.select({ aLire: "Statut de lecture" });
 
 /* Dossiers SAV ← base « SAV » (appGKl3XIjDvH0mkr) · table « Tickets »
    (tblf4KgGHCaZXKnBX). C'est la table du bloc SUNLIB/SAV « Pilotage SAV » : les
@@ -635,6 +674,20 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
     { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib." },
   ],
 
+  /* ← SELECT_NOTIF_C. Les `liens` portent les IDS des lignes `abonnes` ci-dessus :
+     c'est la clé de jointure du widget. Reproduit les deux défauts réels de la table
+     (⚠️ n1 a DEUX notifications, n6 n'en a aucune) pour que le widget soit testé sur
+     ce qu'il rencontrera vraiment, pas sur un cas idéal.
+     ⚠️ RAPPEL : `aLire: true` = NON LUE. */
+  notifC: [
+    { id: "nc1", liens: [{ id: "n1", name: "n1" }], aLire: true, etat: "Non lue", creeLe: daysAgo(1) },
+    { id: "nc1b", liens: [{ id: "n1", name: "n1" }], aLire: false, etat: "Lue", creeLe: daysAgo(1) },
+    { id: "nc2", liens: [{ id: "n2", name: "n2" }], aLire: true, etat: "Non lue", creeLe: daysAgo(2) },
+    { id: "nc3", liens: [{ id: "n3", name: "n3" }], aLire: false, etat: "Lue", creeLe: daysAgo(2) },
+    { id: "nc4", liens: [{ id: "n4", name: "n4" }], aLire: true, etat: "Non lue", creeLe: daysAgo(15) },
+    { id: "nc5", liens: [{ id: "n5", name: "n5" }], aLire: false, etat: "Lue", creeLe: daysAgo(15) },
+  ],
+
   /* ← SELECT_SAV. Échantillon RÉALISTE plutôt qu'aléatoire : il reproduit les
      anomalies que le classeur partenaire porte réellement et que le bloc SAV
      documente (docs/modele-donnees-sav.md §1) — une date de fin antérieure au
@@ -672,7 +725,7 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
    Monter/démonter des composants entiers est légal pour React : aucun hook n'est
    appelé dans `SourceFeed` lui-même.
    ============================================================================ */
-type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav";
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC";
 
 // Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
 type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
@@ -725,6 +778,11 @@ type SourceDesc = {
   presets?: PresetDesc[];              // modèles « prêts à poser » (galerie, §10-bis)
   actions?: ActionDesc[];
   create?: CreateFormDesc;
+  /* Source TECHNIQUE : consommée par un widget sur-mesure, jamais posée telle quelle.
+     Elle est exclue de la galerie — sans ce drapeau, `presetsOf` lui fabriquerait un
+     modèle « liste » par défaut, et on proposerait de poser « une liste d'états de
+     lecture », ce qui n'a aucun sens pour un utilisateur. */
+  technical?: boolean;
 };
 
 /* Catalogue déclaratif — le « descripteur de source ». Il ne contient JAMAIS de nom
@@ -880,6 +938,29 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     create: { label: "Nouvelle tâche prospect",
               fields: [{ field: "desc", required: true }, { field: "associe" }, { field: "fin" }] },
   },
+  /* ── NOTIFICATION CENTER ── L'état de lecture des dossiers abonnés. Source
+     TECHNIQUE : elle n'a pas de preset, donc elle n'apparaît PAS dans la galerie —
+     personne n'a besoin de poser « une liste de notifications ». Elle existe pour que
+     le widget « Derniers dossiers Abonné » sache ce qui a été vu, et l'écrive.
+     ⚠️ Sens de la case inversé : voir SELECT_NOTIF_C. */
+  notifC: {
+    key: "notifC",
+    label: "État de lecture — Notification Center",
+    icon: "Inbox",
+    connected: false,   // ⚠️ à connecter dans l'onglet Sources DU BLOC (cf. NotifCSource)
+    technical: true,
+    fields: {
+      liens: { label: "Abonné lié", kind: "text" },
+      aLire: { label: "À lire (case cochée = non lue)", kind: "bool" },
+      etat: { label: "Statut de la notification", kind: "badge",
+              options: ["Lue", "Non lue"], variants: { "Non lue": "warn", "Lue": "neutral" } },
+      creeLe: { label: "Créée le", kind: "date" },
+    },
+    defaultSort: { by: "creeLe", dir: "desc" },
+    defaultMap: { title: "liens", sub: "etat", date: "creeLe" },
+    // Pas de `presets` : source technique, absente de la galerie (voir presetsOf).
+    // Pas d'`actions` : le marquage vit dans le widget abonné, pas en action de ligne.
+  },
   /* ── SAV ── Source du bloc SUNLIB/SAV « Pilotage SAV ». Le descripteur est
      complet (les 22 alias lisibles) alors que le widget d'accueil n'en synthétise
      qu'une poignée : c'est voulu. Le catalogue décrit la SOURCE, pas un écran — et
@@ -978,6 +1059,9 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
 const ICONS: Record<string, LucideIcon> = {
   Bell, CalendarClock, ClipboardList, HardHat, Target, Users, Inbox,
   LayoutGrid, BarChart3, Newspaper, Megaphone, Sparkles, Building2, Briefcase, Ticket,
+  // ⚠️ Toute clé citée dans GALLERY_GROUPS doit figurer ici, sinon `iconOf` retombe
+  // silencieusement sur l'icône neutre — c'est arrivé à « Utilitaires ».
+  Clock, FileSignature,
 };
 const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
 
@@ -1086,6 +1170,23 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
    mais les KPI de SavCard (ancienneté, taux de résolution) portent alors sur la
    FENÊTRE LUE, pas sur la table entière. Le bloc « Pilotage SAV » reste la
    référence chiffrée ; l'accueil est un résumé. */
+/* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Adapter
+   prêt à décommenter le jour où la table est connectée à CE bloc (l'id est propre au
+   bloc : onglet Chat, jamais celui d'un autre bloc — cf. la note du SAV) :
+
+     function NotifCSource({ children }: { children: SourceChildren }) {
+       const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
+       const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
+       const email = asText(useCurrentUser()?.email).trim();
+       const write = email ? {
+         update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
+       } : undefined;                       // pas de session → aucune tentative
+       return <>{children({ ...liveState(res), write })}</>;
+     }
+
+   ⚠️ La table fait ~2 130 lignes et n'est pas paginée ici : `orderBy` desc sur la date
+   décide donc QUELLES lignes sont lues. Un abonné dont la notification serait sortie de
+   la fenêtre lue apparaîtra simplement sans état — c'est prévu (voir `matchNotifC`). */
 function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
@@ -1153,6 +1254,28 @@ function EmptyState({ icon: Icon, title, hint, dense }: { icon: LucideIcon; titl
 type WidgetSize = "sm" | "md" | "lg";
 const WIDGET_HEIGHTS: Record<WidgetSize, number> = { sm: 168, md: 340, lg: 560 };
 
+/* --- GRILLE DU TABLEAU DE BORD — géométrie du TASSEMENT (masonry) -------------
+   Avant, la grille était une grille CSS ordinaire : chaque rangée prenait la
+   hauteur de son plus grand widget, et le suivant attendait la ligne suivante. Un
+   petit widget à côté d'un grand laissait donc un trou sous lui, et ces trous
+   alignés donnaient à voir les lignes de la grille — exactement ce qu'on ne veut
+   pas voir.
+
+   Le tassement se fait avec la technique des LIGNES FINES : la grille déclare des
+   lignes implicites de `DASH_ROW` px, et chaque widget occupe `span n` lignes, avec
+   n déduit de sa hauteur RÉELLE. Un widget court occupe moins de lignes, donc son
+   voisin du dessous remonte.
+
+   ⚠️ `rowGap` est à ZÉRO, et ce n'est pas un oubli : un gap entre lignes
+   s'ajouterait à CHAQUE ligne fine (n − 1 fois), ce qui rendrait le calcul du span
+   faux et l'espacement énorme. L'espace vertical entre widgets vient donc d'un
+   `paddingBottom: DASH_GAP` posé sur le wrapper de chaque widget, et il est compté
+   dans le span. Corollaire à ne pas oublier : les poignées de redimensionnement
+   sont positionnées par rapport à ce wrapper — elles doivent être décalées de
+   `DASH_GAP` pour rester collées à la CARTE et non au bas du wrapper. --- */
+const DASH_GAP = 18;   // espace entre widgets (colonnes ET lignes)
+const DASH_ROW = 4;    // granularité des lignes implicites : le résidu ≤ 3 px est invisible
+
 /* --- Corps scrollable d'un widget. La hauteur max vient du contexte (le Dashboard
    la connaît : c'est `instance.h`), et elle est posée EN LIGNE — l'ancienne
    variable CSS `--slb-wh` lue par une règle injectée ne s'appliquait pas dans le
@@ -1162,8 +1285,16 @@ const WidgetHeightCtx = createContext<number>(WIDGET_HEIGHTS.md);
 
 function ScrollBody({ children }: { children?: ReactNode }) {
   const maxHeight = useContext(WidgetHeightCtx);
+  /* PAS DE BARRE DE DÉFILEMENT EN MODE PERSONNALISER. Elle ne servait à rien — le
+     corps y est déjà inerte (`pointerEvents: "none"`, cf. `Widget`) — et elle
+     passait juste sous les poignées de largeur, qui longent le même bord droit : on
+     visait la poignée, on attrapait la barre, ou l'inverse. La retirer supprime le
+     conflit à la source plutôt que de déplacer les poignées loin du bord.
+     ⚠️ `WidgetChromeCtx` est déclaré plus bas dans le fichier : légal, parce que ce
+     composant ne le lit qu'au RENDU, longtemps après l'évaluation du module. */
+  const editing = useContext(WidgetChromeCtx) !== null;
   return (
-    <div className="slb-scrolly" style={{ overflowY: "auto", maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
+    <div className="slb-scrolly" style={{ overflowY: editing ? "hidden" : "auto", maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
       {/* Le filet de séparation entre lignes était une règle injectée
           (`.slb-row + .slb-row`) : il est posé ici, en ligne, autour de chaque
           enfant — un seul endroit pour toutes les listes du bloc. */}
@@ -1202,6 +1333,42 @@ type WidgetOptions = {
 };
 const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
 
+/* --- ÉCRITURE DE SA PROPRE cfg PAR LE WIDGET -----------------------------------
+   `WidgetOptionsCtx` sert le PANNEAU d'options ; celui-ci sert le CONTENU. Un
+   widget dont l'état EST son contenu — un pense-bête, une liste à cocher — doit
+   pouvoir enregistrer sans passer par un formulaire caché derrière un ⋮.
+
+   Fourni hors mode Personnaliser uniquement : pendant l'édition, le corps est inerte
+   et le brouillon `draft` fait autorité — deux chemins d'écriture concurrents sur la
+   même instance produiraient un écrasement silencieux.
+
+   L'écriture est SILENCIEUSE en cas de succès (pas de toast à chaque frappe) mais un
+   échec reste annoncé, cf. `runSave`. Ce canal servira aussi au tri par clic sur les
+   en-têtes de colonnes. --- */
+type WidgetCfgWriter = { save: (cfg: unknown) => void };
+const WidgetCfgCtx = createContext<WidgetCfgWriter | null>(null);
+
+/* --- PRÉHENSION D'UN WIDGET — fournie dans LES DEUX MODES ---------------------
+   Déplacer un widget ne demande plus d'entrer dans « Personnaliser » : l'EN-TÊTE de
+   chaque carte est saisissable en permanence. Doublon assumé avec le mode
+   Personnaliser, qui reste la voie complète (et la seule accessible au clavier et au
+   doigt, cf. `WidgetEditMenu`).
+
+   Pourquoi l'en-tête et pas la carte entière : hors édition le corps est INTERACTIF
+   (boutons, liens, défilement, sélection de texte). Rendre tout le wrapper
+   `draggable` y aurait déclenché un glisser au moindre mouvement — c'est exactement
+   le mécanisme qui annulait les clics du menu ⋮ (bug du 2026-08-03) — et aurait
+   empêché de sélectionner du texte dans les notes. L'en-tête ne contient qu'un titre
+   et le bouton ⋮ : rien à y perdre. C'est aussi la convention (fenêtres, cartes).
+
+   L'image de glissement est forcée sur la CARTE ENTIÈRE (`setDragImage`), sinon le
+   navigateur ne montrerait que le bandeau de l'en-tête. --- */
+type WidgetGrab = {
+  onDragStart: (e: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+};
+const WidgetGrabCtx = createContext<WidgetGrab | null>(null);
+
 /* --- FERMETURE D'UN PANNEAU FLOTTANT (clic extérieur + Échap) -----------------
    Hook PARTAGÉ par les deux menus ⋮. Il l'est devenu en corrigeant le bug du
    2026-08-03 — « le panneau se referme au clic, sans exécuter l'action » — parce
@@ -1215,25 +1382,59 @@ const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
    ⚠️ `setOpen` (setter de useState) est STABLE, contrairement à un
    `() => setOpen(false)` qui serait recréé à chaque render et réattacherait les
    écouteurs en boucle. C'est pourquoi le hook prend le setter, pas une fermeture. */
+/** Le point (x, y) tombe-t-il dans le rectangle de cet élément ? La GÉOMÉTRIE ne
+ *  mentionne aucun nœud : elle est donc immunisée contre tout ce qui trompe
+ *  `contains()` (nœud détaché, portail, liste native rendue par l'OS). */
+function hitsRect(el: Element | null | undefined, x: number, y: number): boolean {
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
 function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
+      const box = ref.current;
+      if (!box) return;
       const t = e.target as Node | null;
       if (!t) return;
+
       /* GARDE 1 — nœud DÉTACHÉ du DOM. `contains()` répond toujours `false` pour un
          orphelin : le panneau se fermait alors que le clic avait bien eu lieu à
          l'intérieur, simplement le nœud visé venait d'être remplacé par un
          re-render (retirer un filtre, cocher une case…). */
       if (!t.isConnected) return;
+
       /* GARDE 2 — LISTE DÉROULANTE NATIVE. Les `<option>` d'un `<select>` sont
          rendues par l'OS, hors du document : le mousedown sur l'une d'elles cible
          un nœud « extérieur » au panneau, qui se fermait donc au moment même où on
          choisissait une valeur. `DataOptions` est truffé de `<select>`. */
       const el = t instanceof Element ? t : t.parentElement;
       if (el && (el.tagName === "OPTION" || el.closest("select"))) return;
-      if (ref.current && !ref.current.contains(t)) setOpen(false);
+
+      /* GARDE 3 — LA GÉOMÉTRIE A LE DERNIER MOT, et c'est la garde qui compte.
+         Les deux tests précédents raisonnent sur l'ARBRE ; celui-ci sur l'ÉCRAN. On
+         ne ferme que si le clic est extérieur SELON LES DEUX. Pourquoi cette
+         ceinture : le panneau est en `position:absolute`, donc HORS DU FLUX — le
+         rectangle du conteneur ne le couvre pas, il faut tester le panneau
+         séparément. Il est retrouvé par son rôle, ce qui évite de câbler un
+         second ref dans les deux menus.
+         ⚠️ Un clic à coordonnées (0,0) vient d'un clavier ou d'un clic synthétisé
+         (un `<label>` en génère un sur son input) : jamais une intention de fermer. */
+      if (e.clientX === 0 && e.clientY === 0) return;
+      const panel = box.querySelector('[role="dialog"], [role="menu"]');
+      if (hitsRect(box, e.clientX, e.clientY) || hitsRect(panel, e.clientX, e.clientY)) return;
+
+      if (box.contains(t)) return;
+      /* Trace VOLONTAIRE (même esprit que les écritures simulées) : elle distingue
+         les deux familles de causes quand un panneau se ferme tout seul. Si le
+         panneau disparaît SANS cette ligne en console, ce n'est pas une fermeture
+         mais un REMONTAGE du composant (l'état `open` reparti à false) — et le
+         correctif est alors ailleurs : remonter `open` d'un niveau. */
+      console.info("[SunLib] menu fermé — clic extérieur", { x: e.clientX, y: e.clientY, cible: el?.tagName });
+      setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", onDown);
@@ -1355,10 +1556,18 @@ function Widget({
 }) {
   const chrome = useContext(WidgetChromeCtx);
   const opts = useContext(WidgetOptionsCtx);
+  const grab = useContext(WidgetGrabCtx);
   const editing = chrome !== null;
   return (
     <Card style={CARD}>
-      <div style={WHEAD}>
+      {/* L'EN-TÊTE est la zone de préhension, dans les deux modes (cf. WidgetGrabCtx).
+          `cursor: grab` suffit comme affordance : pas de `title` ici, il se
+          déclencherait au survol du titre du widget. */}
+      <div style={grab ? { ...WHEAD, cursor: "grab" } : WHEAD}
+        draggable={!!grab} onDragStart={grab?.onDragStart} onDragEnd={grab?.onDragEnd}>
+        {/* La poignée n'est montrée qu'en édition — hors édition, la préhension existe
+            mais reste discrète : on ne veut pas d'un mors de déménageur sur chaque
+            carte en usage normal. */}
         {editing && (
           <span className="slb-grip" title="Glisser pour réordonner" aria-hidden
             style={{ display: "grid", placeItems: "center", width: 22, height: 28, marginLeft: -4, color: T.ink4, flex: "none" }}>
@@ -1588,6 +1797,47 @@ function Hero({ firstName, unread, urgent }: { firstName: string; unread: number
   );
 }
 
+/* ============================================================================
+   LIENS VERS LES PAGES DE L'ESPACE SOFTR — depuis l'intérieur d'une iframe
+   ----------------------------------------------------------------------------
+   Un lien vers une page de l'espace doit ouvrir dans la fenêtre PARENTE
+   (`target="_top"`), et son URL ne peut PAS être relative : `href="/ma-page"` serait
+   résolu contre le document courant, c'est-à-dire l'IFRAME du bloc — pas l'app. Il
+   faut donc une URL absolue, donc connaître l'origine de la page parente.
+
+   On ne peut pas simplement lire `window.parent.location` : c'est bloqué dès que
+   l'iframe est d'une autre origine. Trois sources, dans cet ordre :
+     1. `ancestorOrigins` — l'information exacte, mais absente de Firefox ;
+     2. `document.referrer` — la page qui a chargé l'iframe (présent en pratique) ;
+     3. un repli codé en dur, pour ne jamais fabriquer un lien vide.
+
+   C'est ce qui fait fonctionner le même code EN APERÇU ET EN PRODUCTION sans
+   condition : l'origine est LUE à l'exécution au lieu d'être devinée. Hors iframe
+   (aperçu local `npm run dev`), on retombe sur notre propre origine, et le lien
+   pointe donc vers localhost — normal, la page cible n'existe pas là.
+   ⚠️ Si l'espace passe un jour sur un domaine personnalisé, il n'y a RIEN à changer
+   ici ; seul le repli ci-dessous mériterait d'être actualisé.
+   ============================================================================ */
+const SOFTR_ORIGIN_FALLBACK = "https://sunlibcrm2.softr.app";
+
+function topOrigin(): string {
+  if (typeof window === "undefined") return SOFTR_ORIGIN_FALLBACK;
+  try {
+    if (window.parent === window) return window.location.origin;   // hors iframe
+    const anc = (window.location as unknown as { ancestorOrigins?: DOMStringList }).ancestorOrigins;
+    if (anc && anc.length) return anc[anc.length - 1];             // le plus haut ancêtre
+    if (document.referrer) return new URL(document.referrer).origin;
+  } catch { /* origine illisible : on tombe sur le repli */ }
+  return SOFTR_ORIGIN_FALLBACK;
+}
+
+/** URL absolue d'une page de l'espace. `slug` sans slash initial. */
+function softrPageUrl(slug: string, params?: Record<string, string>): string {
+  const base = `${topOrigin()}/${slug.replace(/^\/+/, "")}`;
+  const q = new URLSearchParams(params ?? {}).toString();
+  return q ? `${base}?${q}` : base;
+}
+
 /* --- Outils --- */
 function QuickLinks() {
   return (
@@ -1632,52 +1882,206 @@ function EmbedTab({ src, title }: { src: string; title: string }) {
    9. Tableau de bord — widgets indépendants et compacts
    ============================================================================ */
 
-/* --- Widget « Nouveaux dossiers Abonné » (colonne gauche) --- */
-function NotifRow({ n, onRead }: { n: Notif; onRead: (id: string) => void }) {
-  const title = n.nom || n.societe || DASH;
+/* --- Widget « Derniers dossiers Abonné » --------------------------------------
+   ⚠️⚠️ PLUS DE « LU / NON LU », ET C'EST UNE DÉCISION (2026-08-03). Il y avait un
+   masquage local : cocher une ligne la faisait disparaître, mais rien n'était
+   enregistré — elle revenait au rechargement. La table « Abonnés » n'a pas de champ
+   « Lu », donc cette notion ne reposait sur rien. Un état de lecture qui ne survit
+   pas au rechargement ne vaut pas mieux que pas d'état de lecture du tout : il fait
+   juste croire qu'on a traité quelque chose.
+   Ce widget est donc ce qu'il a toujours vraiment été : la LISTE DES DERNIERS
+   DOSSIERS, avec un récapitulatif par ligne et un accès à la fiche.
+   Le jour où un vrai champ « Lu » existera (ou la table « Notification Center » et sa
+   case native `Statut de lecture`), c'est une action déclarative de plus dans le
+   descripteur — pas un état local à réinventer.
+
+   `cfg` : quelles informations montrer, combien de lignes, bouton « Détail » ou non.
+   Le registre ci-dessous est la seule chose à toucher pour en proposer une de plus. */
+
+/* Page de l'espace vers laquelle pointe « Détail ».
+   ⚠️ Le NOM DU PARAMÈTRE est la seule inconnue de ce lien : Softr passe
+   l'enregistrement en query. `recordId` est sa convention la plus courante — à
+   confirmer en ouvrant une fiche depuis l'app et en lisant son URL. Le slug, lui, est
+   celui donné : `abonn-s-details-3`. */
+const ABONNE_PAGE_SLUG = "abonn-s-details-3";
+const ABONNE_PAGE_PARAM = "recordId";
+
+type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean };
+
+/* --- JOINTURE avec « Notification Center » ------------------------------------
+   Le widget lit DEUX sources : les dossiers (« Abonnés ») pour la liste, et l'état de
+   lecture (« Notification Center ») pour savoir ce qui a été vu. Deux `SourceFeed`
+   imbriqués — le même procédé que le widget des tâches, que le dispatch statique
+   autorise sans rien assouplir.
+
+   La clé de jointure est le RECORD ID de l'abonné, porté par le champ lien
+   « Liens BDD ». `linkIds` accepte les trois formes qu'une valeur de lien peut
+   prendre selon la couche traversée : tableau d'objets `{id, name}` (Airtable), tableau
+   de chaînes, ou chaîne unique.
+
+   ⚠️ POINT À VÉRIFIER LE JOUR DU BRANCHEMENT : rien ne garantit que Softr expose les
+   IDS d'un champ lien plutôt que les libellés du champ primaire. Si ce sont des
+   libellés, la jointure ne trouvera rien — et c'est pourquoi elle DÉGRADE PROPREMENT :
+   sans notification appariée, la ligne s'affiche sans état ni bouton, au lieu de
+   casser ou d'afficher « vu » à tort. */
+const linkIds = (v: unknown): string[] => {
+  if (Array.isArray(v)) {
+    return v.map((x) => (x && typeof x === "object" ? asText((x as Record<string, unknown>).id) : asText(x))).filter(Boolean);
+  }
+  const s = asText(v);
+  return s ? [s] : [];
+};
+
+/** Notification la plus récente rattachée à cet abonné, ou `null`.
+ *  ⚠️ La table crée DEUX lignes par événement (défaut connu) : on prend celle qui est
+ *  encore « à lire » en priorité, sinon la première trouvée. Sans cette règle, marquer
+ *  comme vu pourrait porter sur le jumeau déjà lu et sembler ne rien faire. */
+function matchNotifC(rows: Row[], abonneId: string): Row | null {
+  const liees = rows.filter((n) => linkIds(n.liens).includes(abonneId));
+  if (!liees.length) return null;
+  return liees.find((n) => isTruthy(n.aLire)) ?? liees[0];
+}
+
+const NOTIF_FIELDS: { key: string; label: string }[] = [
+  { key: "statut", label: "Statut du dossier" },
+  { key: "offre", label: "Type d'installation" },
+  { key: "partenaire", label: "Installateur" },
+  { key: "creeLe", label: "Date de création" },
+];
+const NOTIF_LIMITS = [5, 10, 20, 50];
+const NOTIF_SHOW_DEFAULT = ["statut", "offre", "partenaire", "creeLe"];
+
+const coerceNotifsCfg = (raw: unknown): NotifsCfg => {
+  const o = asObj(raw);
+  const known = new Set(NOTIF_FIELDS.map((f) => f.key));
+  const champs = Array.isArray(o.champs)
+    ? Array.from(new Set(o.champs.filter((x: unknown): x is string => typeof x === "string" && known.has(x))))
+    : [...NOTIF_SHOW_DEFAULT];
+  const n = Number(o.limite);
+  return {
+    champs,
+    limite: NOTIF_LIMITS.includes(n) ? n : RECENT,
+    detail: o.detail !== false,        // présent par défaut : c'est l'action utile
+    marquage: o.marquage !== false,    // pastille « Non lu » + bouton « Vu »
+  };
+};
+
+function NotifsOptions({ cfg, onChange }: { cfg: NotifsCfg; onChange: (next: NotifsCfg) => void }) {
+  const on = new Set(cfg.champs);
+  const toggle = (key: string) => {
+    const next = new Set(on);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    onChange({ ...cfg, champs: NOTIF_FIELDS.filter((f) => next.has(f.key)).map((f) => f.key) });
+  };
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "10px 0 4px" };
+  const line: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 };
+  const box: CSSProperties = { width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: "pointer" };
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
   return (
-    <div className="slb-row" style={{ display: "flex", alignItems: "center", gap: "11px", padding: "10px 16px" }}>
-      <span aria-hidden style={{ width: 32, height: 32, borderRadius: "9px", flex: "none", display: "grid", placeItems: "center", color: "#fff", fontSize: "11.5px", fontWeight: 700, letterSpacing: ".03em", background: avatarBg(title) }}>
-        {initials(title)}
-      </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
-          <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-          <Badge variant="brand" dot>{n.offre}</Badge>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "5px" }}>
-          <StatusBadge value={n.statut} />
-          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }} title={fmtDate(n.creeLe)}>{fmtRel(n.creeLe)} · via {n.partenaire}</span>
-        </div>
-      </div>
-      {/* Actions secondaires révélées au survol / focus (charte §4 Listes).
-          TODO : « Détail » → lien vers la fiche Abonné via <a target="_top"> (URL §7). */}
-      <div className="slb-hact" style={{ display: "flex", gap: "2px", flex: "none" }}>
-        <button className="slb-nbtn" style={NBTN_SM} aria-label={`Détail — ${title}`} title="Détail">
-          <Eye aria-hidden style={{ width: 15, height: 15 }} />
-        </button>
-        <button className="slb-nbtn slb-nbtn-ok" style={NBTN_SM} onClick={() => onRead(n.id)} aria-label={`Marquer comme lue — ${title}`} title="Marquer comme lue">
-          <Check aria-hidden style={{ width: 15, height: 15 }} />
-        </button>
+    <div>
+      <span style={{ ...lbl, marginTop: 2 }}>Informations affichées</span>
+      {NOTIF_FIELDS.map((f) => (
+        <label key={f.key} style={line}>
+          <input type="checkbox" style={box} checked={on.has(f.key)} onChange={() => toggle(f.key)} />
+          <span>{f.label}</span>
+        </label>
+      ))}
+      <label style={line}>
+        <input type="checkbox" style={box} checked={cfg.detail} onChange={(e) => onChange({ ...cfg, detail: e.target.checked })} />
+        <span>Bouton « Détail » vers la fiche</span>
+      </label>
+      <label style={line}>
+        <input type="checkbox" style={box} checked={cfg.marquage} onChange={(e) => onChange({ ...cfg, marquage: e.target.checked })} />
+        <span>État « Non lu » et bouton « Vu »</span>
+      </label>
+      <span style={lbl}>Nombre de lignes</span>
+      <div style={{ display: "flex", gap: "6px" }}>
+        {NOTIF_LIMITS.map((n) => (
+          <button key={n} style={seg(cfg.limite === n)} onClick={() => onChange({ ...cfg, limite: n })} aria-pressed={cfg.limite === n}>{n}</button>
+        ))}
       </div>
     </div>
   );
 }
 
-function NotifWidget({ items, onRead, onReadAll }: { items: Notif[]; onRead: (id: string) => void; onReadAll: () => void }) {
+function NotifRow({ n, cfg, nonLu, onVu }: { n: Notif; cfg: NotifsCfg; nonLu: boolean; onVu?: () => void }) {
+  const title = n.nom || n.societe || DASH;
+  const on = (k: string) => cfg.champs.includes(k);
   return (
-    <Widget icon={Bell} title="Nouveaux dossiers Abonné"
-      sub={items.length ? `${items.length} notification${items.length > 1 ? "s" : ""} non lue${items.length > 1 ? "s" : ""}` : "Aucune notification non lue"}
-      headActions={items.length > 0 ? (
-        <button className="slb-nbtn slb-nbtn-ok" style={NBTN_SM} onClick={onReadAll} aria-label="Tout marquer comme lu" title="Tout marquer comme lu">
-          <CheckCheck aria-hidden style={{ width: 15, height: 15 }} />
+    <div className="slb-row" style={{ display: "flex", alignItems: "center", gap: "11px", padding: "11px 16px",
+      // Fond très légèrement teinté pour un dossier non vu — la pastille porte le sens,
+      // ceci n'est qu'un repère de balayage (la couleur ne dit jamais seule, charte).
+      background: cfg.marquage && nonLu ? T.brand050 : undefined }}>
+      <span aria-hidden style={{ width: 32, height: 32, borderRadius: "9px", flex: "none", display: "grid", placeItems: "center", color: "#fff", fontSize: "11.5px", fontWeight: 700, letterSpacing: ".03em", background: avatarBg(title) }}>
+        {initials(title)}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+          <span style={{ flex: "0 1 auto", minWidth: 0, fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+          {cfg.marquage && nonLu && <Badge variant="warn" dot>Non lu</Badge>}
+        </div>
+        {/* Les badges d'abord (ils portent l'état), le texte gris ensuite. Chaque
+            information ne s'affiche que si elle est retenue dans la cfg. */}
+        {(on("statut") || on("offre")) && (
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "5px" }}>
+            {on("statut") && <StatusBadge value={n.statut} />}
+            {on("offre") && n.offre && <Badge variant="brand" dot>{n.offre}</Badge>}
+          </div>
+        )}
+        {(on("partenaire") || on("creeLe")) && (
+          <div style={{ marginTop: "5px", fontSize: "11.5px", fontWeight: 500, color: T.ink4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            title={on("creeLe") ? `Créé le ${fmtDate(n.creeLe)}` : undefined}>
+            {[on("creeLe") ? fmtRel(n.creeLe) : "", on("partenaire") && n.partenaire ? `via ${n.partenaire}` : ""]
+              .filter(Boolean).join(" · ")}
+          </div>
+        )}
+      </div>
+      {/* « Vu » n'apparaît QUE s'il peut réellement agir : marquage activé, dossier non
+          lu, ET une notification appariée avec une écriture possible. Un bouton présent
+          mais inopérant vaut moins qu'un bouton absent. */}
+      {cfg.marquage && nonLu && onVu && (
+        <button className="slb-nbtn slb-nbtn-ok" style={NBTN_SM} onClick={onVu}
+          aria-label={`Marquer comme vu — ${title}`} title="Marquer comme vu">
+          <Check aria-hidden style={{ width: 15, height: 15 }} />
         </button>
-      ) : null}>
+      )}
+      {cfg.detail && (
+        /* Lien et NON bouton : c'est une navigation. `target="_top"` parce que le bloc
+           vit dans une iframe — sans lui, la fiche s'ouvrirait DANS le widget. */
+        <a href={softrPageUrl(ABONNE_PAGE_SLUG, { [ABONNE_PAGE_PARAM]: n.id })} target="_top"
+          className="slb-btng" aria-label={`Détail — ${title}`} title="Ouvrir la fiche abonné"
+          style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12px", fontWeight: 600, textDecoration: "none" }}>
+          Détail<ChevronRight aria-hidden style={{ width: 13, height: 13 }} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function NotifWidget({ items, cfg, notifs }: { items: Notif[]; cfg: NotifsCfg; notifs: SourceApi }) {
+  /* Marquer comme vu = ÉCRIRE false sur « Statut de lecture ». Oui, false : dans cette
+     table la case cochée signifie « à lire » (voir SELECT_NOTIF_C). C'est le seul
+     endroit du fichier où cette inversion se traduit en écriture. */
+  const marquerVu = (notifId: string) => { void notifs.write?.update(notifId, { aLire: false }); };
+  const nonLus = cfg.marquage
+    ? items.filter((n) => isTruthy(matchNotifC(notifs.rows, n.id)?.aLire)).length
+    : 0;
+  return (
+    <Widget icon={Bell} title="Derniers dossiers Abonné"
+      sub={!items.length ? "Aucun dossier"
+        : cfg.marquage && nonLus ? `${nonLus} non lu${nonLus > 1 ? "s" : ""} sur ${items.length}`
+        : `${items.length} dossier${items.length > 1 ? "s" : ""} récent${items.length > 1 ? "s" : ""}`}>
       {items.length === 0 ? (
-        <EmptyState dense icon={CheckCircle} title="Vous êtes à jour" hint="Les nouveaux dossiers abonnés créés par vos partenaires apparaîtront ici." />
+        <EmptyState dense icon={Inbox} title="Aucun dossier récent" hint="Les dossiers abonnés créés par vos partenaires apparaîtront ici." />
       ) : (
         <ScrollBody>
-          {items.map((n) => <NotifRow key={n.id} n={n} onRead={onRead} />)}
+          {items.map((n) => {
+            const notif = cfg.marquage ? matchNotifC(notifs.rows, n.id) : null;
+            return (
+              <NotifRow key={n.id} n={n} cfg={cfg} nonLu={isTruthy(notif?.aLire)}
+                onVu={notif && notifs.write ? () => marquerVu(notif.id) : undefined} />
+            );
+          })}
         </ScrollBody>
       )}
     </Widget>
@@ -2612,22 +3016,18 @@ const RECENT = 12;
    connectée sert son mock (aperçu) ou une liste vide (live) — l'état vide guidant
    du présentiel s'affiche alors. Les mappers sont les mêmes dans les deux cas,
    puisque les lignes ont la même forme (alias du SELECT_*). --- */
-function NotifsCard() {
-  // « Marquer comme lue » = masquage LOCAL (la table « Abonnés » n'a pas de champ
-  // « Lu », choix validé, README §4-D) → non persistant, réapparaît au rechargement.
-  const [readIds, setReadIds] = useState<string[]>([]);
+/* Deux sources imbriquées : les dossiers, et leur état de lecture. Tant que
+   « Notification Center » n'est pas connectée, `SourceFeed` sert son mock (§6-bis) : le
+   marquage est donc testable en aperçu — l'écriture y est simulée et tracée en console,
+   plutôt que muette. */
+function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
   return (
     <SourceFeed source="abonnes">
-      {(s) => {
-        const all = s.rows.slice(0, RECENT).map(mapNotif);
-        return (
-          <NotifWidget
-            items={all.filter((n) => !readIds.includes(n.id))}
-            onRead={(id) => setReadIds((r) => [...r, id])}
-            onReadAll={() => setReadIds(all.map((n) => n.id))}
-          />
-        );
-      }}
+      {(ab) => (
+        <SourceFeed source="notifC">
+          {(nc) => <NotifWidget items={ab.rows.slice(0, cfg.limite).map(mapNotif)} cfg={cfg} notifs={nc} />}
+        </SourceFeed>
+      )}
     </SourceFeed>
   );
 }
@@ -3139,6 +3539,356 @@ function AnnoncesCard() {
   );
 }
 
+/* ============================================================================
+   9-sexies. WIDGETS UTILITAIRES — sans source de données
+   ----------------------------------------------------------------------------
+   Trois widgets qui ne lisent AUCUNE table : leur contenu est leur cfg, donc il
+   voyage dans `layout_json` avec le reste de la disposition. Conséquences utiles :
+   ils fonctionnent sans qu'aucune source soit branchée, ils sont propres à chaque
+   utilisateur, et ils suivent la personne d'un poste à l'autre (la BDD est la source
+   de vérité, cf. §11).
+
+   ⚠️ Ce ne sont PAS des notes d'équipe. Un pense-bête écrit ici n'est visible que de
+   son auteur et n'a aucun lien avec les tables « Suivi client » / « Suivi propect ».
+   Pour une note partagée, c'est un widget `data` sur la source qui convient.
+   ⚠️ Le document de disposition n'est pas une base de données : garder ces contenus
+   COURTS (les bornes ci-dessous ne sont pas décoratives — un `layout_json` obèse est
+   rechargé à chaque affichage de la page).
+   ============================================================================ */
+const MEMO_MAX = 2000;        // caractères d'un pense-bête
+const CHECK_MAX = 40;         // lignes d'une liste à cocher
+const CHECK_TEXT_MAX = 160;   // caractères par ligne
+
+/** Accès en écriture à sa propre cfg, ou `null` en mode Personnaliser. */
+const useCfgWriter = () => useContext(WidgetCfgCtx);
+
+/* --- HORLOGE ------------------------------------------------------------------
+   Le seul widget dont l'état vient du temps et non d'une donnée. Deux réglages, et
+   le pas de rafraîchissement en découle : afficher les secondes impose un rendu par
+   seconde, s'en passer permet de ne se réveiller que toutes les 20 s. Un tableau de
+   bord ouvert toute la journée n'a pas à repeindre 86 400 fois pour rien. */
+type HorlogeCfg = { secondes: boolean; date: boolean };
+const coerceHorlogeCfg = (raw: unknown): HorlogeCfg => {
+  const o = asObj(raw);
+  return { secondes: o.secondes === true, date: o.date !== false };
+};
+
+function HorlogeCard({ cfg }: { cfg: HorlogeCfg }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const period = cfg.secondes ? 1000 : 20000;
+    const t = window.setInterval(() => setNow(new Date()), period);
+    return () => window.clearInterval(t);
+  }, [cfg.secondes]);
+  const heure = now.toLocaleTimeString("fr-FR", {
+    hour: "2-digit", minute: "2-digit", ...(cfg.secondes ? { second: "2-digit" } : {}),
+  });
+  const jour = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  return (
+    <Widget icon={Clock} title="Heure" sub={cfg.date ? undefined : "Heure locale"}>
+      <div style={{ padding: "18px 16px 20px", textAlign: "center" }}>
+        <div style={{ fontSize: "clamp(30px, 7vw, 44px)", lineHeight: 1, fontWeight: 800, letterSpacing: "-.02em", color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+          {heure}
+        </div>
+        {cfg.date && (
+          <div style={{ marginTop: 8, fontSize: "12.5px", fontWeight: 600, color: T.ink3, textTransform: "capitalize" }}>{jour}</div>
+        )}
+      </div>
+    </Widget>
+  );
+}
+
+function HorlogeOptions({ cfg, onChange }: { cfg: HorlogeCfg; onChange: (next: HorlogeCfg) => void }) {
+  const line: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 };
+  const box: CSSProperties = { width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: "pointer" };
+  return (
+    <div>
+      <label style={line}>
+        <input type="checkbox" style={box} checked={cfg.secondes} onChange={(e) => onChange({ ...cfg, secondes: e.target.checked })} />
+        <span>Afficher les secondes</span>
+      </label>
+      <label style={line}>
+        <input type="checkbox" style={box} checked={cfg.date} onChange={(e) => onChange({ ...cfg, date: e.target.checked })} />
+        <span>Afficher la date du jour</span>
+      </label>
+    </div>
+  );
+}
+
+/* --- PENSE-BÊTE, avec mise en forme ------------------------------------------
+   Deux modes : LECTURE (le texte mis en forme) et ÉDITION (une zone de saisie + une
+   barre d'outils). Le contenu reste `cfg.text`, une simple CHAÎNE — donc les notes
+   déjà écrites restent valides, sans migration.
+
+   ⚠️ POURQUOI PAS UN ÉDITEUR HTML (`contentEditable` + `execCommand`). Ce serait plus
+   court à écrire, mais il faudrait stocker du HTML et le réafficher via
+   `dangerouslySetInnerHTML` — donc écrire un assainisseur maison, c'est-à-dire la
+   pièce la plus facile à rater de tout ce fichier, sur un contenu qui fait
+   l'aller-retour par la base. `execCommand` est de surcroît déprécié.
+   Ici le stockage est du TEXTE BALISÉ et le rendu produit des éléments React : aucune
+   chaîne n'est jamais interprétée comme du HTML, l'injection est donc impossible par
+   construction, pas par vigilance.
+
+   Le balisage est volontairement minuscule (la barre d'outils l'écrit pour vous) :
+     **gras**   *italique*   ~~barré~~   {rouge}coloré{/}   « - » en début de ligne
+   ESPACES ET RETOURS À LA LIGNE sont conservés tels quels, en édition comme en
+   lecture (`white-space: pre-wrap`) : deux espaces restent deux espaces, une ligne
+   vide reste une ligne vide.
+
+   L'enregistrement se fait à la PERTE DE FOCUS et non à chaque frappe : `persistCfg`
+   réécrit tout le document `layout_json`, une écriture par caractère saturerait la
+   base. Un état « modifié » l'indique entre-temps ; Ctrl/⌘+Entrée enregistre sans
+   quitter le champ. */
+type MemoCfg = { text: string };
+const coerceMemoCfg = (raw: unknown): MemoCfg => ({ text: asText(asObj(raw).text).slice(0, MEMO_MAX) });
+
+/* Palette de la charte, pas de roue chromatique libre : quatre couleurs qui ont déjà
+   un sens dans le bloc (danger, attention, ok, marque). */
+const MEMO_COLORS: { key: string; label: string; color: string }[] = [
+  { key: "rouge", label: "Rouge", color: T.danger },
+  { key: "ambre", label: "Ambre", color: T.warn },
+  { key: "vert", label: "Vert", color: T.ok },
+  { key: "teal", label: "Teal", color: T.brand },
+];
+const MEMO_COLOR_OF: Record<string, string> = Object.fromEntries(MEMO_COLORS.map((c) => [c.key, c.color]));
+
+/* ⚠️ L'ORDRE DES ALTERNATIVES COMPTE : `**` doit être tenté avant `*`, sinon
+   « **gras** » se lirait comme un italique vide suivi de « gras ». Les quantificateurs
+   sont paresseux et exigent au moins un caractère, ce qui garantit que chaque tour de
+   boucle consomme du texte — pas de boucle infinie possible. */
+const MEMO_INLINE_RE = /\{(rouge|ambre|vert|teal)\}([\s\S]*?)\{\/\}|\*\*([\s\S]+?)\*\*|~~([\s\S]+?)~~|\*([\s\S]+?)\*/;
+
+/** Texte balisé → éléments React. Récursive (une couleur peut contenir du gras). */
+function memoInline(text: string, k: string): ReactNode[] {
+  const out: ReactNode[] = [];
+  let rest = text, n = 0;
+  while (rest) {
+    const m = MEMO_INLINE_RE.exec(rest);
+    if (!m) { out.push(rest); break; }
+    if (m.index > 0) out.push(rest.slice(0, m.index));
+    const key = `${k}-${n++}`;
+    if (m[1] !== undefined) out.push(<span key={key} style={{ color: MEMO_COLOR_OF[m[1]] }}>{memoInline(m[2], key)}</span>);
+    else if (m[3] !== undefined) out.push(<strong key={key} style={{ fontWeight: 700, color: T.ink }}>{memoInline(m[3], key)}</strong>);
+    else if (m[4] !== undefined) out.push(<s key={key}>{memoInline(m[4], key)}</s>);
+    else out.push(<em key={key}>{memoInline(m[5], key)}</em>);
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return out;
+}
+
+/** Rendu en lecture : les lignes « - » deviennent des puces, regroupées en une seule
+ *  liste tant qu'elles se suivent. Le reste garde ses espaces et ses sauts de ligne. */
+function MemoRead({ text }: { text: string }) {
+  const blocs: ReactNode[] = [];
+  const lignes = text.split("\n");
+  let puces: string[] = [];
+  const viderPuces = () => {
+    if (!puces.length) return;
+    blocs.push(
+      <ul key={`u${blocs.length}`} style={{ margin: "2px 0 6px", paddingLeft: 18 }}>
+        {puces.map((p, i) => <li key={i} style={{ margin: "2px 0" }}>{memoInline(p, `u${blocs.length}-${i}`)}</li>)}
+      </ul>,
+    );
+    puces = [];
+  };
+  lignes.forEach((ln, i) => {
+    if (ln.startsWith("- ")) { puces.push(ln.slice(2)); return; }
+    viderPuces();
+    blocs.push(
+      <div key={`l${i}`} style={{ whiteSpace: "pre-wrap", minHeight: ln ? undefined : "1em" }}>
+        {memoInline(ln, `l${i}`)}
+      </div>,
+    );
+  });
+  viderPuces();
+  return <div style={{ fontSize: "13px", fontWeight: 500, color: T.ink2, lineHeight: 1.55, overflowWrap: "anywhere" }}>{blocs}</div>;
+}
+
+function MemoCard({ cfg }: { cfg: MemoCfg }) {
+  const writer = useCfgWriter();
+  const [text, setText] = useState(cfg.text);
+  const [dirty, setDirty] = useState(false);
+  // On ouvre en LECTURE quand il y a déjà quelque chose à lire, en édition sinon.
+  const [edit, setEdit] = useState(!cfg.text);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  /* La cfg peut changer sous nos pieds (autre onglet, rechargement depuis la BDD). On
+     ne l'écrase que si l'utilisateur n'a pas de saisie en cours — sinon on lui
+     volerait ce qu'il tape. */
+  useEffect(() => { if (!dirty) setText(cfg.text); }, [cfg.text, dirty]);
+  const commit = () => {
+    if (!dirty || !writer) return;
+    writer.save({ text: text.slice(0, MEMO_MAX) });
+    setDirty(false);
+  };
+
+  /** Entoure la sélection courante des marqueurs demandés, puis restitue le focus et
+   *  la sélection — sans quoi chaque clic de la barre d'outils ferait perdre sa place. */
+  const wrapSel = (before: string, after: string) => {
+    const ta = taRef.current; if (!ta || !writer) return;
+    const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0;
+    setText(text.slice(0, s) + before + text.slice(s, e) + after + text.slice(e));
+    setDirty(true);
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(s + before.length, e + before.length); });
+  };
+  /** Préfixe « - » sur toutes les lignes touchées par la sélection (ou la ligne du
+   *  curseur), en basculant : re-cliquer retire les puces. */
+  const togglePuces = () => {
+    const ta = taRef.current; if (!ta || !writer) return;
+    const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0;
+    const debut = text.lastIndexOf("\n", s - 1) + 1;
+    const finRel = text.indexOf("\n", e);
+    const fin = finRel === -1 ? text.length : finRel;
+    const bloc = text.slice(debut, fin).split("\n");
+    const toutesPuces = bloc.every((l) => l.startsWith("- "));
+    const next = bloc.map((l) => (toutesPuces ? l.replace(/^- /, "") : l ? `- ${l}` : l)).join("\n");
+    setText(text.slice(0, debut) + next + text.slice(fin));
+    setDirty(true);
+    requestAnimationFrame(() => ta.focus());
+  };
+
+  const maxHeight = useContext(WidgetHeightCtx);
+  const tool: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, cursor: "pointer", fontFamily: "inherit", flex: "none" };
+
+  return (
+    <Widget icon={FileSignature} title="Pense-bête"
+      sub={!writer ? "Lecture seule en mode Personnaliser" : dirty ? "Modifications non enregistrées" : "Enregistré"}
+      headActions={writer ? (
+        <button className="slb-nbtn" style={NBTN_SM} onClick={() => { if (edit) commit(); setEdit(!edit); }}
+          aria-label={edit ? "Aperçu" : "Modifier"} title={edit ? "Aperçu" : "Modifier"}>
+          {edit ? <Eye aria-hidden style={{ width: 15, height: 15 }} /> : <Pencil aria-hidden style={{ width: 15, height: 15 }} />}
+        </button>
+      ) : null}>
+      <div style={{ padding: "12px 16px 16px" }}>
+        {edit && writer ? (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: 8 }}>
+              <button style={tool} onClick={() => wrapSel("**", "**")} aria-label="Gras" title="Gras"><Bold aria-hidden style={{ width: 14, height: 14 }} /></button>
+              <button style={tool} onClick={() => wrapSel("*", "*")} aria-label="Italique" title="Italique"><Italic aria-hidden style={{ width: 14, height: 14 }} /></button>
+              <button style={tool} onClick={() => wrapSel("~~", "~~")} aria-label="Barré" title="Barré"><Strikethrough aria-hidden style={{ width: 14, height: 14 }} /></button>
+              <button style={tool} onClick={togglePuces} aria-label="Liste à puces" title="Liste à puces"><List aria-hidden style={{ width: 14, height: 14 }} /></button>
+              <span aria-hidden style={{ width: 1, height: 20, background: T.line, margin: "0 2px" }} />
+              {MEMO_COLORS.map((c) => (
+                <button key={c.key} onClick={() => wrapSel(`{${c.key}}`, "{/}")} aria-label={`Couleur ${c.label}`} title={c.label}
+                  style={{ ...tool, width: 24, height: 24 }}>
+                  <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, background: c.color }} />
+                </button>
+              ))}
+            </div>
+            <textarea
+              ref={taRef}
+              value={text}
+              maxLength={MEMO_MAX}
+              onChange={(e) => { setText(e.target.value); setDirty(true); }}
+              onBlur={commit}
+              onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); commit(); } }}
+              placeholder={"Notes personnelles — visibles de vous seul.\n\n**gras**  *italique*  ~~barré~~\n- une puce"}
+              aria-label="Pense-bête"
+              style={{ width: "100%", boxSizing: "border-box", minHeight: 90, maxHeight: Math.max(90, maxHeight - 80), resize: "none",
+                padding: "10px 11px", borderRadius: T.rSm, border: `1px solid ${dirty ? T.brand100 : T.line}`,
+                background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "13px", fontWeight: 500, lineHeight: 1.5,
+                whiteSpace: "pre-wrap" }}
+            />
+            {dirty && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <button className="slb-btnp" onClick={commit}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: "none", background: T.brand, color: "#fff", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
+                  <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
+                </button>
+              </div>
+            )}
+          </>
+        ) : text ? (
+          <MemoRead text={text} />
+        ) : (
+          <EmptyState dense icon={FileSignature} title="Pense-bête vide"
+            hint={writer ? "Cliquez sur le crayon pour écrire." : "Quittez le mode Personnaliser pour écrire."} />
+        )}
+      </div>
+    </Widget>
+  );
+}
+
+/* --- LISTE À COCHER -----------------------------------------------------------
+   Volontairement DISTINCTE du « Journal des tâches » : celui-ci lit les tâches
+   Airtable de l'équipe, celle-ci est un pense-bête à cases, privé, sans échéance ni
+   assignation. Ne pas les fusionner — ce sont deux objets métier différents.
+   Chaque geste (cocher, ajouter, retirer) écrit : ce sont des actes discrets et rares,
+   contrairement à la frappe au clavier du pense-bête. */
+type CheckItem = { id: string; texte: string; fait: boolean };
+type ChecklistCfg = { items: CheckItem[] };
+
+const coerceChecklistCfg = (raw: unknown): ChecklistCfg => {
+  const list = Array.isArray(asObj(raw).items) ? (asObj(raw).items as unknown[]) : [];
+  const seen = new Set<string>();
+  const items: CheckItem[] = [];
+  for (const it of list) {
+    if (items.length >= CHECK_MAX) break;
+    const o = asObj(it);
+    const id = asText(o.id);
+    const texte = asText(o.texte).slice(0, CHECK_TEXT_MAX);
+    if (!id || !texte || seen.has(id)) continue;   // ligne sans texte = ligne perdue, on l'écarte
+    seen.add(id);
+    items.push({ id, texte, fait: o.fait === true });
+  }
+  return { items };
+};
+
+function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
+  const writer = useCfgWriter();
+  const [saisie, setSaisie] = useState("");
+  const write = (items: CheckItem[]) => writer?.save({ items: items.slice(0, CHECK_MAX) });
+  const ajouter = () => {
+    const texte = saisie.trim().slice(0, CHECK_TEXT_MAX);
+    if (!texte || !writer || cfg.items.length >= CHECK_MAX) return;
+    // Id local : un compteur suffirait mais deux onglets le referaient à l'identique.
+    write([...cfg.items, { id: `c_${Math.random().toString(36).slice(2, 8)}`, texte, fait: false }]);
+    setSaisie("");
+  };
+  const restants = cfg.items.filter((i) => !i.fait).length;
+  return (
+    <Widget icon={ClipboardList} title="Liste à cocher"
+      sub={cfg.items.length ? `${restants} sur ${cfg.items.length} à faire` : "Vos rappels personnels"}>
+      {writer && (
+        <div style={{ display: "flex", gap: "8px", padding: "12px 16px 10px", borderBottom: `1px solid ${T.line}` }}>
+          <input value={saisie} maxLength={CHECK_TEXT_MAX} onChange={(e) => setSaisie(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); ajouter(); } }}
+            placeholder="Ajouter une ligne…" aria-label="Nouvelle ligne"
+            style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 }} />
+          <button className="slb-btng" onClick={ajouter} aria-label="Ajouter" title="Ajouter"
+            style={{ flex: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, cursor: "pointer" }}>
+            <Plus aria-hidden style={{ width: 15, height: 15 }} />
+          </button>
+        </div>
+      )}
+      {!cfg.items.length ? (
+        <EmptyState dense icon={ClipboardList} title="Rien à faire"
+          hint={writer ? "Ajoutez une ligne ci-dessus." : "Quittez le mode Personnaliser pour écrire."} />
+      ) : (
+        <ScrollBody>
+          {cfg.items.map((it) => (
+            <div key={it.id} className="slb-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 16px" }}>
+              <input type="checkbox" checked={it.fait} disabled={!writer} aria-label={it.texte}
+                onChange={() => write(cfg.items.map((x) => (x.id === it.id ? { ...x, fait: !x.fait } : x)))}
+                style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: writer ? "pointer" : "default" }} />
+              {/* Le texte barré ne suffit pas à porter le sens (charte) : la case
+                  cochée le dit déjà, la couleur atténuée n'est qu'un renfort. */}
+              <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: it.fait ? T.ink4 : T.ink2, textDecoration: it.fait ? "line-through" : undefined, overflowWrap: "anywhere" }}>
+                {it.texte}
+              </span>
+              {writer && (
+                <button className="slb-nbtn slb-hact" style={NBTN_SM} aria-label={`Retirer — ${it.texte}`} title="Retirer"
+                  onClick={() => write(cfg.items.filter((x) => x.id !== it.id))}>
+                  <X aria-hidden style={{ width: 14, height: 14 }} />
+                </button>
+              )}
+            </div>
+          ))}
+        </ScrollBody>
+      )}
+    </Widget>
+  );
+}
+
 /* --- Registre des TYPES de widget. Les CLÉS SONT UN CONTRAT DE PERSISTANCE :
       une fois livrées, ne JAMAIS les renommer (les layouts sauvegardés y font
       référence). `title` = libellé du menu « Personnaliser » (le titre affiché
@@ -3164,6 +3914,8 @@ type WidgetTypeKey =
      un seul champ SAV (somme, moyenne, comptage filtré), préférer un widget `data`
      posé depuis les presets `sav` du catalogue (§6-bis) — aucun code requis. */
   | "sav"
+  /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
+  | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
   | "list" | "kpi";   // ← DÉPRÉCIÉS : livrés en rév. 1, rendent comme `data` (cfg traduite)
 
@@ -3193,7 +3945,8 @@ const dataType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTyp
 });
 
 const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
-  notifs: { title: "Nouveaux dossiers Abonné", icon: Bell, Render: NotifsCard },
+  notifs: { title: "Derniers dossiers Abonné", icon: Bell, Render: NotifsCard,
+            defaults: () => coerceNotifsCfg({}), coerce: coerceNotifsCfg, Options: NotifsOptions },
   taches: { title: "Journal des tâches", icon: CalendarClock, Render: TachesCard },
   notesInstallateurs: dataType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
   notesProspects: dataType("Dernières notes — Prospects", Target, NOTES_PRO_CFG),
@@ -3206,6 +3959,14 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
      donc inchangées, sans migration. */
   sav: { title: "Pilotage SAV — synthèse", icon: Ticket, Render: SavCard,
          defaults: () => coerceSavCfg({}), coerce: coerceSavCfg, Options: SavOptions },
+  /* Utilitaires (§9-sexies). `memo` et `checklist` n'ont PAS d'`Options` : leur seul
+     réglage serait leur contenu, et il s'édite dans le widget — pas derrière un ⋮. */
+  horloge: { title: "Heure", icon: Clock, Render: HorlogeCard,
+             defaults: () => coerceHorlogeCfg({}), coerce: coerceHorlogeCfg, Options: HorlogeOptions },
+  memo: { title: "Pense-bête", icon: FileSignature, Render: MemoCard,
+          defaults: () => coerceMemoCfg({}), coerce: coerceMemoCfg },
+  checklist: { title: "Liste à cocher", icon: ClipboardList, Render: ChecklistCard,
+               defaults: () => coerceChecklistCfg({}), coerce: coerceChecklistCfg },
   data: dataType("Widget de données", LayoutGrid, DATA_CFG),
   /* --- Clés DÉPRÉCIÉES, conservées par contrat de persistance : elles ont été
      livrées, donc des instances peuvent exister chez des utilisateurs. Elles
@@ -3252,7 +4013,14 @@ type WidgetWidth = "half" | "full";
  *  `type`: volontairement `string` (et non WidgetTypeKey) pour pouvoir CONSERVER
  *          sans perte une instance dont le type est inconnu du code courant.
  *  `cfg` : laissée BRUTE en stockage ; c'est le type qui l'interprète au rendu. */
-type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize };
+/*  `preset` : clé du MODÈLE de galerie dont l'instance est issue. Elle sert à
+ *  n'autoriser qu'un exemplaire de chaque modèle (décision du 2026-08-03).
+ *  Facultative, et c'est voulu : les instances écrites avant son introduction n'en
+ *  ont pas. Le repli est `type`, ce qui tombe juste pour tous les types sur-mesure
+ *  — leur clé de modèle EST leur clé de type (cf. `CUSTOM_TYPES`). Un ancien widget
+ *  `data` sans `preset` ne bloque donc rien : on tolère l'existant plutôt que de
+ *  réécrire des documents déjà en base. */
+type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize; preset?: string };
 
 /** `items` : visibles — l'ordre du tableau EST l'ordre d'affichage.
  *  `parked`: types inconnus du code courant — ni rendus, ni perdus (compat descendante).
@@ -3319,6 +4087,7 @@ const GALLERY_GROUPS: { key: string; label: string; icon: string }[] = [
   { key: "notes", label: "Notes", icon: "HardHat" },
   { key: "sav", label: "Dossiers SAV", icon: "Ticket" },
   { key: "comm", label: "Communication", icon: "Newspaper" },
+  { key: "outils", label: "Utilitaires", icon: "Clock" },
   // Repli OBLIGATOIRE : voir groupOfSource ci-dessous. Ne pas retirer cette ligne.
   { key: "autres", label: "Autres", icon: "LayoutGrid" },
 ];
@@ -3345,11 +4114,16 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string }[] = [
   { type: "annonces", h: "sm", group: "comm" },
   // Posé en "lg" : la synthèse SAV a quatre sections, elle scrolle en "md".
   { type: "sav", h: "lg", group: "sav" },
+  // Utilitaires : l'horloge n'a aucune raison d'être haute.
+  { type: "horloge", h: "sm", group: "outils" },
+  { type: "memo", group: "outils" },
+  { type: "checklist", group: "outils" },
 ];
 
 /** Presets d'une source : ceux du descripteur, ou un modèle liste par défaut. */
 function presetsOf(s: SourceKey): Preset[] {
   const desc = CATALOG[s];
+  if (desc.technical) return [];        // source technique : absente de la galerie
   const hint = desc.connected ? undefined : "source non connectée";
   const declared = desc.presets ?? [];
   const list: PresetDesc[] = declared.length ? declared
@@ -3442,6 +4216,7 @@ function coerceInstance(raw: unknown, seen: Set<string>): Instance | null {
     cfg: o.cfg ?? {},                                            // BRUTE : jamais « réparée » en stockage
     w: o.w === "full" ? "full" : "half",                         // clamp
     h: o.h === "sm" || o.h === "lg" ? o.h : "md",                // clamp ("md" par défaut)
+    ...(typeof o.preset === "string" && o.preset ? { preset: o.preset } : {}),
   };
 }
 
@@ -3581,9 +4356,22 @@ function newInstanceId(taken: Set<string>): string {
   return id;
 }
 
-/** Ajoute une instance visible en fin de grille (galerie « Ajouter un widget »). PURE. */
-function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetSize = "md"): Layout {
-  const inst: Instance = { id: newInstanceId(takenIds(layout)), type, cfg, w: "half", h };
+/** Clé de modèle d'une instance : `preset` s'il est là, sinon son `type` (cf. la note
+ *  sur `Instance`). PURE. */
+const presetKeyOf = (i: Instance): string => i.preset ?? i.type;
+
+/** Modèles DÉJÀ posés sur la grille. Sert à n'en autoriser qu'un exemplaire. PURE. */
+const usedPresets = (layout: Layout): Set<string> =>
+  new Set(layout.items.map(presetKeyOf));
+
+/** Ajoute une instance visible en fin de grille (galerie « Ajouter un widget »). PURE.
+ *  UN SEUL EXEMPLAIRE PAR MODÈLE : si la clé est déjà posée, no-op. Le garde est ICI
+ *  et pas seulement dans la galerie — un bouton grisé est un confort, pas une règle,
+ *  et la règle doit tenir même si l'UI change. */
+function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetSize = "md", preset?: string): Layout {
+  const key = preset ?? type;
+  if (usedPresets(layout).has(key)) return layout;
+  const inst: Instance = { id: newInstanceId(takenIds(layout)), type, cfg, w: "half", h, ...(preset ? { preset } : {}) };
   return { ...layout, items: [...layout.items, inst] };
 }
 
@@ -3608,10 +4396,12 @@ function removeInstance(layout: Layout, id: string): Layout {
 /* --- Compteurs du héro. Le héro n'est PAS un widget : il lit lui-même ce qu'il
    affiche (dossiers récents + tâches partenaires urgentes < 3 j). `abonnes` est
    lu EN DIRECT (source connectée) ; les tâches partenaires ne sont pas encore
-   branchées → 0 urgente en live (valeur mock en aperçu). Écart mineur assumé :
-   le masquage local « lu » d'un widget n'affecte pas ces compteurs. Quand la
-   source des tâches partenaires sera connectée, la lire ici et calculer `urgent`
-   à partir de ses enregistrements. --- */
+   branchées → 0 urgente en live (valeur mock en aperçu). Quand la source des tâches
+   partenaires sera connectée, la lire ici et calculer `urgent` à partir de ses
+   enregistrements.
+   ⚠️ Ces compteurs portent sur les `RECENT` derniers dossiers, indépendamment de la
+   limite choisie dans les options du widget : le héro parle de l'activité, pas de ce
+   qu'un widget montre. --- */
 function useHeroCounts() {
   // Le héro n'est pas un widget : il lit ses sources lui-même. Comme un adapter, il
   // appelle useRecords avec `from` en DIRECT (contrainte Softr) et retombe sur
@@ -3799,11 +4589,31 @@ function Dashboard() {
     ro.observe(el);
     return () => ro.disconnect();
   });
-  // Styles FONCTIONNELS de la grille — inline, jamais en CSS injecté.
+  /* Styles FONCTIONNELS de la grille — inline, jamais en CSS injecté.
+     `alignItems: start` reste nécessaire : sans lui, un widget s'étirerait sur
+     toutes les lignes qu'il occupe et le tassement ne se verrait pas. */
   const dashStyle: CSSProperties = {
-    display: "grid", gap: "18px", alignItems: "start",
+    display: "grid",
     gridTemplateColumns: twoCols ? "repeat(2, minmax(0, 1fr))" : "1fr",
+    gridAutoRows: `${DASH_ROW}px`,
+    columnGap: `${DASH_GAP}px`,
+    rowGap: 0,                     // ⚠️ voir la note sur DASH_GAP : jamais de rowGap ici
+    alignItems: "start",
   };
+
+  /* Hauteur mesurée de chaque widget, en NOMBRE DE LIGNES de la grille. C'est ce qui
+     permet le tassement : la hauteur d'un widget n'est pas déductible de sa taille
+     réglée (`h` borne le corps scrollable par un `max-height` — un widget peu rempli
+     est plus court), il faut donc l'observer.
+     ⚠️ `offsetHeight` et NON `getBoundingClientRect()` : le FLIP applique des
+     `scale()` sur les wrappers pendant ses animations, et un rect inclut les
+     transforms des ancêtres — les hauteurs mesurées seraient fausses à chaque
+     réordonnancement. `offsetHeight` ignore les transforms. */
+  const [spans, setSpans] = useState<Record<string, number>>({});
+  const spanOf = (h: WidgetSize, hasFooter = true): number =>
+    // Repli avant la première mesure (et si ResizeObserver manque) : en-tête ~52 px,
+    // pied ~49 px. Évite un saut de mise en page au premier rendu.
+    Math.ceil((WIDGET_HEIGHTS[h] + 52 + (hasFooter ? 49 : 0) + DASH_GAP) / DASH_ROW);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Layout>(() => cloneDefault());
   const [confirmReset, setConfirmReset] = useState(false);
@@ -3843,7 +4653,14 @@ function Dashboard() {
     const next = new Map<string, DOMRect>();
     wrapRefs.current.forEach((el, id) => next.set(id, el.getBoundingClientRect()));
     const reduce = typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (changed && !reduce) {
+    /* ⚠️ JAMAIS D'ANIMATION PENDANT UN REDIMENSIONNEMENT ACTIF. Le FLIP est fait pour
+       un changement DISCRET (on lâche une carte ailleurs, elle glisse). Pendant un
+       glissement de poignée, la disposition change à chaque cran : les animations de
+       340 ms se déclenchaient en rafale et se chevauchaient, ce qui donnait cette
+       impression de tremblement où l'on ne distingue plus ce qu'on règle. Sans
+       animation, le changement est instantané et NET — on voit ce qu'on fait. */
+    const resizing = !!resizeRef.current || !!sizeRef.current;
+    if (changed && !reduce && !resizing) {
       wrapRefs.current.forEach((el, id) => {
         const p = prev.get(id), n = next.get(id);
         if (!p || !n) return;
@@ -3870,11 +4687,44 @@ function Dashboard() {
     flipPrev.current = next;
   });
 
+  /* Mesure des hauteurs pour le TASSEMENT. Un ResizeObserver par widget, sur le div
+     INTERNE (celui qui porte la carte), pas sur le wrapper : le wrapper inclut le
+     padding d'espacement et subit les transforms du FLIP.
+     · Pas de tableau de dépendances — comme la mesure des colonnes plus haut : le
+       ré-observage à chaque rendu prend en charge les widgets ajoutés ou retirés.
+     · Le garde `changed` est OBLIGATOIRE : sans lui, chaque mesure déclencherait un
+       rendu, qui recréerait l'observateur, qui mesurerait à nouveau — boucle infinie.
+     · Repli sans ResizeObserver : les spans restent ceux de `spanOf`, donc la
+       disposition reste correcte, simplement sans tassement au pixel. */
+  useEffect(() => {
+    if (typeof ResizeObserver !== "function") return;
+    const measure = () => {
+      setSpans((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        innerRefs.current.forEach((el, id) => {
+          const n = Math.ceil((el.offsetHeight + DASH_GAP) / DASH_ROW);
+          if (n > 0 && next[id] !== n) { next[id] = n; changed = true; }
+        });
+        return changed ? next : prev;
+      });
+    };
+    const ro = new ResizeObserver(measure);
+    innerRefs.current.forEach((el) => ro.observe(el));
+    measure();
+    return () => ro.disconnect();
+  });
+
   // La galerie s'ouvre toujours REPLIÉE : c'est l'intérêt du dépliant.
   const enterEdit = () => { setDraft(current); setConfirmReset(false); setOpenGroup(null); setEditing(true); };
   const cancel = () => { setEditing(false); setConfirmReset(false); resetDrag(); };
-  const runSave = async (next: Layout) => {
+  /** `silent` : succès sans toast. Réservé aux gestes DIRECTS et répétés (déplacer un
+   *  widget hors mode Personnaliser) — un bandeau de confirmation à chaque glissement
+   *  serait du bruit. L'ÉCHEC reste toujours annoncé : une écriture perdue en silence
+   *  est bien pire qu'un toast de trop. */
+  const runSave = async (next: Layout, silent = false) => {
     const res = await persist(next);                  // optimiste : le layout est déjà appliqué
+    if (silent && res.ok && !res.note) return;
     setToast(res.ok ? { ok: true, error: res.note } : { ok: false, layout: next, error: res.error });
   };
   const save = () => {
@@ -3899,55 +4749,120 @@ function Dashboard() {
   const onSetSize = (id: string, s: WidgetSize) => setDraft((d) => setWidgetSize(d, id, s));
   // Multi-instances (mode Personnaliser) — tout reste dans le brouillon jusqu'à « Enregistrer ».
   const onRemove = (id: string) => setDraft((d) => removeInstance(d, id));
-  const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md"));
+  const onAdd = (p: Preset) => setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md", p.key));
+  // Modèles déjà sur la grille — la galerie les grise (un seul exemplaire par modèle).
+  const posed = usedPresets(shown);
 
-  // DnD HTML5 natif. Drop hors cible → no-op (seul onDragEnd nettoie l'état).
+  /* DnD HTML5 natif. Drop hors cible → no-op (seul onDragEnd nettoie l'état).
+     DEUX RÉGIMES, et c'est la seule vraie différence entre les modes :
+     · en Personnaliser, le déplacement va dans le BROUILLON — « Enregistrer »
+       l'écrit, « Annuler » le jette, comme tous les autres réglages ;
+     · hors Personnaliser, il n'y a pas de brouillon : le déplacement est écrit
+       IMMÉDIATEMENT, sinon il serait perdu au rechargement. En silence si tout va
+       bien (cf. `runSave`), mais un échec s'affiche. */
   const onDrop = (to: number) => {
-    if (dragIndex !== null && dragIndex !== to) setDraft((d) => ({ ...d, items: reorder(d.items, dragIndex, to) }));
+    if (dragIndex !== null && dragIndex !== to) {
+      if (editing) setDraft((d) => ({ ...d, items: reorder(d.items, dragIndex, to) }));
+      else void runSave({ ...current, items: reorder(current.items, dragIndex, to) }, true);
+    }
     resetDrag();
   };
 
-  // Redimensionnement en largeur (poignées de bord) — événements POINTER (souris
-  // + tactile), PAS de DnD HTML5. On tire vers l'extérieur → pleine largeur, vers
-  // l'intérieur → normale (snap au seuil). side=+1 poignée droite, -1 gauche.
+  /** Préhension par l'en-tête, fournie à CHAQUE widget dans les deux modes.
+   *  L'image de glissement est forcée sur la carte entière : sans cela, le navigateur
+   *  ne trimballerait que le bandeau de l'en-tête, ce qui rend la cible illisible. */
+  const grabOf = (id: string, i: number): WidgetGrab => ({
+    onDragStart: (e) => {
+      if (resizeRef.current || sizeRef.current) { e.preventDefault(); return; }
+      // Un glisser ne part jamais d'un élément interactif de l'en-tête (le ⋮) :
+      // `dragstart` annulerait son clic — c'est le bug du 2026-08-03.
+      const from = e.target as Element | null;
+      if (from?.closest?.('button, select, input, textarea, label, a, [role="menu"], [role="dialog"]')) {
+        e.preventDefault(); return;
+      }
+      const card = wrapRefs.current.get(id);
+      if (card && e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(card, 24, 24);
+      setDragIndex(i);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", id);
+    },
+    onDragEnd: resetDrag,
+  });
+
+  /* --- VERROU DE HAUTEUR pendant un glissement de poignée -----------------------
+     La grille se tasse : régler un widget change la hauteur totale de la page, donc
+     la position de scroll relative — l'écran semblait « monter et descendre » sous
+     le curseur pendant qu'on réglait. On fige donc la hauteur du conteneur au début
+     du geste : la page ne peut plus RACCOURCIR pendant le réglage. Elle peut encore
+     s'allonger, sinon on ne verrait pas un widget grandir. Relâché au pointerup. --- */
+  const [lockH, setLockH] = useState<number | null>(null);
+  const freezeHeight = () => setLockH(gridRef.current?.offsetHeight ?? null);
+
+  /* Redimensionnement en largeur (poignées de bord) — événements POINTER (souris
+     + tactile), PAS de DnD HTML5. On tire vers l'extérieur → pleine largeur, vers
+     l'intérieur → normale. side=+1 poignée droite, -1 gauche.
+     ⚠️ HYSTÉRÉSIS : après chaque bascule, l'origine du geste est RECALÉE, si bien
+     qu'il faut refaire tout le seuil pour rebasculer. Sans ça, une main qui tremble
+     autour du seuil faisait osciller le widget entre les deux largeurs. */
+  const RESIZE_STEP = 56;
   const resizeRef = useRef<{ id: string; startX: number; side: 1 | -1 } | null>(null);
   const onResizeDown = (id: string, side: 1 | -1) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     resizeRef.current = { id, startX: e.clientX, side };
+    freezeHeight();
   };
   const onResizeMove = (e: ReactPointerEvent<HTMLElement>) => {
     const r = resizeRef.current; if (!r) return;
     const outward = (e.clientX - r.startX) * r.side; // >0 = tiré vers l'extérieur (élargir)
-    if (outward > 56) setDraft((d) => setWidgetWide(d, r.id, true));
-    else if (outward < -56) setDraft((d) => setWidgetWide(d, r.id, false));
+    if (outward > RESIZE_STEP) {
+      r.startX += RESIZE_STEP * r.side;              // recalage → hystérésis
+      setDraft((d) => setWidgetWide(d, r.id, true));
+    } else if (outward < -RESIZE_STEP) {
+      r.startX -= RESIZE_STEP * r.side;
+      setDraft((d) => setWidgetWide(d, r.id, false));
+    }
   };
   const onResizeUp = (e: ReactPointerEvent<HTMLElement>) => {
     if (!resizeRef.current) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     resizeRef.current = null;
+    setLockH(null);
   };
 
-  // Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
-  // plus grand, vers le haut = plus petit (snap sm→md→lg ~ tous les 70px).
+  /* Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
+     plus grand, vers le haut = plus petit (sm → md → lg).
+     ⚠️ C'ÉTAIT LA PRINCIPALE SOURCE DE TREMBLEMENT : le cran se calculait en
+     `Math.round(dy / 70)` depuis l'origine du geste, donc à mi-chemin d'un cran
+     (35 px) le moindre frémissement de la main faisait basculer la taille dans un
+     sens puis dans l'autre, en boucle. Même hystérésis que pour la largeur : un cran
+     est franchi, l'origine est recalée, il faut refaire 70 px pour le suivant. */
+  const SIZE_STEP = 70;
   const SIZE_STEPS: WidgetSize[] = ["sm", "md", "lg"];
-  const sizeRef = useRef<{ id: string; startY: number; startIdx: number } | null>(null);
+  const sizeRef = useRef<{ id: string; startY: number; idx: number } | null>(null);
   const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     const h = draft.items[idxOf(draft.items, id)]?.h ?? "md";
-    sizeRef.current = { id, startY: e.clientY, startIdx: SIZE_STEPS.indexOf(h) };
+    sizeRef.current = { id, startY: e.clientY, idx: SIZE_STEPS.indexOf(h) };
+    freezeHeight();
   };
   const onSizeMove = (e: ReactPointerEvent<HTMLElement>) => {
     const r = sizeRef.current; if (!r) return;
-    const steps = Math.round((e.clientY - r.startY) / 70);
-    const idx = Math.max(0, Math.min(SIZE_STEPS.length - 1, r.startIdx + steps));
+    const dy = e.clientY - r.startY;
+    if (Math.abs(dy) < SIZE_STEP) return;
+    const dir = dy > 0 ? 1 : -1;
+    const idx = Math.max(0, Math.min(SIZE_STEPS.length - 1, r.idx + dir));
+    r.startY += SIZE_STEP * dir;                     // recalage → hystérésis
+    if (idx === r.idx) return;                       // déjà au bout : rien à changer
+    r.idx = idx;
     setDraft((d) => setWidgetSize(d, r.id, SIZE_STEPS[idx]));
   };
   const onSizeUp = (e: ReactPointerEvent<HTMLElement>) => {
     if (!sizeRef.current) return;
     (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
     sizeRef.current = null;
+    setLockH(null);
   };
 
   const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "8px", padding: "8px 13px", borderRadius: T.rMd, fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
@@ -3992,7 +4907,11 @@ function Dashboard() {
       )}
 
       {loading ? (
-        <div ref={gridRef} className="slb-dash" style={dashStyle} aria-busy="true" aria-label="Chargement de votre disposition">
+        /* Les squelettes reprennent la grille MAIS pas le tassement : ils sont tous
+           de même hauteur, donc rien à tasser — et sans span calculé, les lignes
+           fines de `dashStyle` les écraseraient sur 4 px. D'où `gridAutoRows: auto`
+           et le `rowGap` rendu à la grille pour ce cas précis. */
+        <div ref={gridRef} className="slb-dash" style={{ ...dashStyle, gridAutoRows: "auto", rowGap: `${DASH_GAP}px` }} aria-busy="true" aria-label="Chargement de votre disposition">
           {[0, 1, 2, 3].map((k) => <SkeletonCard key={k} />)}
         </div>
       ) : shown.items.length === 0 ? (
@@ -4008,7 +4927,9 @@ function Dashboard() {
           )}
         </Card>
       ) : (
-        <div ref={gridRef} className="slb-dash" style={dashStyle}>
+        /* `minHeight` = verrou de hauteur pendant un glissement de poignée : la page
+           ne raccourcit pas sous le curseur (voir freezeHeight). */
+        <div ref={gridRef} className="slb-dash" style={{ ...dashStyle, minHeight: lockH ?? undefined }}>
           {shown.items.map((inst, i) => {
             // Type inconnu du code courant : ne devrait pas arriver (normalizeLayout
             // les met dans `parked`) — garde-fou pour ne jamais casser le rendu.
@@ -4018,43 +4939,47 @@ function Dashboard() {
             // cfg interprétée AU RENDU (le stockage reste brut, cf. §10-bis).
             const cfg = cfgOf(def, inst.cfg);
             const id = inst.id;
-            const isSource = editing && dragIndex === i;
-            const isTarget = editing && overIndex === i && dragIndex !== null && dragIndex !== i;
+            /* Le retour visuel du glissement ne dépend PLUS du mode : on déplace un
+               widget dans les deux, il faut voir la source s'estomper et la cible se
+               souligner dans les deux. */
+            const isSource = dragIndex === i;
+            const isTarget = overIndex === i && dragIndex !== null && dragIndex !== i;
             const wide = inst.w === "full";
             const size = inst.h;
             return (
+              /* Le WRAPPER est la zone de DÉPÔT (toute la carte) ; la préhension, elle,
+                 vit dans l'en-tête via `WidgetGrabCtx` — le wrapper n'est donc plus
+                 `draggable`. Deux bénéfices : le contenu reste sélectionnable hors
+                 édition, et un glisser ne peut plus partir du corps interactif. */
               <div key={id} className="slb-dragwrap"
                 ref={(el) => { if (el) wrapRefs.current.set(id, el); else wrapRefs.current.delete(id); }}
-                draggable={editing}
-                onDragStart={editing ? (e) => {
-                  if (resizeRef.current || sizeRef.current) { e.preventDefault(); return; }
-                  /* GARDE 3 du bug du 2026-08-03 — un `dragstart` ANNULE le `click`
-                     qui aurait suivi. Le geste partait d'un bouton du menu ⋮ (ou de
-                     son déclencheur), bougeait d'un pixel, et le navigateur jetait
-                     le clic : le panneau semblait « se fermer sans rien faire ».
-                     Un widget se glisse par sa carte ou sa poignée — jamais depuis un
-                     élément interactif. C'est le pendant de la garde ci-dessus, qui
-                     existait déjà pour les poignées de redimensionnement. */
-                  const from = e.target as Element | null;
-                  if (from?.closest?.('button, select, input, textarea, label, a, [role="menu"], [role="dialog"]')) {
-                    e.preventDefault(); return;
-                  }
-                  setDragIndex(i); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", id);
-                } : undefined}
-                onDragEnd={editing ? resetDrag : undefined}
-                onDragOver={editing ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overIndex !== i) setOverIndex(i); } : undefined}
-                onDragLeave={editing ? (e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverIndex((p) => (p === i ? null : p)); } : undefined}
-                onDrop={editing ? (e) => { e.preventDefault(); onDrop(i); } : undefined}
-                style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: editing ? "relative" : undefined, gridColumn: wide ? "1 / -1" : undefined, borderRadius: T.rXl, opacity: isSource ? 0.5 : 1, outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3, boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined }}>
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overIndex !== i) setOverIndex(i); }}
+                onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverIndex((p) => (p === i ? null : p)); }}
+                onDrop={(e) => { e.preventDefault(); onDrop(i); }}
+                style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: editing ? "relative" : undefined, gridColumn: wide ? "1 / -1" : undefined,
+                  /* TASSEMENT : le widget occupe autant de lignes fines que sa hauteur
+                     mesurée l'exige (repli `spanOf` avant la première mesure), et son
+                     espacement bas est DANS le span — cf. la note sur DASH_GAP. */
+                  gridRow: `span ${spans[id] ?? spanOf(size)}`,
+                  paddingBottom: DASH_GAP,
+                  borderRadius: T.rXl, opacity: isSource ? 0.5 : 1, outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3, boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined }}>
                 <div ref={(el) => { if (el) innerRefs.current.set(id, el); else innerRefs.current.delete(id); }} style={{ borderRadius: T.rXl }}>
                   <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onRemove: () => onRemove(id) } : null}>
                     {/* Options : mode NORMAL uniquement (en édition, le ⋮ porte les
                         actions de disposition et le corps est inerte). */}
                     <WidgetOptionsCtx.Provider value={!editing && def.Options ? { cfg, Form: def.Options, onSave: (c) => persistCfg(id, c) } : null}>
-                      {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
-                      <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
-                        <Render id={id} cfg={cfg} />
-                      </WidgetHeightCtx.Provider>
+                      {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
+                          hors édition seulement — pendant l'édition, `draft` fait
+                          autorité et deux écrivains s'écraseraient. */}
+                      <WidgetCfgCtx.Provider value={!editing ? { save: (c) => persistCfg(id, c) } : null}>
+                      {/* Préhension par l'en-tête — fournie dans LES DEUX modes. */}
+                      <WidgetGrabCtx.Provider value={grabOf(id, i)}>
+                        {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
+                        <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
+                          <Render id={id} cfg={cfg} />
+                        </WidgetHeightCtx.Provider>
+                      </WidgetGrabCtx.Provider>
+                      </WidgetCfgCtx.Provider>
                     </WidgetOptionsCtx.Provider>
                   </WidgetChromeCtx.Provider>
                 </div>
@@ -4062,7 +4987,13 @@ function Dashboard() {
                   <span key={side} className="slb-rzh" aria-hidden
                     onPointerDown={onResizeDown(id, side)} onPointerMove={onResizeMove} onPointerUp={onResizeUp} onPointerCancel={onResizeUp}
                     title={wide ? "Réduire la largeur" : "Élargir sur toute la largeur"}
-                    style={{ position: "absolute", top: 46, bottom: 10, [side === 1 ? "right" : "left"]: -3, width: 14, display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5 }}>
+                    /* `bottom` inclut DASH_GAP : le wrapper porte l'espacement bas du
+                       tassement, la poignée doit s'arrêter au bas de la CARTE.
+                       Position latérale à 0 et non -3 : la poignée reste DANS la carte,
+                       donc elle ne déborde ni sur le gap, ni sur la barre de défilement
+                       de la page pour la colonne de droite. Le corps ne montre plus de
+                       barre en édition (cf. ScrollBody), la place est libre. */
+                    style={{ position: "absolute", top: 46, bottom: 10 + DASH_GAP, [side === 1 ? "right" : "left"]: 0, width: 14, display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5 }}>
                     <span style={{ width: 4, height: 34, borderRadius: 999, background: T.line2 }} />
                   </span>
                 ))}
@@ -4070,7 +5001,8 @@ function Dashboard() {
                   <span className="slb-rzv" aria-hidden
                     onPointerDown={onSizeDown(id)} onPointerMove={onSizeMove} onPointerUp={onSizeUp} onPointerCancel={onSizeUp}
                     title="Glisser pour régler la hauteur (petit / moyen / grand)"
-                    style={{ position: "absolute", left: 24, right: 24, bottom: -3, height: 14, display: "grid", placeItems: "center", cursor: "ns-resize", touchAction: "none", zIndex: 5 }}>
+                    /* Idem : décalée de DASH_GAP pour rester au bas de la carte. */
+                    style={{ position: "absolute", left: 24, right: 24, bottom: DASH_GAP - 3, height: 14, display: "grid", placeItems: "center", cursor: "ns-resize", touchAction: "none", zIndex: 5 }}>
                     <span style={{ height: 4, width: 34, borderRadius: 999, background: T.line2 }} />
                   </span>
                 )}
@@ -4118,15 +5050,29 @@ function Dashboard() {
                     <div id={panelId} style={{ display: "flex", flexWrap: "wrap", gap: "8px", padding: "2px 12px 12px" }}>
                       {g.items.map((p) => {
                         const Icon = p.icon;
+                        /* Modèle déjà posé : bouton GRISÉ et non masqué. Retirer la
+                           ligne laisserait croire que le modèle n'existe plus ; la
+                           griser dit « tu l'as déjà », ce qui est l'information utile. */
+                        const already = posed.has(p.key);
                         return (
-                          <button key={p.key} className="slb-btng" onClick={() => onAdd(p)} aria-label={`Ajouter — ${p.label}`}
-                            style={{ ...btn, padding: "7px 12px", alignItems: "center" }}>
-                            <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink3 }} />
+                          <button key={p.key} className={already ? undefined : "slb-btng"} onClick={() => onAdd(p)}
+                            disabled={already}
+                            title={already ? "Déjà sur votre tableau de bord" : undefined}
+                            aria-label={already ? `${p.label} — déjà posé` : `Ajouter — ${p.label}`}
+                            style={{ ...btn, padding: "7px 12px", alignItems: "center",
+                              ...(already ? { background: T.surface2, color: T.ink4, cursor: "not-allowed" } : {}) }}>
+                            <Icon aria-hidden style={{ width: 15, height: 15, color: T.ink4 }} />
                             <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
                               <span style={{ fontSize: "12.5px", fontWeight: 600 }}>{p.label}</span>
-                              {p.hint && <span style={{ fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>{p.hint}</span>}
+                              {(already || p.hint) && (
+                                <span style={{ fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
+                                  {already ? "déjà posé" : p.hint}
+                                </span>
+                              )}
                             </span>
-                            <Plus aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />
+                            {already
+                              ? <Check aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />
+                              : <Plus aria-hidden style={{ width: 14, height: 14, color: T.ink4 }} />}
                           </button>
                         );
                       })}
