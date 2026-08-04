@@ -4,21 +4,27 @@
 > mécanique des widgets, et surtout **où et comment la data est persistée**.
 > Document de référence destiné à préparer la refonte du système de widgets ;
 > la cible et son plan de migration vivent dans `ARCHITECTURE-V2.md`.
-> Dernière mise à jour : 2026-07-31 — **la cible v2 est livrée jusqu'à sa RÉVISION 2** :
+> Dernière mise à jour : 2026-08-04 — **la cible v2 est livrée jusqu'à sa RÉVISION 2** :
 > disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES et **descripteur
 > `CATALOG`** ; **type générique unique `data`** (grammaire `query`/`view` → vues liste, tableau,
 > indicateur) avec un **formulaire d'options unique** ; multi-instances (galerie de presets
 > **déclarés dans le catalogue**, regroupés en dépliants par famille) ; **actions d'écriture déclaratives**
-> (`RowActions`, `QuickCreate`) ; persistance passée **sur Airtable**.
-> Reste à faire, hors refonte : brancher les **4 sources métier** encore en mock (recette
-> `ARCHITECTURE-V2.md` §10) — ce qui activera la première écriture réelle — puis passer
-> `USE_MOCK` à `false`.
+> (`RowActions`) ; persistance passée **sur Airtable**.
+>
+> **Le bloc lit Airtable EN DIRECT depuis le 2026-08-04** : `USE_MOCK = false`, 6 des 7 sources
+> du catalogue sont connectées. S'ajoutent ce jour-là : les **widgets utilitaires sans source**
+> (heure, pense-bête, liste à cocher), le **marquage lu persistant** des dossiers abonnés, la
+> **grille qui se tasse** (masonry) et le **déplacement hors mode Personnaliser**.
+>
+> Reste à faire : connecter **`notifC`** (« Notification Center ») pour que l'état lu / non lu
+> existe ; renseigner les **URLs** de `QUICK_LINKS` (encore `#`) ; **vérifier à l'écran** ce qui
+> ne se manifeste qu'à la souris et en session (§7).
 
 ---
 
 ## 1. Nature du projet et contraintes de plateforme
 
-**Livrable unique : `Block.tsx` (3488 lignes).** On copie-colle ce seul fichier dans un bloc
+**Livrable unique : `Block.tsx` (~5 200 lignes).** On copie-colle ce seul fichier dans un bloc
 « vibe coding » de Softr (`sunlibcrm2.softr.app`, page `/home-copy`). Le bloc s'exécute
 **dans une iframe** au sein de la page Softr. Tout le reste du repo (`src/`, `package.json`,
 `vite.config.ts`) est un **scaffold Vite de dev** qui *simule* l'environnement Softr en local
@@ -51,7 +57,9 @@ home-page/
 | **Utilisateur** | `useCurrentUser()` (jamais `window.logged_in_user`) → renvoie `{ id, email, name }`, **pas** de `firstName`. Le prénom est dérivé de `name` avec repli sur l'e-mail. |
 | **Écriture impossible sans session** | L'aperçu « œil » de Softr n'est pas connecté → `email` vide → l'insert est refusé. Toute écriture est court-circuitée si `email` est vide. Il faut tester sur la page **publiée**, connecté. |
 | **Navigation** | Le bloc est en iframe → liens inter-pages en `<a target="_top">`. |
-| **Interrupteur global** | `const USE_MOCK: boolean = true` (`Block.tsx:72`). Seul commutateur mock ↔ live. |
+| **Interrupteur global** | `const USE_MOCK: boolean = false` depuis le 2026-08-04 (`Block.tsx:83`). Seul commutateur mock ↔ live, mais pas le seul niveau : une source `connected: false` sert son mock même ici en `false` (`offlineState`). Repli en un caractère. |
+| **Champs exposés ≠ champs de la table** | Les champs qu'une datasource expose sont choisis **à la connexion**, source par source : la datasource Softr de « Taches » n'en expose que 3 là où la table en compte 12. Un champ déclaré dans un `SELECT_*` mais absent de la datasource désynchronise la source (« you have a field in your source code X which is not present in your datasource ») et **bloque toute écriture sur la table** — constaté sur le bloc SAV le 2026-08-03. Le remède est de remapper la source, pas de corriger le code. |
+| **Champs calculés** | Une formule, un rollup ou un lookup déclaré dans un select fait échouer l'écriture du **record entier**. `SELECT_SAV` exclut donc « Total interventions », qui se resomme côté bloc. |
 
 Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 
@@ -69,8 +77,9 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | **6** | **Données** : `DS = datasource.define({…})`, tous les `SELECT_*`, types de vue, `flatten`/`flattenRows`, `mapNotif`/`mapTask`/`mapNote`/`isDone`, `MOCK_USER` + `MOCK_ROWS` (indexé par source) |
 | **6-bis** | **Couche SOURCES** : `SourceKey`, **descripteur `CATALOG`** (`SourceDesc`/`FieldDesc`), map `ICONS` + `iconOf`, `variantOf`, `isLive`/`liveState`/`offlineState`, adapters (`AbonnesSource`) et dispatch statique **`SourceFeed`** |
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
-| 8 | Composants de page : `EmptyState`, `WidgetChromeCtx`, `WidgetEditMenu`, **`Widget`** (la coquille), `PageNavBar`, `Hero`, `QuickLinks`, `EmbedTab` |
-| 9 | Composants **présentiels** des widgets sur-mesure : `NotifRow`/`NotifWidget`, `TaskRow`/`TasksWidget` |
+| 8 | Composants de page : `EmptyState`, les **4 contextes de widget** (`WidgetChromeCtx`, `WidgetOptionsCtx`, **`WidgetCfgCtx`**, **`WidgetGrabCtx`**) + `WidgetHeightCtx`, `useDismissOnOutside`/`hitsRect`, `WidgetEditMenu`, **`Widget`** (la coquille), `ScrollBody`, `PageNavBar`, `Hero`, **`topOrigin`/`softrPageUrl`**, `QuickLinks`, `EmbedTab` |
+| 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
+| **9-sexies** | **Widgets UTILITAIRES sans source** : `HorlogeCard`/`HorlogeOptions`, `MemoCard` (+ `memoInline`/`MemoRead`, le texte balisé), `ChecklistCard` — leur contenu EST leur cfg |
 | **9-quinquies** | **Synthèse SAV** : helpers purs (`savNum`/`savTime`/`savDays`/`savTotal`/`savKpis`), **registre `SAV_METRICS`** (les valeurs cochables), `coerceSavCfg`, `SavOptions`, `SavWidget`, `SavCard` |
 | **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
 | **9-ter** | **ACTIONS** (écritures déclaratives) : `activeActions`, `interpolate`, `RowActions`, **`QuickCreate`** |
@@ -90,9 +99,10 @@ détaillée en fin de section).
 
 ### Couche A — le composant présentiel (§9 / §9-bis)
 
-Pur affichage, reçoit ses données en props. Ex. `NotifWidget({ items, onRead, onReadAll })`,
-`TasksWidget({ prospects, partenaires })`. Chacun rend une coquille `<Widget>` dont la liste est
-enveloppée dans `<div className="slb-scrolly">` (scroll individuel du widget).
+Pur affichage, reçoit ses données en props. Ex. `NotifWidget({ items, cfg, notifs })`,
+`TasksWidget({ prospects, partenaires })`. Chacun rend une coquille `<Widget>` dont la liste passe
+par `<ScrollBody>` (scroll individuel du widget, hauteur max posée **en ligne** depuis
+`WidgetHeightCtx`).
 
 Depuis la phase 2, les widgets « liste » n'ont plus de présentiel dédié : ils partagent
 **`GenericRow`/`GenericList`** (§9-bis), qui reprend exactement l'ancien gabarit `NoteRow`
@@ -106,20 +116,33 @@ Un composant sans props par widget. Depuis la phase 1 il n'appelle plus `useReco
 il consomme une **source** via `<SourceFeed>` (§6-bis) et mappe les lignes :
 
 ```tsx
-function NotifsCard() {
-  const [readIds, setReadIds] = useState<string[]>([]);           // « lu » = masquage LOCAL
+function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
   return (
-    <SourceFeed source="abonnes">
-      {(s) => {
-        const all = s.rows.slice(0, RECENT).map(mapNotif);
-        return <NotifWidget items={all.filter(n => !readIds.includes(n.id))} onRead={…} onReadAll={…} />;
-      }}
+    <SourceFeed source="abonnes">                    {/* la liste des dossiers */}
+      {(ab) => (
+        <SourceFeed source="notifC">                 {/* leur état de lecture */}
+          {(nc) => <NotifWidget items={ab.rows.slice(0, cfg.limite).map(mapNotif)} cfg={cfg} notifs={nc} />}
+        </SourceFeed>
+      )}
     </SourceFeed>
   );
 }
 ```
 
-Un widget à **deux sources** (`TachesCard`) imbrique simplement deux `<SourceFeed>`.
+Un widget à **deux sources** (`TachesCard`, `NotifsCard`) imbrique simplement deux `<SourceFeed>`.
+
+> **L'état lu / non lu est persistant depuis le 2026-08-03** — auparavant, cocher une ligne la
+> masquait localement et elle revenait au rechargement : un état de lecture qui ne survit pas au
+> rechargement fait juste croire qu'on a traité quelque chose. Il vit maintenant dans
+> « Notification Center », joint par le **record id de l'abonné** (`linkIds` tolère les trois
+> formes qu'un champ lien peut prendre : objets `{id,name}`, chaînes, chaîne unique).
+> ⚠️ Deux pièges de cette table, subis et non corrigés côté bloc : chaque événement crée **deux
+> lignes** (`matchNotifC` prend en priorité celle encore « à lire », sinon marquer comme vu
+> porterait sur le jumeau déjà lu et semblerait ne rien faire), et la case est **inversée** —
+> `Statut de lecture` cochée signifie « à lire », d'où l'alias `aLire` et une écriture de `false`
+> pour marquer comme vu. On ne touche pas aux formules Airtable : d'autres écrans les consomment.
+> ⚠️ L'état est **global, pas par utilisateur** (la table n'a pas de champ destinataire) : cocher
+> vaut pour tout le monde — à dire aux utilisateurs.
 Un widget dont la source n'est pas connectée reçoit le mock (aperçu) ou une liste vide (live) —
 son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appelé.
 **Les trois embeds Elfsight** (`linkedin` = fil LinkedIn, `linkedinBanner` = bannière « À la une »,
@@ -145,6 +168,7 @@ son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appel
 type WidgetTypeKey = "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
                    | "linkedin" | "linkedinBanner" | "annonces"
                    | "sav"            // synthèse du bloc « Pilotage SAV » (§9-quinquies)
+                   | "horloge" | "memo" | "checklist"   // utilitaires SANS source (§9-sexies)
                    | "data"           // LE type générique piloté par cfg (§9-bis)
                    | "list" | "kpi";  // dépréciés : rendent comme `data`, cfg traduite
 
@@ -157,8 +181,12 @@ type WidgetTypeDef = {
 };
 
 const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
-  notifs:             { title: "Nouveaux dossiers Abonné", icon: Bell,          Render: NotifsCard },
+  notifs:             { title: "Derniers dossiers Abonné", icon: Bell,          Render: NotifsCard,
+                        defaults: () => coerceNotifsCfg({}), coerce: coerceNotifsCfg, Options: NotifsOptions },
   taches:             { title: "Journal des tâches",       icon: CalendarClock, Render: TachesCard },
+  horloge:            { title: "Heure",                    icon: Clock,         Render: HorlogeCard, Options: HorlogeOptions },
+  memo:               { title: "Pense-bête",               icon: FileSignature, Render: MemoCard },   // pas d'Options : son contenu s'édite dans le widget
+  checklist:          { title: "Liste à cocher",           icon: ClipboardList, Render: ChecklistCard },
   notesInstallateurs: listType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
   notesProspects:     listType("Dernières notes — Prospects",     Target,  NOTES_PRO_CFG),
   linkedin:           { title: "SunLib sur LinkedIn",      icon: Newspaper,     Render: LinkedinCard },
@@ -179,14 +207,15 @@ rendu désormais générique** (`ListView`), donc mêmes layouts sauvegardés, n
 `typeDefOf(type)` indexe le registre sans crasher sur une clé inconnue (cf. `parked`), et `cfgOf`
 interprète la cfg **au rendu** (le stockage reste brut).
 
-Deux familles de types cohabitent volontairement :
+Trois familles de types cohabitent volontairement :
 
-| | Types **sur-mesure** | Types **liste** |
-|---|---|---|
-| Exemples | `notifs`, `taches`, `sav`, les 3 embeds Elfsight | `notesInstallateurs`, `notesProspects`, `data` (+ `list`/`kpi` dépréciés) |
-| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `dataType(...)` |
-| Interactions propres | oui (marquer comme lu, onglets, embed) | non |
-| ⋮ Options | **au cas par cas** : aucun pour `notifs`/`taches`/les embeds, **oui pour `sav`** (registre `SAV_METRICS`, §9-quinquies) | **oui** — un formulaire unique (§9-quater) |
+| | Types **sur-mesure** | Types **liste** | Types **utilitaires** |
+|---|---|---|---|
+| Exemples | `notifs`, `taches`, `sav`, les 3 embeds Elfsight | `notesInstallateurs`, `notesProspects`, `data` (+ `list`/`kpi` dépréciés) | `horloge`, `memo`, `checklist` |
+| Source de données | une ou deux, via `SourceFeed` | une, choisie dans les Options | **aucune** — le contenu EST la cfg |
+| Code dédié | présentiel + enveloppe data | **aucun** — 1 ligne `dataType(...)` | présentiel seul |
+| Interactions propres | oui (marquer comme vu, onglets, embed) | non | oui (saisie, cases) |
+| ⋮ Options | **au cas par cas** : aucun pour `taches`/les embeds, **oui pour `notifs`** (champs affichés, nombre de lignes, gestes) et **pour `sav`** (registre `SAV_METRICS`, §9-quinquies) | **oui** — un formulaire unique (§9-quater) | `horloge` oui ; `memo`/`checklist` **non**, leur seul réglage serait leur contenu et il s'édite dans le widget |
 
 Le cas `sav` est le patron à suivre pour rendre configurable un widget sur-mesure : le
 formulaire n'énumère rien en dur, il est **généré depuis un registre de métriques** (`key`,
@@ -200,24 +229,38 @@ enveloppe + entrée. Dans les deux cas, + 1 entrée `DEFAULT_INSTANCES` pour le 
 ### Couche transversale — les SOURCES (§6-bis)
 
 ```tsx
-type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr";
+type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC";
 type Row = { id: string } & Record<string, unknown>;          // ligne APLATIE : { id, …alias }
 type SourceState = { rows: Row[]; loading: boolean; error: boolean };
 
 const CATALOG: Record<SourceKey, SourceDesc> = { … };         // label, connected, fields, defaultMap
 const isLive = (k) => !USE_MOCK && CATALOG[k].connected;
 
-function AbonnesSource({ children }) {                        // 1 adapter par source
-  const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  return <>{children(liveState(res))}</>;                      // `from` reste un membre littéral
+function TachesPaSource({ children }) {                       // 1 adapter par source
+  const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
+  const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });   // whitelist
+  const email = asText(useCurrentUser()?.email).trim();       // `from` reste un membre littéral
+  const write = email ? { update: (recordId, fields) => updM.mutateAsync({ recordId, fields }) } : undefined;
+  return <>{children({ ...liveState(res), write })}</>;       // pas de session → pas de write
 }
 
 function SourceFeed({ source, children }) {                   // dispatch STATIQUE
-  if (!isLive(source)) return <>{children(offlineState(source))}</>;
-  switch (source) { case "abonnes": return <AbonnesSource>{children}</AbonnesSource>;
-                    default: return <>{children(offlineState(source))}</>; }
+  if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
+  switch (source) {
+    case "abonnes":  return <AbonnesSource>{children}</AbonnesSource>;
+    case "tachesPa": return <TachesPaSource>{children}</TachesPaSource>;
+    /* … un case par source connectée … */
+    default: return <OfflineSource source={source}>{children}</OfflineSource>;
+  }
 }
 ```
+
+⚠️ **`orderBy` n'est pas un choix d'affichage** : rien n'est paginé ici, donc il décide **quelles
+lignes sont lues** dès qu'une table dépasse la première page. Chaque adapter trie par la colonne
+qui garde les lignes utiles à ses widgets (les plus récentes pour des notes, l'échéance la plus
+proche pour des tâches, `debut` desc pour le SAV). Corollaire pour le SAV : les indicateurs de
+`SavCard` portent sur la **fenêtre lue**, pas sur la table — le bloc « Pilotage SAV » reste la
+référence chiffrée, l'accueil est un résumé, et le widget le dit.
 
 Ce que cette couche apporte :
 
@@ -249,11 +292,18 @@ type SourceDesc = {
   key: SourceKey; label: string;
   icon: string;                             // CLÉ de la map ICONS, pas un composant
   connected: boolean;
+  technical?: boolean;                      // source de plomberie : absente de la galerie
   fields: Record<string, FieldDesc>;        // clés = ALIAS du SELECT_*
   defaultSort: { by: string; dir: "asc" | "desc" };
   defaultMap?: FieldRoleMap;
+  presets?: PresetDesc[]; actions?: ActionDesc[];
 };
 ```
+
+- **`technical`** — `notifC` est décrit comme toutes les autres sources (pour que ses champs soient
+  formatés et filtrables) mais **`presetsOf` lui rend une liste vide** : personne n'a besoin de
+  poser « une liste de notifications » sur son accueil. Elle existe pour qu'un autre widget sache
+  ce qui a été vu, et l'écrive.
 
 Ce que chaque pièce apporte concrètement :
 
@@ -275,10 +325,17 @@ Ce que chaque pièce apporte concrètement :
 ⚠️ Les noms de variants sont ceux du **kit visuel** (`ok`, `warn`, `info`, `danger`, `solar`,
 `brand`, `neutral`), pas ceux du document cible (`success`, `warning`) : on ne renomme pas le kit.
 
-Un banc d'essai vérifie la cohérence interne du descripteur : tri par défaut et `defaultMap` ne
+Un banc d'essai a vérifié la cohérence interne du descripteur : tri par défaut et `defaultMap` ne
 citent que des champs connus, chaque `variant` correspond à une `option` déclarée, aucune option en
 doublon, et **le mock n'utilise que des valeurs déclarées** — c'est ce test qui a révélé que le mock
 portait encore les anciennes offres « Duo / Solo / Pro », supprimées d'Airtable.
+
+> ⚠️ **Ce banc d'essai était jetable, et il n'est PAS dans le dépôt** — comme celui du modèle de
+> layout plus bas. Il n'existe aucun script `test` dans `package.json`, aucune assertion dans
+> `Block.tsx` : le seul filet automatique est `tsc --noEmit`. Les fonctions pures
+> (`normalizeLayout`, `migrateV1`, `coerceInstance`, `applyQuery`, `fromLegacyCfg`…) ne sont donc
+> **pas protégées contre les régressions**. C'est l'écart le plus silencieux du projet : les
+> vérifications ont été faites, mais elles ne se rejouent pas.
 
 **Ajouter une source** = 6 gestes, ~30 lignes, sans toucher au moteur : recette `ARCHITECTURE-V2.md`
 §6 (connecter dans l'onglet *Sources* → membre du `define` → `SELECT_*` → adapter → `case` →
@@ -370,39 +427,92 @@ actions et la création se testent sans base.
 
 ### La coquille `Widget`, le contexte d'édition et le ⋮ « Options »
 
-`Widget({ icon, title, sub, solar, headActions, children, footer })` lit **deux** contextes :
+`Widget({ icon, title, sub, solar, headActions, children, footer })` lit **quatre** contextes :
 
 | Contexte | Quand | Effet |
 |---|---|---|
 | `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
 | `WidgetOptionsCtx` non-null | mode normal **et** type configurable | bouton ⋮ → `WidgetOptionsMenu` : le formulaire du type, brouillon local, « Annuler » / « Enregistrer » |
+| **`WidgetCfgCtx`** non-null | mode normal | le widget écrit **sa propre cfg** sans passer par un formulaire — c'est ce qui rend le pense-bête et la liste à cocher possibles |
+| **`WidgetGrabCtx`** non-null | **les deux modes** | l'**en-tête** de la carte devient saisissable (`draggable` + `cursor: grab`), image de glissement forcée sur la carte entière |
 
 Le chrome injecté est
-`{ index, total, isWide, size, onMoveUp, onMoveDown, onSetWide, onSetSize, onDuplicate,
-onRemove }` ; les options `{ cfg, Form, onSave }`. Le widget lui-même ne connaît **rien** du layout : c'est le `Dashboard` qui
+`{ index, total, isWide, size, onMoveUp, onMoveDown, onSetWide, onSetSize, onRemove }` ; les options
+`{ cfg, Form, onSave }`. Le widget lui-même ne connaît **rien** du layout : c'est le `Dashboard` qui
 fournit tout via contexte. Un type sans `Options` n'affiche **aucun** bouton ⋮ en mode normal (plus
 de bouton décoratif sans action). « Enregistrer » appelle `persistCfg(id, cfg)` → même pipeline que
 la grille (optimiste + toast, un seul document `layout_json`).
 
+**Pourquoi `WidgetCfgCtx` n'existe qu'en mode normal** : pendant l'édition, le brouillon `draft`
+fait autorité, et deux chemins d'écriture concurrents sur la même instance produiraient un
+écrasement silencieux. Le pense-bête devient donc lecture seule en mode Personnaliser, et il le
+dit. Ses écritures sont **silencieuses en cas de succès** (pas de toast à chaque frappe) mais
+**tout échec reste annoncé** : une écriture perdue sans un mot est bien pire qu'un toast de trop.
+
+**Pourquoi la préhension est sur l'en-tête et pas sur la carte** : hors édition, le corps est
+interactif (boutons, liens, défilement, sélection de texte). Rendre tout le wrapper `draggable` y
+déclencherait un glisser au moindre mouvement — c'est **exactement** le mécanisme qui annulait les
+clics du menu ⋮ (§7 n°11) — et empêcherait de sélectionner du texte dans une note. L'en-tête ne
+contient qu'un titre et le ⋮ : rien à y perdre, et c'est la convention des fenêtres et des cartes.
+Le geste reste **doublé** par le mode Personnaliser, seule voie accessible au clavier et au doigt.
+
 ### Dimensionnement — 2 axes indépendants
 
 - **Largeur** : `instance.w: "half" | "full"` → moitié (1 colonne) ou pleine (`gridColumn: "1 / -1"`).
-  Poignées de bord gauche/droite (événements *pointer*, snap à ±56 px) + segments
+  Poignées de bord gauche/droite (événements *pointer*, seuil 56 px) + segments
   « Moitié / Pleine » du menu ⋮.
 - **Hauteur** : `instance.h: "sm" | "md" | "lg"` (stockée explicitement) →
-  `WIDGET_HEIGHTS = { sm:168, md:340, lg:560 }`, posé en **CSS var `--slb-wh`** sur
-  `.slb-dragwrap`, lue par `.slb-scrolly { max-height: var(--slb-wh, 340px) }`.
-  Poignée du bas (pointer, snap ~70 px) + segments « Petit / Moyen / Grand ».
-- ⚠️ **La grille est une CONTAINER QUERY, pas une media query** :
-  `.slb-dash-wrap { container-type: inline-size }` +
-  `@container (min-width:720px) { .slb-dash { grid-template-columns: repeat(2, minmax(0,1fr)) } }`.
-  Indispensable : dans l'iframe Softr la fenêtre est large mais le **bloc** est étroit — avec une
-  media query, « pleine largeur » n'avait aucun effet visible.
+  `WIDGET_HEIGHTS = { sm:168, md:340, lg:560 }`, servi par **`WidgetHeightCtx`** et posé **en
+  ligne** par `ScrollBody`. L'ancienne variable CSS `--slb-wh`, lue par une règle injectée, **ne
+  s'appliquait pas dans le bloc Softr** : les widgets s'étiraient sans jamais scroller. La classe
+  `slb-scrolly` ne sert plus qu'à habiller la barre de défilement.
+  Poignée du bas (pointer, un cran tous les 70 px) + segments « Petit / Moyen / Grand ».
+- ⚠️ **Le nombre de colonnes est mesuré en JS** (`ResizeObserver` sur la grille → `twoCols`), pas
+  par une media query ni une container query : dans l'iframe Softr, la fenêtre est large mais le
+  **bloc** est étroit, et rien ne garantit qu'une règle injectée atteigne le bloc.
+
+### La grille se TASSE — masonry par lignes fines
+
+Avant, la grille était ordinaire : chaque rangée prenait la hauteur de son plus grand widget, un
+petit widget laissait un trou sous lui, et ces trous alignés **donnaient à voir les lignes de la
+grille**. Désormais `gridAutoRows: 4px` (`DASH_ROW`) et chaque widget occupe `span n` lignes.
+
+- `n` vient de la hauteur **réellement mesurée** (`ResizeObserver` sur le div interne) : elle n'est
+  pas déductible de `instance.h`, qui ne borne que le corps scrollable — un widget peu rempli est
+  plus court. `spanOf()` sert de repli avant la première mesure, pour éviter un saut au premier rendu.
+- ⚠️ **`offsetHeight`, jamais `getBoundingClientRect()`** : le FLIP applique des `scale()` sur les
+  wrappers, et un rect inclut les transforms des ancêtres — les hauteurs seraient fausses à chaque
+  réordonnancement.
+- ⚠️ **`rowGap` est à ZÉRO** et ce n'est pas un oubli : un gap s'ajouterait à *chaque* ligne fine
+  (n − 1 fois). L'espace vertical vient donc d'un `paddingBottom: DASH_GAP` sur le wrapper, compté
+  dans le span. Corollaire : les poignées de redimensionnement sont décalées de `DASH_GAP` pour
+  rester collées à la **carte** et non au bas du wrapper.
+- Les **squelettes** de chargement gardent `gridAutoRows: auto` et retrouvent leur `rowGap` : tous
+  de même hauteur, ils n'ont rien à tasser, et des lignes de 4 px les écraseraient.
+
+### Déplacement, FLIP, et la fin du tremblement
+
+- **DnD** : API HTML5 native. Un widget se glisse par son **en-tête**, dans les deux modes
+  (`WidgetGrabCtx`) ; le wrapper n'est plus `draggable`, il ne reste que la **cible de dépôt**. En
+  mode Personnaliser le déplacement va dans le brouillon ; **hors** mode Personnaliser il n'y a pas
+  de brouillon, donc il est **écrit immédiatement** — en silence si tout va bien, avec toast en cas
+  d'échec. Le menu ⋮ reste le chemin **clavier et tactile** (le DnD HTML5 ne marche pas au doigt).
 - **Animations FLIP** : à chaque changement d'ordre/largeur/hauteur, `useLayoutEffect` mesure les
   `getBoundingClientRect` avant/après et anime `transform` (translate + scale, 340 ms), avec un div
-  interne contre-scalé pour éviter la distorsion. Respecte `prefers-reduced-motion`.
-- **DnD** : API HTML5 native (`draggable`, `onDragStart/Over/Drop`) ; le menu ⋮ est le chemin
-  **clavier et tactile** obligatoire (le DnD HTML5 ne marche pas au doigt).
+  interne contre-scalé. Respecte `prefers-reduced-motion`. ⚠️ **Coupé pendant un glissement de
+  poignée** : la disposition change à chaque cran, et des animations de 340 ms en rafale se
+  chevauchaient — d'où cette impression de tremblement où l'on ne distinguait plus ce qu'on réglait.
+- **Hystérésis sur les deux axes** : la taille se calculait en `Math.round(dy / 70)` depuis
+  l'origine du geste, donc à mi-chemin d'un cran le moindre frémissement de la main faisait
+  osciller le widget en boucle. Maintenant, un cran franchi **recale l'origine** : il faut refaire
+  tout le seuil pour rebasculer.
+- **Verrou de hauteur** : la hauteur du conteneur est figée au `pointerdown` (`minHeight`), le temps
+  du geste. Comme la grille se tasse, régler un widget changeait la hauteur de la page, donc la
+  position de scroll — l'écran semblait monter et descendre sous le curseur. Elle peut encore
+  s'allonger, sinon on ne verrait pas un widget grandir.
+- **Plus de barre de défilement en mode Personnaliser** : elle ne servait à rien (le corps y est
+  inerte) et longeait le même bord que les poignées de largeur — on visait l'une, on attrapait
+  l'autre. La retirer supprime le conflit à la source plutôt que d'éloigner les poignées du bord.
 
 ### Modèle de layout v2 + fonctions pures (§10-bis)
 
@@ -416,6 +526,7 @@ type Instance = {
   cfg: unknown;        // options par widget — stockée BRUTE (interprétée au rendu, phase 2)
   w: "half" | "full";
   h: "sm" | "md" | "lg";
+  preset?: string;     // modèle de galerie d'origine → un seul exemplaire par modèle
 };
 
 type Layout = {
@@ -465,8 +576,17 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
 
 ### Multi-instances (phase 3)
 
-- **`addInstance(layout, type, cfg)`** — ajoute en fin de grille, id neuf `w_xxxxxx` (jamais en
-  collision avec un id d'`items`/`parked`/`seeded`, y compris supprimé mais mémorisé).
+- **`addInstance(layout, type, cfg, h, preset)`** — ajoute en fin de grille, id neuf `w_xxxxxx`
+  (jamais en collision avec un id d'`items`/`parked`/`seeded`, y compris supprimé mais mémorisé).
+  **Un seul exemplaire par modèle** (2026-08-03) : si `presetKeyOf` est déjà dans `usedPresets`,
+  c'est un no-op. Le garde est **dans la fonction pure**, pas seulement dans la galerie — un bouton
+  grisé est un confort, la règle doit tenir même si l'UI change. Dans la galerie, un modèle déjà
+  posé est **grisé et non masqué** : le retirer laisserait croire qu'il n'existe plus, le griser dit
+  « tu l'as déjà », qui est l'information utile.
+  `Instance.preset` est **facultative**, et c'est voulu : les instances écrites avant son
+  introduction n'en ont pas, et le repli est `type` — ce qui tombe juste pour tous les types
+  sur-mesure, dont la clé de modèle *est* la clé de type. On tolère l'existant plutôt que de
+  réécrire des documents déjà en base.
 - **`removeInstance(layout, id)`** — retire d'`items`. **Seul geste de retrait** : la `cfg` est
   perdue, et reposer le widget depuis la galerie donne une instance neuve avec la cfg du preset.
   `seeded` n'est pas touché, donc pas de résurrection.
@@ -475,8 +595,8 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
   sur son `defaultMap`). Brancher une source la fait apparaître dans la galerie sans une ligne de
   code de plus.
 - **`GALLERY_GROUPS` / `SOURCE_GROUP` / `PRESET_GROUPS`** — la galerie est un **dépliant par
-  famille métier** (Abonnés, Tâches, Notes, Dossiers SAV, Communication, Autres), un seul groupe
-  ouvert à la fois. Le regroupement suit le **domaine**, pas le mécanisme : la synthèse SAV
+  famille métier** (Abonnés, Tâches, Notes, Dossiers SAV, Communication, **Utilitaires**, Autres),
+  un seul groupe ouvert à la fois. Le regroupement suit le **domaine**, pas le mécanisme : la synthèse SAV
   (sur-mesure) et les vues `data` sur les tickets sont dans le même groupe. Une source absente de
   `SOURCE_GROUP` tombe dans « Autres » plutôt que de disparaître — c'est ce repli qui préserve la
   promesse « brancher une source suffit ». L'ordre de `GALLERY_GROUPS` est l'ordre d'affichage.
@@ -488,8 +608,34 @@ Migration **en mémoire à la lecture** ; le document v2 n'est écrit qu'au proc
 Comme le reste du mode Personnaliser, ces trois actions ne touchent que le **brouillon** : rien
 n'est écrit avant « Enregistrer », et « Annuler » restaure tout — y compris une suppression.
 
-Validé par un banc d'essai jetable (56 assertions : entrées invalides, migration v1 réelle,
+Validé par un banc d'essai **jetable** (56 assertions : entrées invalides, migration v1 réelle,
 multi-instances, clamps, dédup, `parked`, idempotence de l'aller-retour, no-op des mutations).
+⚠️ Jetable au sens littéral : il n'a pas été versionné, et ne se rejoue donc pas — voir
+l'avertissement du §3 sur l'absence de tests dans le dépôt.
+
+### Widgets utilitaires — quand le contenu EST la cfg (§9-sexies)
+
+Trois widgets ne lisent **aucune** table : `horloge`, `memo` (pense-bête), `checklist`. Leur contenu
+vit dans leur `cfg`, donc dans `layout_json` — ils fonctionnent sans qu'aucune source soit branchée,
+sont propres à chaque utilisateur, et le suivent d'un poste à l'autre.
+
+⚠️ **Ce ne sont pas des notes d'équipe** : un pense-bête n'est visible que de son auteur et n'a
+aucun lien avec « Suivi client » / « Suivi propect ». Pour une note partagée, c'est un widget `data`
+sur la source qui convient.
+⚠️ **Le document de disposition n'est pas une base de données** : `MEMO_MAX` (2 000 caractères),
+`CHECK_MAX` (40 lignes) et `CHECK_TEXT_MAX` (160) ne sont pas décoratifs — `layout_json` est
+rechargé à chaque affichage de la page.
+
+**Le pense-bête n'est pas un éditeur HTML, et c'est un choix de sécurité.** `contentEditable` +
+`execCommand` serait plus court à écrire, mais imposerait de stocker du HTML et de le rendre via
+`dangerouslySetInnerHTML` — donc d'écrire un assainisseur maison, la pièce la plus facile à rater du
+fichier, sur un contenu qui fait l'aller-retour par la base (`execCommand` est de surcroît
+déprécié). Ici le stockage est du **texte balisé** (`**gras**`, `*italique*`, `~~barré~~`,
+`{rouge}…{/}`, `- ` en début de ligne) et `memoInline` produit des **éléments React** : aucune
+chaîne n'est jamais interprétée comme du HTML, l'injection est impossible **par construction, pas
+par vigilance**. `cfg.text` reste une simple chaîne, donc les notes déjà écrites restent valides.
+L'enregistrement se fait à la **perte de focus** (ou Ctrl/⌘+Entrée), pas à chaque frappe :
+`persistCfg` réécrit tout le document, une écriture par caractère saturerait la base.
 
 ### Cycle du mode Personnaliser (dans `Dashboard`)
 
@@ -622,9 +768,11 @@ et formulaires sur `/home-copy`, puis de publier.
 **Tout est sur Airtable** : le contenu des widgets comme les préférences (§4).
 
 ```ts
-const DS = datasource.define({
-  abonnes: "8fc957d0-232b-4b24-906e-d0be7c636f30", // ✅ connecté
-  prefs:   "dcc7928c-3906-4807-8224-0532c3e30fc5", // ✅ connecté (persistance, §4)
+const DS = datasource.define({           // 6 sources connectées au 2026-08-04
+  abonnes:  "8fc957d0-…", prefs:    "dcc7928c-…",   // dossiers abonnés · persistance (§4)
+  notesIns: "122fbc71-…", notesPro: "dbd7e501-…",   // Suivi client · Suivi propect
+  tachesPa: "7198b954-…", tachesPr: "9414183e-…",   // Taches · Taches prospect
+  sav:      "3f5f8f6c-…",                            // SAV · Tickets
 });
 ```
 
@@ -632,17 +780,33 @@ const DS = datasource.define({
 |---|---|---|---|
 | `prefs` | « Home Preferences » (SunLib CRM — Préférences) | ✅ **connecté** | email `user_email` · layout `layout_json` · updatedAt `updated_at` · schemaVersion `schema_version` |
 | `abonnes` | « Abonnés » (BDD Abonné) | ✅ **connecté** | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
-| `notesIns` | « Suivi client » (Installateurs) | ⏳ **non connecté** | nom `Installateur` · note `Notes` · date `Date `*(espace final)* |
-| `notesPro` | « Suivi propect » (BDD Propect) | ⏳ **non connecté** | nom `Nom` · note `Notes` · date `date `*(espace final)* |
-| `tachesPa` | « Taches » (Installateurs) | ⏳ **non connecté** | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` |
-| `tachesPr` | « Taches prospect » (Installateurs) | ⏳ **non connecté** | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
+| `notesIns` | « Suivi client » (Bdd Installateurs, `tblkP20xivQbSSLUj`) | ✅ **connecté** | nom `Installateur` · note `Notes` · date `Date `*(espace final)* |
+| `notesPro` | « Suivi propect » (BDD Propect, `tblaWCbZGGz7IUdNm`) | ✅ **connecté** | nom `Nom` · note `Notes` · date `date `*(espace final, createdTime)* |
+| `tachesPa` | « Taches » (Bdd Installateurs, `tblebnLi0r90yuqry`) | ✅ **connecté** | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` |
+| `tachesPr` | « Taches prospect » (Bdd Installateurs, `tblYQaq030GsdnIdy`) | ✅ **connecté** | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
+| `sav` | « Tickets » (SAV, `tblf4KgGHCaZXKnBX`) | ✅ **connecté**, lecture seule | 22 alias (ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût) |
+| `notifC` | « Notification Center » (BDD Abonné, `tblqF71AO8nFVpWi5`) | ⏳ **non connecté** | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
 
 ⚠️ Les noms de champs comportent des **espaces finaux et des casses irrégulières** (`"Date "`,
-`"date "`, `"date de fin"` vs `"Date de fin"`) : ne jamais les normaliser. `RECENT = 12` lignes
-affichées par widget liste. Les `SELECT_*` des 4 sources non connectées sont déjà écrits, prêts à
-l'emploi ; ces sources sont catalogudées dans `CATALOG` avec `connected: false` → `SourceFeed` leur
-sert leur mock (aperçu) ou une liste vide (live), **sans jamais appeler `useRecords`** sur un id
-absent du `define`. Les brancher : recette `ARCHITECTURE-V2.md` §6.
+`"date "`, `"date de fin"` vs `"Date de fin"`) : ne jamais les normaliser. **Tous ont été
+revérifiés contre le schéma Airtable le 2026-08-04**, avant d'ouvrir la lecture en direct — les
+sept pièges attendus sont confirmés tels quels, `Fait` compris (présent dans les deux tables de
+tâches, bien que la datasource Softr de « Taches » ne l'expose pas à ses blocs de page).
+`RECENT = 12` lignes affichées par widget liste.
+
+`notifC` reste catalogué `connected: false` : `SourceFeed` lui sert son mock (aperçu) ou une liste
+vide (live), **sans jamais appeler `useRecords`** sur un id absent du `define`. Conséquence
+visible : le widget des dossiers abonnés s'affiche **sans état lu / non lu ni bouton « Vu »** —
+dégradation prévue (`matchNotifC`), pas une panne. Le brancher : recette `ARCHITECTURE-V2.md` §10,
+en connectant la table à **ce** bloc (un id de datasource appartient à une connexion d'un bloc).
+
+**Écritures ouvertes** : `fait` sur les deux tables de tâches (whitelists `SELECT_TACHE_*_W`), et
+`aLire` sur `notifC` le jour de sa connexion. **Les 4 formulaires de création ont été retirés le
+2026-08-04** : celui des tâches était cassé par construction (champs hors whitelist → 400), celui
+des notes aurait produit des lignes **non rattachées** — « Suivi client » et « Suivi propect »
+relient par un champ LIEN, qui attend un record id et non un nom. Ils reviendront le jour où le
+bloc saura résoudre un lien (menu alimenté par la table parente) ; `QuickCreate` reste écrit et
+inutilisé, prêt pour ce jour-là.
 
 Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son côté (même contrainte
 `from` qu'un adapter) et calcule `unread` / `urgent` (< 3 j, tâches non « Fait ») indépendamment.
@@ -658,7 +822,17 @@ Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son cô
   vérifiées iframables). ⚠️ la CSP de l'iframe Softr doit autoriser `frame-src https://*.vercel.app`.
 - **`QUICK_LINKS`** (section Outils) — raccourcis pages d'espace en `target=_top` (Prospects,
   Partenaires, Contact Partenaire, Abonnés, KPI) + outils externes (You Sign, Calculette, Sellsy,
-  Tik&Lib). **Toutes les URLs sont encore `#`** — à compléter.
+  Tik&Lib). **Les 9 URLs sont encore `#`** — à compléter. Idem `SAV_PAGE_HREF`.
+- **`topOrigin()` / `softrPageUrl(slug, params)`** — un lien vers une page de l'espace ne peut pas
+  être **relatif** : `href="/ma-page"` serait résolu contre l'**iframe du bloc**, pas contre l'app.
+  Il faut donc l'origine de la page parente, et `window.parent.location` est bloqué dès que
+  l'iframe est d'une autre origine. Trois sources, dans cet ordre : `ancestorOrigins` (exact, mais
+  absent de Firefox) → `document.referrer` (présent en pratique) → un repli codé en dur, pour ne
+  jamais fabriquer un lien vide. L'origine est **lue à l'exécution**, donc le même code marche en
+  aperçu et en production sans condition ; un domaine personnalisé ne demanderait rien à changer.
+  Premier usage : le bouton « Détail » du widget des dossiers, vers `abonn-s-details-3`.
+  ⚠️ **Le nom du paramètre reste à confirmer** (`ABONNE_PAGE_PARAM = "recordId"`, la convention
+  Softr la plus courante) : ouvrir une fiche depuis l'app et lire son URL.
 - **`Hero`** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée à la charte),
   « Bienvenue {prénom} ! », date, 2 chips, logo forcé blanc via `filter: brightness(0) invert(1)`.
   Le dégradé est **animé en boucle lente** (`HERO_CYCLE_MS`, 60 s par cycle) : une couche de fond large de
@@ -674,11 +848,10 @@ Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son cô
 
 Les points qui bloquent l'objectif « widgets complètement indépendants et personnalisables » :
 
-1. **Pas encore de widget paramétrable par source — mais la couche est posée.** La contrainte Softr
-   sur `from` interdit toujours un composant générique ; depuis la phase 1 elle est *canalisée* par
-   les adapters + le dispatch statique `SourceFeed` (§6-bis). Ce qui manque est le **type de widget
-   générique** (`list`/`kpi` piloté par `cfg`) et son formulaire d'options : phase 2.
-   Coût marginal d'une nouvelle source aujourd'hui : ~30 lignes, zéro toucher au moteur.
+1. ~~**Pas encore de widget paramétrable par source**~~ **résolu (phases 1 et 2)** : le type
+   générique `data` et son formulaire unique existent ; la contrainte Softr sur `from` reste
+   *canalisée* par les adapters + le dispatch statique `SourceFeed` (§6-bis). Coût marginal d'une
+   nouvelle source : ~30 lignes, zéro toucher au moteur.
 2. ~~**Une seule instance par widget**~~ **résolu (phases 0 et 3)** : `instance.id` est distinct de
    `instance.type`, et l'UI suit — « Supprimer », galerie « Ajouter un widget » (en dépliants). Deux
    « Notes » avec deux filtres différents sont possibles.
@@ -690,10 +863,12 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
 5. **Grille limitée** : ordre linéaire + largeur binaire (moitié/pleine) + 3 hauteurs discrètes.
    Pas de grille libre (x, y, w, h) — alors que le nom du champ `layout_json` documentait à
    l'origine « grille i,x,y,w,h ».
-6. **État « lu » des notifications non persistant** : la table `Abonnés` n'a pas de champ `Lu` →
-   masquage purement local, réapparaît au rechargement. Deux voies : basculer sur la table
-   `Notification Center` (case native `Statut de lecture`), ou ajouter un champ `Lu` coché par une
-   automation.
+6. ~~**État « lu » des notifications non persistant**~~ **mécanisme livré (2026-08-03), en attente
+   d'une datasource.** La voie retenue est la table `Notification Center` et sa case native. Le code
+   est écrit et testable en aperçu (écriture simulée) ; il attend que la table soit connectée à ce
+   bloc. Trois limites restent, **côté base et non côté bloc** : l'état est **global** (aucun champ
+   destinataire — cocher vaut pour tout le monde), chaque événement crée **deux lignes**, et ~380
+   lignes n'ont **aucun lien** vers un abonné. Le widget ne peut que les subir.
 7. ~~**Bouton ⋮ « Options » du mode normal non branché**~~ **résolu (phase 2)** : il ouvre le
    formulaire du type (`WidgetOptionsMenu` + `ListOptions`) et persiste la `cfg` de l'instance.
    Reste ouvert : les types sur-mesure (`notifs`, `taches`, LinkedIn) n'ont pas d'options — c'est
@@ -702,8 +877,10 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
    la granularité vient de `CATALOG[k].connected` — toute source non connectée sert son mock même
    avec `USE_MOCK = false` (`offlineState`), sans interrupteur supplémentaire.
 9. **Pas de pagination réelle** : `flatten().slice(0, 12)` côté client, pas de `fetchNextPage`.
-10. **`USE_MOCK` est encore à `true`** : rien ne tourne en live aujourd'hui, sauf la persistance
-    (qui est branchée et fonctionnelle).
+   Conséquence directe, et c'est la plus importante depuis le passage en live : `orderBy` décide
+   **quelles** lignes sont lues, et tout agrégat (KPI, indicateurs SAV) porte sur cette fenêtre.
+10. ~~**`USE_MOCK` est encore à `true`**~~ **passé à `false` le 2026-08-04** : 6 des 7 sources
+    lisent Airtable en direct. Reste `notifC`.
 11. ~~**Les menus ⋮ se referment au clic, sans exécuter l'action**~~ **corrigé le 2026-08-03.**
     Signalé et reproduit plusieurs fois : on ouvrait le ⋮ d'un widget, on cliquait un bouton du
     panneau, et le panneau se fermait sans que l'action parte. Concernait `WidgetOptionsMenu` (⋮
@@ -733,3 +910,31 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
     être appliqué à un seul des deux. Le hook prend le **setter** `useState` (stable) et non une
     fermeture `() => setOpen(false)`, qui serait recréée à chaque render et réattacherait les
     écouteurs en boucle.
+
+    **Une TROISIÈME garde a été ajoutée depuis** (`hitsRect`, 2026-08-04) : les deux précédentes
+    raisonnent sur l'**arbre**, celle-ci sur l'**écran**. On ne ferme que si le clic est extérieur
+    selon les deux, ce qui l'immunise contre tout ce qui trompe `contains()` — nœud détaché,
+    portail, liste native rendue par l'OS. Une **trace console volontaire** accompagne chaque
+    fermeture par clic extérieur : si un panneau disparaît **sans** cette ligne, ce n'est pas une
+    fermeture mais un **remontage** du composant, et le correctif est alors ailleurs (remonter
+    l'état `open` d'un niveau). C'est le genre de distinction qu'on ne fait pas de mémoire.
+
+12. **Écrire un champ LIEN est hors de portée du bloc.** Un champ de liaison Airtable attend un
+    **record id**, pas un libellé : le bloc ne sait donc pas rattacher une note à son installateur,
+    ni une tâche à son partenaire. C'est ce qui a fait **retirer les 4 formulaires de création**
+    (§5). Le débloquer demande de lire la table parente pour offrir un menu de record ids — faisable
+    dans la grammaire actuelle, non fait.
+13. **Aucun test dans le dépôt** : pas de script `test`, pas d'assertion dans `Block.tsx`. Les bancs
+    d'essai cités (56 assertions sur le layout, cohérence du descripteur, 11 sur `fromLegacyCfg`)
+    ont été écrits **en session et jamais versionnés**. Le seul filet automatique est
+    `tsc --noEmit`, qui ne dit rien du comportement des fonctions pures.
+14. **Le contenu utilisateur voyage dans `layout_json`** (pense-bête, liste à cocher). Bornes en
+    place (`MEMO_MAX`, `CHECK_MAX`), mais le document est relu à chaque affichage de la page : ce
+    champ n'est pas un espace de stockage, et il ne faut pas l'y transformer.
+15. **Ce qui n'a jamais été vu à l'écran.** Le tassement de la grille, l'hystérésis des poignées, la
+    préhension par l'en-tête et la jointure d'état de lecture ne se manifestent qu'à la souris dans
+    un vrai navigateur — et, pour la dernière, avec la datasource connectée. Le bloc compile et la
+    logique est en place ; **rien de tout cela n'est confirmé visuellement**. À vérifier sur la page
+    publiée, connecté : glisser un widget par son en-tête hors mode Personnaliser, régler une
+    poignée sans tremblement, dérouler un `<select>` du panneau d'options, cocher « Fait » sur une
+    tâche (première écriture réelle du bloc).

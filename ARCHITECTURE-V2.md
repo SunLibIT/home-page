@@ -8,11 +8,11 @@
 > restent en vigueur — cette cible est conçue *à l'intérieur* de ces
 > contraintes, pas contre elles.
 >
-> ⚠️ **État au 2026-07-31 : les phases 0 à 4 de la RÉVISION 1 sont déjà livrées**
-> (branche `refonte-widgets-v2`). La rév. 2 n'est donc pas un chantier vierge :
-> voir le §12, qui distingue ce qui est en place, ce qui doit être *étendu* et ce
-> qui reste à écrire — ainsi que le §12-bis, qui liste les écarts entre le code
-> livré et cette cible.
+> ⚠️ **État au 2026-08-04 : les phases 0 à 4 sont livrées, et le bloc lit Airtable
+> EN DIRECT** (`USE_MOCK = false`, 6 des 7 sources connectées ; il manque
+> `notifC`). La première écriture réelle — la case « Fait » d'une tâche — est
+> ouverte. Voir le §12 pour l'état phase par phase, et le §12-bis pour les écarts
+> entre le code livré et cette cible.
 
 ---
 
@@ -176,6 +176,13 @@ type CreateFormDesc = {
   fields: { field: string; required?: boolean; default?: unknown }[];
   // default "@me.email" → résolu à l'exécution avec useCurrentUser().email
 };
+/* ⚠️ SUSPENDU depuis le 2026-08-04 : plus AUCUNE source ne déclare de `create`.
+   Deux raisons découvertes en ouvrant le direct — (1) les champs du formulaire
+   doivent tous être dans le SELECT_*_W, sinon Softr répond 400 ; (2) rattacher la
+   ligne créée passe par un champ LIEN, qui attend un record id et non un nom, si
+   bien qu'une note ou une tâche créée depuis l'accueil n'apparaîtrait sur la fiche
+   de personne. Le type reste défini et `QuickCreate` reste écrit : ils attendent un
+   `kind: "link"` de champ, alimenté par la table parente. */
 
 type PresetDesc = { label: string; icon: string; cfg: InstanceCfg };  // cfg complète (§4)
 
@@ -183,6 +190,8 @@ type SourceDesc = {
   key: SourceKey;
   label: string;
   icon: string;                             // clé de la map ICONS (voir note)
+  technical?: boolean;                      // plomberie : décrite, mais absente de la galerie
+                                            // (`notifC` : personne ne « pose » un état de lecture)
   fields: Record<string, FieldDesc>;        // clés = ALIAS du SELECT_* — jamais les noms bruts
   defaultSort: { by: string; dir: "asc" | "desc" };
   presets: PresetDesc[];
@@ -256,7 +265,9 @@ Un **seul** type générique remplace les `list`/`kpi` séparés de la rév. 1 :
 ```tsx
 type WidgetTypeKey =
   | "notifs" | "taches" | "notesInstallateurs" | "notesProspects"
-  | "linkedin" | "linkedinBanner"     // legacy — clés figées (contrat)
+  | "linkedin" | "linkedinBanner" | "annonces"   // legacy — clés figées (contrat)
+  | "sav"                              // synthèse sur-mesure du bloc « Pilotage SAV »
+  | "horloge" | "memo" | "checklist"   // utilitaires SANS source : le contenu EST la cfg
   | "data";                            // LE type générique piloté par cfg
 ```
 
@@ -350,10 +361,13 @@ champ absent est inécrivable, point ; (2) la session obligatoire (email vide �
 aucune tentative) ; (3) les permissions de la datasource côté Softr ;
 (4) `confirm` pour les actions sensibles.
 
-Ce que ça débloque immédiatement : la case **« Fait »** des tâches devient
-réelle ; **« Marquer comme lu »** devient persistant le jour où le champ/la
-table existe (limite n°6 — les deux pistes connues restent valables) ;
-**« Clore »** un dossier SAV ; **ajout rapide** d'une note depuis l'accueil.
+Ce que ça a débloqué, au 2026-08-04 : la case **« Fait »** des tâches est
+**réellement écrite** (première écriture métier du bloc, whitelist `fait` seul) ;
+**« Marquer comme vu »** est écrit dans « Notification Center » — le code est là,
+il attend que la table soit connectée à ce bloc. En revanche l'**ajout rapide**
+d'une note ou d'une tâche est **retiré** : le rattachement passe par un champ
+LIEN (voir la note du §3). Un dossier SAV, lui, ne se modifie pas d'ici par
+choix : l'accueil en est un lecteur, son bloc dédié porte les validations.
 
 ---
 
@@ -362,9 +376,17 @@ table existe (limite n°6 — les deux pistes connues restent valables) ;
 Schéma identique à la rév. 1 (seul `"data"` s'ajoute aux types) :
 
 ```tsx
-type Instance = { id: string; type: WidgetTypeKey; cfg: unknown; w: "half" | "full"; h: WidgetSize };
+type Instance = { id: string; type: string; cfg: unknown; w: "half" | "full"; h: WidgetSize;
+                  preset?: string };   // ← modèle de galerie d'origine : un seul exemplaire
 type Layout = { v: 2; items: Instance[]; parked: Instance[]; seeded: string[] };
 ```
+
+> **`preset` (2026-08-03)** — la galerie n'autorise plus qu'un exemplaire de chaque modèle, et le
+> garde vit dans `addInstance` (fonction pure), pas seulement dans l'UI. Le champ est **facultatif** :
+> les instances déjà en base n'en ont pas, et le repli est `type` — juste pour tous les types
+> sur-mesure, dont la clé de modèle *est* la clé de type. On tolère l'existant, on ne réécrit pas.
+> `type` est passé à `string` (et non `WidgetTypeKey`) pour pouvoir conserver sans perte une
+> instance dont le type est inconnu du code courant (`parked`).
 
 > ⚠️ **`hidden` a été retiré le 2026-08-03** — masquer faisait doublon avec supprimer.
 > Un widget dont on ne veut plus se supprime, et se repose depuis la galerie (perte de
@@ -430,8 +452,9 @@ instances `data`, entièrement alimenté par le descripteur :
    (libellés + kinds), agrégat/comparaison pour KPI.
 3. **Données** — filtres combinables (champ / opérateur selon le `kind` /
    valeur, avec `options` en menu pour les badges), tri, limite.
-4. **Actions** — cases à cocher parmi les `ActionDesc` de la source ;
-   toggle du bouton « + » si `create` existe.
+4. **Actions** — cases à cocher parmi les `ActionDesc` de la source ; toggle du
+   bouton « + » si `create` existe — **aucune source n'en déclare plus** depuis le
+   2026-08-04 (§3), la case n'apparaît donc nulle part.
 
 « Enregistrer » du panneau → même pipeline `persist` (optimiste + toast), en
 remplaçant la `cfg` de l'instance. En mode **Personnaliser** : Supprimer, et la
@@ -522,7 +545,7 @@ de tout le monde). À ne faire que si le besoin est mesuré.
 
 ---
 
-## 12. Plan de migration — état réel au 2026-07-31
+## 12. Plan de migration — état réel au 2026-08-04
 
 Les phases 0 à 4 ci-dessous ont été livrées **dans leur forme rév. 1**. La
 colonne « reste à faire » dit ce que la rév. 2 y ajoute.
@@ -533,11 +556,29 @@ colonne « reste à faire » dit ce que la rév. 2 y ajoute.
 | **1** | `SourceFeed` + adapters + catalogue décrivant les sources | ✅ **livré** — descripteur `CATALOG` complet : `SourceDesc`/`FieldDesc`, `options` (vraies valeurs Airtable), `variants` + `variantOf`, `icon` en clé + map `ICONS`, `defaultSort`, **`presets`**, **`actions`**, **`create`** | — |
 | **2** | Type générique + Options branché | ✅ **livré** — type **`data`** unique, grammaire `query`/`view`, `DataOptions` (un seul formulaire) ; `list`/`kpi` conservés en types **dépréciés** dont `fromLegacyCfg` traduit la cfg plate | — |
 | **3** | Galerie de presets + multi-instances | ✅ **livré** — les presets sont désormais **déclarés dans le catalogue** (`presetsOf`) ; une source sans preset en reçoit un par défaut | — |
-| **4** | Vues kpi et table + **actions d'écriture** | 🟡 **mécanisme livré, branchement en attente** — vues `kpi` **et `table`** ; `SELECT_*_W` (whitelists), `SourceApi.write`, `RowActions` (`set`/`toggle`/`link` + confirmation inline), `QuickCreate` ; en aperçu, un `write` **simulé** permet de tester sans base | il manque les **adapters** des 4 tables non connectées : la première écriture réelle (case « Fait ») attend leur connexion Softr |
-| **5** | Nouveaux projets via la recette §10 ; expérience §9 (select dynamique) | ⏳ à faire | — |
+| **4** | Vues kpi et table + **actions d'écriture** | ✅ **livré et branché (2026-08-04)** — vues `kpi` **et `table`** ; `SELECT_*_W` (whitelists), `SourceApi.write`, `RowActions` (`set`/`toggle`/`link` + confirmation inline) ; les adapters des 5 tables métier existent, la case « Fait » est la première écriture réelle | ⚠️ **`QuickCreate` est écrit mais plus utilisé** : les 4 formulaires de création ont été retirés, un champ LIEN attendant un record id (voir ci-dessous) |
+| **5** | Nouveaux projets via la recette §10 ; expérience §9 (select dynamique) | 🟡 **la recette a servi 5 fois** (les 5 sources branchées le 2026-08-04, sans toucher au moteur) ; l'expérience §9 **reste à tenter** | — |
 
-Reste également, indépendant de la refonte : **brancher les 4 sources métier**
-(`notesIns`, `notesPro`, `tachesPa`, `tachesPr`) et passer `USE_MOCK` à `false`.
+**Ce que le passage en direct a appris — à savoir avant d'écrire la suite :**
+
+- **Les champs exposés dépendent de la CONNEXION, pas de la table.** La datasource
+  Softr de « Taches » n'expose que 3 des 12 champs de la table. Un champ déclaré
+  dans un `SELECT_*` mais absent de la datasource désynchronise la source et
+  **bloque toute écriture sur la table** (constaté sur le bloc SAV le 2026-08-03).
+  Le remède est de remapper la source, pas de corriger le code.
+- **Écrire un champ LIEN est hors de portée de la grammaire actuelle** : il attend
+  un **record id**, pas un libellé. C'est ce qui a fait retirer les 4 formulaires
+  de création — celui des tâches était de surcroît cassé par construction (champs
+  hors whitelist → 400, invisible tant que rien n'était connecté). Les rétablir
+  demande un `kind: "link"` de champ, dont la valeur serait alimentée par la table
+  parente : c'est le prochain vrai morceau de la couche descripteurs.
+- **Vérifier les noms de champs contre Airtable avant d'ouvrir une lecture**, et
+  non les reprendre du README : les 7 pièges attendus (espaces finaux, casses
+  irrégulières) étaient exacts, mais c'est la vérification qui le prouve.
+
+Reste, indépendant de la refonte : connecter **`notifC`** (« Notification
+Center ») pour que l'état lu / non lu existe, et renseigner les **URLs** de
+`QUICK_LINKS`.
 
 ## 12-bis. Écarts entre le code livré et cette cible
 
