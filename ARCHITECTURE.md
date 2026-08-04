@@ -223,6 +223,20 @@ formulaire n'énumère rien en dur, il est **généré depuis un registre de mé
 registre, et elle apparaît dans le panneau de tout le monde. Les `key` du registre sont
 stockées dans `cfg.show` : **ce sont des contrats de persistance**, comme les clés de type.
 
+**Deux présentations (2026-08-04)** — `cfg.layout` vaut `tuiles` (défaut) ou `lignes`, pour les
+**mêmes** valeurs : les tuiles reprennent la lecture d'un coup d'œil du tableau de bord du bloc SAV
+(libellé en petites capitales, grande valeur, détail dessous, barre pour les proportions), les
+lignes restent denses pour une colonne étroite. Le registre y gagne deux champs facultatifs :
+`sub` (le détail, **tuiles seulement** — il dit d'où sort la valeur, donc ce qu'il faut corriger
+pour la faire bouger) et `bar` (**réservée aux proportions** : une barre sur un montant ou un nombre
+de jours ne dirait pas de quoi elle est la fraction). En tuiles, la métrique `hero` rejoint la
+rangée, mise en avant par un liseré teal et non par une taille à part, qui casserait l'alignement.
+Le nombre de colonnes vient d'un `auto-fill`/`minmax` CSS — ni media query ni mesure JS, donc une
+tuile par ligne en demi-largeur et quatre de front en pleine largeur.
+
+⚠️ Une instance déjà posée **change d'apparence** (sa cfg ne porte pas `layout`, elle prend donc le
+défaut `tuiles`) ; ses valeurs, elles, sont identiques, et « Lignes » est à un clic.
+
 Ajouter un widget générique = 1 entrée de registre. Ajouter un widget sur-mesure = présentiel +
 enveloppe + entrée. Dans les deux cas, + 1 entrée `DEFAULT_INSTANCES` pour le livrer par défaut.
 

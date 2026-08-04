@@ -3370,18 +3370,38 @@ function savKpis(rows: Row[]) {
       || savTotal(r) === 0;                             // aucune intervention saisie
   }).length;
 
+  /* Détails de second plan — ils ne valent QUE comme sous-texte d'une valeur
+     principale (« 76 % · 6 dossiers sans fabricant »), jamais seuls. C'est ce qui
+     distingue une tuile d'un chiffre nu : le sous-texte dit d'où sort le pourcentage,
+     donc ce qu'il faut corriger pour le faire monter. */
+  const fabricantConnu = rows.filter((r) => !!asText(r.fabricant)).length;
+  const clientConnu = rows.filter((r) => !!asText(r.client)).length;
+  const avecTiers = rows.filter((r) => !!asText(r.tiers)).length;
+  const tiersSansCout = rows.filter((r) => !!asText(r.tiers) && !savNum(r.cout)).length;
+
   return {
     dossiers: rows.length,
     ouverts: open.length,
+    clos: rows.length - open.length,
+    resolus: resolus.length,
     interventions: rows.reduce((s, r) => s + savTotal(r), 0),
     taux: rows.length ? resolus.length / rows.length : 0,
     prioHaute: open.filter((r) => savNum(r.priorite) >= SAV_PRIO_HAUTE).length,
     vieux: ages.filter((n) => n > SAV_VIEUX_J).length,
     ancienneteMoy: savAvg(ages),
+    /* Le PLUS ancien des ouverts. `0` quand il n'y a aucun ouvert : `Math.max()` sans
+       argument renvoie -Infinity, qui s'afficherait tel quel. */
+    ancienneteMax: ages.length ? Math.max(...ages) : 0,
     coutTiers: rows.reduce((s, r) => s + savNum(r.cout), 0),
     causes: causes.slice(0, SAV_CAUSES_TOP),
     causeMax: causes[0]?.value ?? 0,
     aCorriger,
+    fabricantConnu,
+    partFabricant: rows.length ? fabricantConnu / rows.length : 0,
+    clientConnu,
+    partClient: rows.length ? clientConnu / rows.length : 0,
+    avecTiers,
+    tiersSansCout,
   };
 }
 
@@ -3420,34 +3440,81 @@ type SavMetric = {
   count?: (k: SavKpis) => number;
   text?: (n: number) => string;
   icon?: LucideIcon;
+  /** Détail sous la valeur, en vue TUILES seulement — la vue en lignes n'a pas la
+   *  place, et l'y répéter ferait du bruit. Chaîne vide = pas de détail affiché.
+   *  C'est ce sous-texte qui fait la différence entre un chiffre nu et une mesure :
+   *  il dit d'où sort la valeur, donc ce qu'il faudrait corriger pour la faire bouger. */
+  sub?: (k: SavKpis) => string;
+  /** Part de 0 à 1 → barre de progression sous la valeur. Réservée aux métriques qui
+   *  SONT une proportion : une barre sur un montant ou un nombre de jours ne voudrait
+   *  rien dire, rien ne disant de quoi ce serait la fraction. */
+  bar?: (k: SavKpis) => number;
 };
 
 const SAV_METRICS: SavMetric[] = [
-  { key: "ouverts", label: "Dossiers ouverts", kind: "hero",
-    value: (k) => `${k.ouverts}` },
+  { key: "ouverts", label: "Dossiers ouverts", kind: "hero", icon: Ticket,
+    value: (k) => `${k.ouverts}`,
+    sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} suivi${k.dossiers > 1 ? "s" : ""}` },
   { key: "prioHaute", label: "Alerte — priorité élevée", kind: "alert",
     count: (k) => k.prioHaute, text: (n) => `${n} en priorité élevée` },
   { key: "vieux", label: `Alerte — ouverts > ${SAV_VIEUX_J} j`, kind: "alert",
     count: (k) => k.vieux, text: (n) => `${n} ouvert${n > 1 ? "s" : ""} > ${SAV_VIEUX_J} j`, icon: Clock },
-  { key: "dossiers", label: "Dossiers au total", kind: "stat",
-    value: (k) => `${k.dossiers}` },
-  { key: "taux", label: "Taux de résolution", kind: "stat",
-    value: (k) => `${Math.round(k.taux * 100)} %` },
-  { key: "ancienneteMoy", label: "Ancienneté moyenne des ouverts", kind: "stat",
-    value: (k) => (k.ouverts ? `${Math.round(k.ancienneteMoy)} j` : DASH) },
-  { key: "interventions", label: "Interventions cumulées", kind: "stat",
-    value: (k) => `${k.interventions}` },
-  { key: "coutTiers", label: "Coût tiers SAV", kind: "stat",
-    value: (k) => fmtEur(k.coutTiers) },
+  { key: "dossiers", label: "Dossiers au total", kind: "stat", icon: ClipboardList,
+    value: (k) => `${k.dossiers}`,
+    sub: (k) => `${k.ouverts} ouvert${k.ouverts > 1 ? "s" : ""} · ${k.clos} clos ou résolu${k.clos > 1 ? "s" : ""}` },
+  { key: "taux", label: "Taux de résolution", kind: "stat", icon: CheckCircle,
+    value: (k) => `${Math.round(k.taux * 100)} %`,
+    sub: (k) => `${k.resolus} dossier${k.resolus > 1 ? "s" : ""} au statut « Résolu »`,
+    bar: (k) => k.taux },
+  { key: "ancienneteMoy", label: "Ancienneté moyenne des ouverts", kind: "stat", icon: Clock,
+    value: (k) => (k.ouverts ? `${Math.round(k.ancienneteMoy)} j` : DASH),
+    sub: (k) => (k.ouverts ? `le plus ancien : ${Math.round(k.ancienneteMax)} j` : "aucun dossier ouvert") },
+  { key: "interventions", label: "Interventions cumulées", kind: "stat", icon: HardHat,
+    value: (k) => `${k.interventions}`,
+    sub: (k) => (k.dossiers ? `${(k.interventions / k.dossiers).toFixed(1).replace(".", ",")} par dossier en moyenne` : "") },
+  { key: "coutTiers", label: "Coût tiers SAV", kind: "stat", icon: Building2,
+    value: (k) => fmtEur(k.coutTiers),
+    /* Le sous-texte NOMME le trou de saisie quand il existe : un coût cumulé est
+       sous-évalué de tout ce qui n'a pas été rapproché, et l'afficher sans le dire
+       laisserait croire à un total. */
+    sub: (k) => (k.tiersSansCout
+      ? `${k.avecTiers} avec tiers · ${k.tiersSansCout} sans coût rapproché`
+      : `${k.avecTiers} dossier${k.avecTiers > 1 ? "s" : ""} avec tiers mandaté`) },
+  /* Les deux métriques de QUALITÉ DE LA DONNÉE, ajoutées le 2026-08-04 sur le modèle
+     du tableau de bord du bloc SAV (« matériel documenté », « dossiers rapprochés »).
+     ⚠️ Elles mesurent ce que CE bloc peut voir — le remplissage des champs de la table
+     « Tickets » — et NON le parc de centrales : le taux de matériel identifié du bloc
+     SAV, lui, vient du parsing des descriptifs d'installation, hors de portée ici (voir
+     la note d'en-tête de SavWidget). Les libellés le disent, pour qu'on ne lise pas un
+     chiffre pour un autre. */
+  { key: "fabricantConnu", label: "Fabricant identifié", kind: "stat", icon: Building2,
+    value: (k) => `${Math.round(k.partFabricant * 100)} %`,
+    sub: (k) => {
+      const manque = k.dossiers - k.fabricantConnu;
+      return manque ? `${manque} dossier${manque > 1 ? "s" : ""} sans fabricant renseigné` : "tous les dossiers renseignés";
+    },
+    bar: (k) => k.partFabricant },
+  { key: "clientConnu", label: "Client rattaché", kind: "stat", icon: Users,
+    value: (k) => `${k.clientConnu}`,
+    sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} — ${Math.round(k.partClient * 100)} % nommés`,
+    bar: (k) => k.partClient },
   { key: "causes", label: `Principales causes (${SAV_CAUSES_TOP})`, kind: "block" },
   { key: "qualite", label: "Qualité des données", kind: "block" },
 ];
 
 /* Sélection livrée par défaut = exactement ce que le widget affichait avant d'être
-   configurable. Une instance déjà posée (cfg `{}`) ne change donc pas d'apparence. */
+   configurable. Une instance déjà posée (cfg `{}`) ne change donc pas d'apparence.
+   ⚠️ Les deux métriques de qualité n'y sont PAS : elles s'ajoutent d'un clic, mais
+   les ajouter d'office changerait ce que voient les utilisateurs qui ont déjà réglé
+   leur widget. */
 const SAV_SHOW_DEFAULT = ["ouverts", "prioHaute", "vieux", "taux", "ancienneteMoy", "interventions", "coutTiers", "causes", "qualite"];
 
-type SavCfg = { show: string[] };
+/** `layout` : deux présentations des MÊMES valeurs. Les LIGNES sont denses, lisibles
+ *  dans une colonne étroite ; les TUILES reprennent la lecture d'un coup d'œil du
+ *  tableau de bord du bloc SAV (grande valeur, détail dessous, barre pour les taux).
+ *  Le choix vit dans la cfg, donc PAR INSTANCE : deux synthèses SAV peuvent coexister
+ *  avec deux présentations, et le réglage voyage avec la disposition. */
+type SavCfg = { show: string[]; layout: "tuiles" | "lignes" };
 
 /** cfg stockée (BRUTE) → cfg utilisable. Ne throw JAMAIS, comme `coerceCfg`.
  *  Deux cas volontairement distincts, sur le modèle du mappage des widgets `data` :
@@ -3460,9 +3527,14 @@ type SavCfg = { show: string[] };
 function coerceSavCfg(raw: unknown): SavCfg {
   const o = asObj(raw);
   const known = new Set(SAV_METRICS.map((m) => m.key));
-  if (!Array.isArray(o.show)) return { show: [...SAV_SHOW_DEFAULT] };
+  /* TUILES par défaut (2026-08-04) : c'est la présentation demandée, et « lignes »
+     reste à un clic dans les Options. Conséquence assumée — une instance déjà posée,
+     dont la cfg ne porte pas `layout`, CHANGE d'apparence au prochain affichage ;
+     ses valeurs, elles, sont exactement les mêmes. */
+  const layout: SavCfg["layout"] = o.layout === "lignes" ? "lignes" : "tuiles";
+  if (!Array.isArray(o.show)) return { show: [...SAV_SHOW_DEFAULT], layout };
   const show = o.show.filter((x: unknown): x is string => typeof x === "string" && known.has(x));
-  return { show: Array.from(new Set(show)) };
+  return { show: Array.from(new Set(show)), layout };
 }
 
 /* Panneau « Options » du widget — une case par métrique du registre. Aucun champ
@@ -3474,13 +3546,21 @@ function SavOptions({ cfg, onChange }: { cfg: SavCfg; onChange: (next: SavCfg) =
     if (next.has(key)) next.delete(key); else next.add(key);
     // Réordonné selon le registre : `show` reste lisible et l'ordre d'affichage
     // ne dépend jamais de l'ordre des clics.
-    onChange({ show: SAV_METRICS.filter((m) => next.has(m.key)).map((m) => m.key) });
+    onChange({ ...cfg, show: SAV_METRICS.filter((m) => next.has(m.key)).map((m) => m.key) });
   };
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 6px" };
   const line: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 };
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
   return (
     <div>
-      <span style={lbl}>Valeurs affichées</span>
+      <span style={lbl}>Présentation</span>
+      <div style={{ display: "flex", gap: "6px", marginBottom: "4px" }}>
+        <button style={seg(cfg.layout === "tuiles")} onClick={() => onChange({ ...cfg, layout: "tuiles" })}
+          aria-pressed={cfg.layout === "tuiles"}>Tuiles</button>
+        <button style={seg(cfg.layout === "lignes")} onClick={() => onChange({ ...cfg, layout: "lignes" })}
+          aria-pressed={cfg.layout === "lignes"}>Lignes</button>
+      </div>
+      <span style={{ ...lbl, marginTop: "10px" }}>Valeurs affichées</span>
       {SAV_METRICS.map((m) => (
         <label key={m.key} style={line}>
           <input type="checkbox" checked={on.has(m.key)} onChange={() => toggle(m.key)}
@@ -3504,7 +3584,11 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
   const on = new Set(cfg.show);
   const picked = (kind: SavMetric["kind"]) => SAV_METRICS.filter((m) => m.kind === kind && on.has(m.key));
   const hero = picked("hero");
-  const stats = picked("stat");
+  /* En TUILES, la métrique reine rejoint la rangée — c'est la lecture du tableau de
+     bord SAV : des tuiles homogènes, la première simplement mise en avant. En LIGNES
+     elle garde son grand chiffre au-dessus, sans quoi la vue perdrait sa tête. */
+  const tiles = cfg.layout === "tuiles" ? [...hero, ...picked("stat")] : picked("stat");
+  const stats = tiles;
   // Une alerte n'occupe la place que si elle a quelque chose à dire (count > 0).
   const alerts = picked("alert").filter((m) => (m.count?.(k) ?? 0) > 0);
   const row: CSSProperties = { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px", padding: "9px 16px" };
@@ -3548,9 +3632,9 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
               des deux familles est retenue. Les alertes sont déjà filtrées sur
               count > 0 : le rouge ne s'affiche jamais sur une valeur saine (charte),
               et le libellé dit le sens — la couleur ne le porte pas seule. */}
-          {(hero.length > 0 || alerts.length > 0) && (
+          {((cfg.layout === "lignes" && hero.length > 0) || alerts.length > 0) && (
             <div style={{ padding: "14px 16px 12px", display: "flex", alignItems: "baseline", gap: "10px", flexWrap: "wrap" }}>
-              {hero.map((m) => (
+              {cfg.layout === "lignes" && hero.map((m) => (
                 <Fragment key={m.key}>
                   <span style={{ fontSize: "34px", lineHeight: 1, fontWeight: 800, letterSpacing: "-.02em", color: T.ink }}>{m.value?.(k)}</span>
                   <span style={{ fontSize: "12.5px", fontWeight: 600, color: T.ink3 }}>
@@ -3565,8 +3649,50 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
             </div>
           )}
 
-          {/* 2 — mesures de fond, entièrement générées depuis le registre */}
-          {stats.length > 0 && (
+          {/* 2 — mesures de fond, entièrement générées depuis le registre. DEUX
+              présentations pour les mêmes valeurs (cf. `SavCfg.layout`) : des tuiles
+              qui se lisent d'un coup d'œil, ou des lignes denses. */}
+          {stats.length > 0 && (cfg.layout === "tuiles" ? (
+            /* `auto-fill` + `minmax` : le nombre de colonnes suit la largeur RÉELLE du
+               widget, sans media query ni mesure JS — une tuile par ligne en colonne
+               étroite, quatre de front en pleine largeur. C'est la seule façon d'avoir
+               la rangée du bloc SAV ET un widget en demi-largeur lisible. */
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(148px, 1fr))", gap: "10px", padding: "12px 16px 14px" }}>
+              {stats.map((m) => {
+                const part = m.bar?.(k);
+                const detail = m.sub?.(k);
+                const Icon = m.icon;
+                // La métrique reine est mise en avant par un liseré et un fond teal
+                // très clair — pas par une taille différente, qui casserait la rangée.
+                const lead = m.kind === "hero";
+                return (
+                  <div key={m.key} style={{ padding: "11px 12px 12px", borderRadius: T.rMd, border: `1px solid ${lead ? T.brand : T.line}`, background: lead ? T.brand050 : T.surface }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                      {Icon && <Icon aria-hidden style={{ width: 13, height: 13, color: lead ? T.brand700 : T.ink4, flex: "none" }} strokeWidth={1.8} />}
+                      {/* Libellé en petites capitales : il doit se lire comme une
+                          étiquette, pas concurrencer la valeur. */}
+                      <span style={{ minWidth: 0, fontSize: "10px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {m.label}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: "24px", lineHeight: 1.05, fontWeight: 800, letterSpacing: "-.02em", color: T.ink, fontVariantNumeric: "tabular-nums" }}>
+                      {m.value?.(k)}
+                    </div>
+                    {/* La barre ne s'affiche que pour une PROPORTION (cf. `bar`), et
+                        `aria-hidden` : elle redit la valeur déjà lue au-dessus. */}
+                    {part != null && (
+                      <span aria-hidden style={{ display: "block", height: 5, marginTop: 8, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
+                        <span style={{ display: "block", height: "100%", width: `${Math.round(Math.max(0, Math.min(1, part)) * 100)}%`, background: T.brand, borderRadius: 999 }} />
+                      </span>
+                    )}
+                    {detail && (
+                      <div style={{ marginTop: 6, fontSize: "11px", fontWeight: 500, color: T.ink4, lineHeight: 1.35 }}>{detail}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
             <div>
               {stats.map((m) => (
                 <div key={m.key} style={row}>
@@ -3575,7 +3701,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
                 </div>
               ))}
             </div>
-          )}
+          ))}
 
           {/* 3 — les premières causes. Barres en <div> : aucune librairie de graphes
               n'est autorisée dans le bloc (même contrainte que le bloc SAV). */}
