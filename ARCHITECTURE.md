@@ -1017,8 +1017,13 @@ relient par un champ LIEN, qui attend un record id et non un nom. Ils reviendron
 bloc saura résoudre un lien (menu alimenté par la table parente) ; `QuickCreate` reste écrit et
 inutilisé, prêt pour ce jour-là.
 
-Le **héro n'est pas un widget** : `useHeroCounts()` lit `DS.abonnes` de son côté (même contrainte
-`from` qu'un adapter) et calcule `unread` / `urgent` (< 3 j, tâches non « Fait ») indépendamment.
+Le **héro n'est pas un widget** : il lit ses sources lui-même, avec la même contrainte `from` qu'un
+adapter. `useHeroCounts()` a été **supprimée le 2026-08-05** avec les deux chips chiffrés qu'elle
+alimentait : « N tâches urgentes » (notion inexistante dans le CRM, et source non branchée → un
+« 0 » perpétuel lu comme « rien à faire ») et « N dossiers à traiter » (qui comptait
+`abonnes.slice(0, RECENT)`, donc un plafond de liste, pas une charge de travail). Le héro ne porte
+plus qu'un chip **« Notifications » sans compteur**, à implémenter — la note au-dessus de `Hero`
+dans `Block.tsx` détaille les deux précautions à prendre (sens de case inversé, lignes orphelines).
 
 ---
 

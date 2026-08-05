@@ -46,16 +46,20 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 ## 3. Layout de la page
 
 1. **Héro** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée), **animé en boucle
-   lente** via la Web Animations API, « Bienvenue {prénom} ! », date du jour, 2 chips (dossiers à
-   traiter / tâches urgentes), **sunburst SVG animé** à droite (le logo rond distant, reconstruit
-   pour pouvoir l'animer rayon par rayon).
-2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + 3 apps Vercel
-   publiques embarquées en iframe (Formulaire de contact, Simulateur Grille, Bibliothèque).
-3. **Outils** — tuiles : pages de l'espace en `target="_top"` + outils externes (URLs à compléter).
-4. **Tableau de bord** — grille de widgets **indépendants, redimensionnables et déplaçables**, qui
-   **se tasse** (un petit widget ne laisse plus de trou sous lui) :
+   lente** via la Web Animations API, « Bienvenue {prénom} ! », date du jour, 1 chip
+   **« Notifications » sans compteur** (à implémenter), **sunburst SVG animé** à droite (le logo
+   rond distant, reconstruit pour pouvoir l'animer rayon par rayon).
+2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
+3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
+   grille qui reste visible), sauf **You Sign** qui part dans un nouvel onglet — app à login qui
+   refuse l'iframing. Cinq apps Vercel publiques embarquées : Simulateur Grille, Calculette
+   d'abonnement, Tik&Lib, Formulaire de contact, Bibliothèque.
+4. **Raccourcis** (onglet Accueil) — tuiles vers les pages de l'espace en `target="_top"`. Cette
+   section s'appelait « Outils » avant que les outils aient leur onglet.
+5. **Tableau de bord** (onglet Accueil) — grille de widgets **indépendants, redimensionnables et
+   déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui) :
    - **Derniers dossiers Abonné** — avatar dégradé, badges statut et type d'installation, temps
-     relatif, lien « Détail », pastille « Non lu » et bouton « Vu » (dès que `notifC` est connectée),
+     relatif, lien « Détail », pastille « Non lu » et bouton « Vu » (`notifC` est connectée),
      et un ⋮ Options pour choisir les informations affichées et le nombre de lignes.
    - **Journal des tâches** — onglets denses Prospects | Partenaires (pastilles compteur), badge
      d'échéance par seuil (vert > 14 j, ambre 3–14 j, rouge < 3 j), case **« Fait » qui écrit en base**.
@@ -71,9 +75,9 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      CAPEX HT avec barre, tendance, signés, annulés, taux de pose, délai de signature, courbe sur
      12 mois, installateurs. **Les en-têtes trient d'un clic**, et le tri est persisté.
      À poser en **pleine largeur** : dix colonnes ne tiennent pas dans une demi-colonne.
-   - **Exceptions** ⏳ — les 8 tuiles de volume et de **couverture du parc** (dossiers et
+   - **Exceptions** — les 8 tuiles de volume et de **couverture du parc** (dossiers et
      installateurs concernés, intensité par dossier), et le **Registre des exceptions** ligne par
-     ligne. *Ces deux widgets attendent la connexion de leurs tables (§4-A).*
+     ligne. *Leurs trois tables sont connectées depuis le 2026-08-05, dénominateur inclus.*
    - **Embeds Elfsight** (à la une, annonces) et les **utilitaires sans source** : Heure,
      Pense-bête, Liste à cocher.
 
@@ -94,10 +98,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    de le poser. « Personnaliser » reste pour réorganiser, redimensionner et supprimer. Toute la
    disposition — titres et couleurs compris — est **persistée par utilisateur**.
 
-## 4. Branchement Airtable — état au 2026-08-04
+## 4. Branchement Airtable — état au 2026-08-05
 
-**`USE_MOCK = false` : le bloc lit Airtable en direct.** 7 des 8 sources du catalogue sont
-connectées ; il ne reste que `notifC`.
+**`USE_MOCK = false` : le bloc lit Airtable en direct.** **Toutes** les sources du catalogue sont
+connectées : `CATALOG` ne porte plus aucun `connected: false`.
 
 ### A — Datasources & champs (`Block.tsx` §6) ✅
 `datasource.define` unique, IDs en **littéraux**. Les noms de champs ont été **revérifiés
@@ -113,10 +117,10 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | `sav`      | « Tickets » (SAV) — *lecture seule*            | ✅ `3f5f8f6c-…` | 22 alias : ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût |
 | `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` |
 | `parcAbo`  | « Abonnés » **relue en 1 champ**, paginée       | ✅ (même `8fc957d0-…`) | ref `Contrat abonné` — dénominateur « % du parc » |
-| `notifC`   | « Notification Center » (BDD Abonné)           | ⏳ **à fournir** | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
-| `excAbo`   | « Projet solaire » (Bdd Installateurs)         | ⏳ **à fournir** | exceptions **abonné** : dossier `SL- Dossier` · description · categorie · sousCategorie · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe |
-| `excPart`  | « Partenaire »                                 | ⏳ **à fournir** | exceptions **partenaire** : nom `Name` + les mêmes champs, plus statut `Statut` |
-| `parcPart` | « BDD Installateur »                           | ⏳ **à fournir** | nom `Nom de l'entreprise` — dénominateur « % du parc partenaires » |
+| `notifC`   | « Notification Center » (BDD Abonné) — *écrivable* | ✅ `fecd4e37-…` | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
+| `excAbo`   | « Projet solaire » (Exception)                  | ✅ `b8340293-…` | exceptions **abonné** : dossier `SL- Dossier` · description · categorie · sousCategorie · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe |
+| `excPart`  | « Partenaire » (Exception)                      | ✅ `9cf1e459-…` | exceptions **partenaire** : nom `Name` + les mêmes champs, plus statut `Statut` |
+| `parcPart` | « BDD Installateur » (Exception)                | ✅ `e82df933-…` | nom `Nom de l'entreprise` — dénominateur « % du parc partenaires » |
 
 > ⚠️ **Les datasources `Installateurs` et `Propects` (tables principales) ne sont utilisées par
 > AUCUN widget** : les notes/tâches vivent dans les tables enfants ci-dessus.
@@ -164,21 +168,25 @@ Widget **Elfsight** (bannière SunLib) `elfsight-app-488a28ed-…` intégré tel
 une fois via `useEffect` (un `<script>` en JSX ne s'exécute pas). Rien à faire, sinon
 vérifier que `elfsightcdn.com` est autorisé par la CSP de l'iframe Softr.
 
-### D — « Marquer comme vu » ⏳ code prêt, datasource manquante
+### D — « Marquer comme vu » ✅ branché le 2026-08-05
 Le masquage local a été retiré (il ne survivait pas au rechargement, donc il faisait croire
-qu'on avait traité quelque chose). L'état vit maintenant dans **`Notification Center`**, joint
-par le **record id** de l'abonné : il ne reste qu'à connecter la table à ce bloc.
+qu'on avait traité quelque chose). L'état vit dans **`Notification Center`**, joint par le
+**record id** de l'abonné. C'est la **seule source écrivable** du bloc hors notes et tâches, et
+sa whitelist n'ouvre que `Statut de lecture`.
 
-⚠️ Trois particularités de cette table, **subies et non corrigées** (d'autres écrans consomment
-ses formules) :
+⚠️ Particularités de cette table, **subies et non corrigées** (d'autres écrans consomment ses
+formules) :
 - **La case est inversée** : `Statut de lecture` **cochée** = « non lue ». D'où l'alias `aLire`,
-  et une écriture de `false` pour marquer comme vu.
-- **Deux lignes par événement** : on retient en priorité celle encore « à lire ».
+  et une écriture de `false` pour marquer comme vu. Les deux formules d'état de la table sont
+  inversées elles aussi (`IF({Statut de lecture}, "Non lue", "Lue")`) — vérifié par l'API le
+  2026-08-05 : **1354 lignes cochées affichent « Non lue »**. Le jour où la base est corrigée,
+  **inverser aussi le bloc**, sinon le widget dira l'exact contraire de la vérité.
+- **385 lignes sur 2142 n'ont aucun lien vers un abonné** (relevé le 2026-08-05) : `matchNotifC`
+  ne peut pas les rattacher, elles restent donc invisibles au widget.
 - **L'état est global, pas par utilisateur** (aucun champ destinataire) : cocher vaut pour tout
   le monde — à dire aux utilisateurs.
-
-Tant que la table n'est pas connectée, le widget s'affiche **sans pastille « Non lu » ni bouton
-« Vu »** : dégradation prévue, pas une panne.
+- **La table n'est pas paginée** ici : `orderBy` desc sur la date décide quelles lignes sont lues.
+  Un abonné dont la notification est sortie de la fenêtre s'affiche sans état — c'est prévu.
 
 ### E — Les adresses : un seul endroit (`Block.tsx` §0-bis)
 

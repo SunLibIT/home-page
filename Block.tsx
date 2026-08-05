@@ -5,10 +5,12 @@
    · 🎨 Charte UI/UX & Couleurs — IT (Notion 382b09d7…)
    · 🎨 Bloc In-Page Vibe Code — gabarit refonte CRM (Notion 3a3b09d7…)
 
-   Layout : héro (dégradé SunLib + logo rond animé) → ONGLETS DE NAVIGATION (pages
-   de l'espace, souligné teal, sticky au scroll) → outils → LinkedIn (embed
-   existant, inchangé) → TABLEAU DE BORD : widgets indépendants et compacts,
-   scrollables individuellement — dossiers | tâches, puis notes | notes.
+   Layout : héro (dégradé SunLib + logo rond animé) → ONGLETS DE NAVIGATION (souligné
+   teal, sticky au scroll) → contenu de l'onglet actif.
+   Deux onglets : « Accueil » = raccourcis vers les pages de l'espace + TABLEAU DE BORD
+   (widgets indépendants et compacts, scrollables individuellement, dont les deux feeds
+   LinkedIn) ; « Outils » = une grille de boutons qui ouvre chaque outil IN PAGE, sauf
+   You Sign (nouvel onglet, cf. `OUTILS`).
 
    Primitives (T, StyleInjector, Badge, TabBar, cartes) copiées du kit visuel
    de référence (partenaire-detail-inpage / abo-detail-inpage) — NE PAS les
@@ -27,12 +29,15 @@
 
    ────────────────────────────────────────────────────────────────────────────
    BRANCHEMENT — ce qui reste [À COMPLÉTER] :
-     A) datasource.define        → §6 : 6 des 7 sources connectées ; il manque
-                                  `notifC` (Notification Center), d'où un widget
-                                  « Derniers dossiers » sans état lu / non lu
+     A) datasource.define        → §6 : ✅ COMPLET depuis le 2026-08-05, les 9 sources
+                                  sont connectées et `CATALOG` ne porte plus aucun
+                                  `connected: false`.
+                                  ⚠️ `notifC` est câblée sur les formules INVERSÉES de
+                                  la table (case cochée = « non lue ») : si la base est
+                                  corrigée, inverser aussi ici (cf. SELECT_NOTIF_C).
      B) TOUTES LES ADRESSES      → §0-bis : un seul registre `PAGES` / `TOOLS`. ✅ plus
                                   aucune adresse manquante (8 pages de l'espace,
-                                  3 outils externes, 3 apps embarquées)
+                                  1 outil externe, 5 apps embarquables)
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
      D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
                                   CONFIRMER que Softr attend bien « recordId »
@@ -62,6 +67,7 @@ import {
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Save, X, Newspaper, Megaphone, Sparkles, Trophy,
+  Wrench, ExternalLink,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -158,22 +164,21 @@ const TOOLS = {
      elle ne périme pas. Règle générale pour ce registre : ne jamais y coller une URL
      copiée depuis une barre d'adresse en cours de session. */
   youSign: "https://yousign.app/",
-  /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE : elle
-     pourrait donc devenir un onglet embarqué comme les trois ci-dessous, au lieu d'un
-     lien vers un nouvel onglet — à décider, c'est un choix de navigation, pas une
-     contrainte technique. */
+  /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE, donc
+     EMBARQUÉE depuis le 2026-08-05 : elle s'ouvre in-page dans l'onglet « Outils ». */
   calculette: "https://sunlib-simulation-economique.vercel.app/",
   /* Plus d'entrée « Sellsy » : la tuile « Services Sellsy » a été RETIRÉE des Outils le
      2026-08-04 (demande explicite). La remettre = une entrée ici + une dans
      QUICK_LINKS (§7) ; l'icône `Briefcase` est toujours importée, elle sert à la map
      ICONS. */
-  /* Tik&Lib — le ticketing (fourni le 2026-08-04). Ouvert dans un NOUVEL ONGLET, pas
-     embarqué : c'est déjà ce que fait toute entrée de `TOOLS` (`target="_blank"`), là
-     où une entrée de `PAGES` ouvre en `_top`. On ne navigue JAMAIS dans l'iframe du
-     bloc, qui ferait disparaître le CRM autour. */
+  /* Tik&Lib — le ticketing (fourni le 2026-08-04). App Vercel PUBLIQUE, EMBARQUÉE
+     depuis le 2026-08-05 comme la calculette. */
   tikLib: "https://ticketing2-six.vercel.app/",
-  /* Apps Vercel PUBLIQUES embarquées en iframe dans les onglets (§7) : ce ne sont pas
-     des liens mais des sources d'iframe — d'où leur place à part. */
+  /* Les autres apps Vercel PUBLIQUES embarquées en iframe (§7). Toutes les entrées de
+     ce registre sauf `youSign` sont désormais des sources d'iframe et non des liens :
+     c'est `OUTILS` (§7) qui tranche, via `embed` ou `url`.
+     ⚠️ On ne navigue JAMAIS l'iframe DU BLOC lui-même, qui ferait disparaître le CRM
+     autour : un outil s'affiche dans SA propre iframe, ou dans un nouvel onglet. */
   formulaireContact: "https://formulairedecontact.vercel.app/",
   simulateurGrille: "https://simulateur-grille-v2.vercel.app/",
   bibliotheque: "https://documentation-interne.vercel.app/",
@@ -344,6 +349,18 @@ function StyleInjector() {
       .slb-rzv:hover > span, .slb-rzv:active > span{ background:${T.brand}; width:48px; }
       @keyframes slb-skel{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
       .slb-skel{ animation:slb-skel 1.3s ease-in-out infinite; }
+
+      /* Podium CAPEX : la marche survolée se soulève, sa pastille et son numéro
+         grossissent un peu. Purement DÉCORATIF, donc légitime en feuille de style —
+         si elle ne s'applique pas dans le bloc Softr (cf. §2), le podium s'affiche
+         exactement pareil, simplement sans mouvement.
+         ⚠️ On n'anime que transform : marche et numéro portent leur box-shadow EN
+         LIGNE, qui l'emporterait sur toute règle d'ici sans un !important. */
+      .slb-pod{ transition:transform .18s cubic-bezier(.22,.61,.36,1); }
+      .slb-pod:hover{ transform:translateY(-4px); }
+      .slb-pod-av, .slb-pod-rk{ transition:transform .18s cubic-bezier(.22,.61,.36,1); }
+      .slb-pod:hover .slb-pod-av{ transform:scale(1.07); }
+      .slb-pod:hover .slb-pod-rk{ transform:scale(1.14); }
 
       @media (prefers-reduced-motion: reduce){ #slb *{ animation:none !important; transition:none !important; } }
     `;
@@ -1818,9 +1835,44 @@ function SourceFeed({ source, children }: { source: SourceKey; children: SourceC
 type NavTab = { id: string; label: string; icon: LucideIcon; embed?: string; href?: string };
 const NAV_TABS: NavTab[] = [
   { id: "accueil", label: "Accueil", icon: Home },
-  { id: "formulaire", label: "Formulaire de contact", icon: Mail, embed: TOOLS.formulaireContact },
-  { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid, embed: TOOLS.simulateurGrille },
-  { id: "bibliotheque", label: "Bibliothèque", icon: Library, embed: TOOLS.bibliotheque },
+  /* Les cinq apps embarquables ne sont plus un onglet chacune : elles vivent dans
+     l'onglet « Outils » (voir OUTILS / OutilsTab), qui les ouvre in-page. La barre de
+     nav reste ainsi lisible quand un outil s'ajoute. `embed` sur un NavTab reste
+     supporté par Block() — c'est le chemin à reprendre pour promouvoir un jour un
+     outil en onglet de plein droit. */
+  { id: "outils", label: "Outils", icon: Wrench },
+];
+
+/* ── LES OUTILS DE L'ONGLET « Outils » ──────────────────────────────────────────
+   `embed` = ouvert DANS la page, en iframe, sans quitter le CRM. `url` = ouvert dans
+   un NOUVEL ONGLET. Les deux sont EXCLUSIFS et c'est `embed` qui décide : une entrée
+   qui porterait les deux ignorerait `url`.
+
+   ⚠️ Pourquoi You Sign fait exception et n'est PAS embarqué : c'est une app à LOGIN,
+   servie derrière Auth0, et elle refuse l'iframing (X-Frame-Options / CSP
+   frame-ancestors). Embarquée, elle ne rendrait qu'un cadre blanc. Les cinq autres
+   sont des apps Vercel PUBLIQUES, sans login, donc iframables — c'est la seule
+   raison de la différence, pas une préférence d'ergonomie.
+
+   Les adresses viennent de §0-bis : "" signifie « pas encore d'adresse » → le bouton
+   reste visible mais inerte, comme les tuiles de `QUICK_LINKS`. */
+type Outil = {
+  id: string; label: string; icon: LucideIcon; desc: string;
+  embed?: string; url?: string; solar?: boolean;
+};
+const OUTILS: Outil[] = [
+  { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid,
+    desc: "Grille tarifaire et scénarios d'abonnement.", embed: TOOLS.simulateurGrille },
+  { id: "calculette", label: "Calculette d'abonnement", icon: Calculator,
+    desc: "Simulation économique d'un projet.", embed: TOOLS.calculette, solar: true },
+  { id: "tiklib", label: "Tik&Lib", icon: Ticket,
+    desc: "Le ticketing interne.", embed: TOOLS.tikLib },
+  { id: "yousign", label: "You Sign", icon: FileSignature,
+    desc: "Signature électronique des contrats.", url: TOOLS.youSign },
+  { id: "formulaire", label: "Formulaire de contact", icon: Mail,
+    desc: "Déposer une demande de contact.", embed: TOOLS.formulaireContact },
+  { id: "bibliotheque", label: "Bibliothèque", icon: Library,
+    desc: "Documents et supports internes.", embed: TOOLS.bibliotheque },
 ];
 
 /* Outils. UNE tuile = soit `page` (page de l'espace, ouverte en _top et résolue par
@@ -1836,13 +1888,11 @@ const QUICK_LINKS: { label: string; icon: LucideIcon; page?: string; url?: strin
   { label: "Abonnés", icon: Users, page: PAGES.abonnes },
   { label: "Pilotage SAV", icon: Ticket, page: PAGES.sav },
   { label: "KPI", icon: BarChart3, page: PAGES.kpi },
-  // (Bibliothèque n'est plus ici : c'est un onglet → TOOLS.bibliotheque)
-  // Outils externes.
-  { label: "You Sign", icon: FileSignature, url: TOOLS.youSign },
-  { label: "Calculette d'abonnement", icon: Calculator, url: TOOLS.calculette, solar: true },
-  { label: "Tik&Lib", icon: Ticket, url: TOOLS.tikLib },
-  // Simulateur Grille & Formulaire de contact retirés d'ici : ce sont désormais
-  // des onglets (embarqués en iframe). Ne pas les redédoubler dans les Outils.
+  /* ⚠️ PLUS AUCUN OUTIL ICI : You Sign, la Calculette, Tik&Lib, le Simulateur, le
+     Formulaire de contact et la Bibliothèque sont regroupés dans l'onglet « Outils »
+     (`OUTILS`). Cette section ne garde que les PAGES de l'espace Softr, d'où son
+     titre « Raccourcis ». Ne pas redédoubler un outil ici : deux chemins vers la même
+     app finissent toujours par divulguer deux adresses différentes. */
 ];
 
 /* ============================================================================
@@ -2500,7 +2550,7 @@ function Sunburst({ height, still = false }: { height: string; still?: boolean }
   );
 }
 
-function Hero({ firstName, unread, urgent }: { firstName: string; unread: number; urgent: number }) {
+function Hero({ firstName }: { firstName: string }) {
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const chip: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "7px", padding: "7px 13px", borderRadius: "999px", fontSize: "12.5px", fontWeight: 600, color: "#fff", backgroundColor: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.38)", backdropFilter: "blur(4px)" };
   const panRef = useHeroPan();
@@ -2518,9 +2568,17 @@ function Hero({ firstName, unread, urgent }: { firstName: string; unread: number
           <p style={{ margin: 0, fontSize: "14.5px", fontWeight: 500, color: "rgba(255,255,255,.92)", maxWidth: 480 }}>
             Voici l'essentiel de votre activité SunLib aujourd'hui.
           </p>
+          {/* UN SEUL chip : « Notifications », SANS compteur pour l'instant.
+              · « N tâches urgentes » a été retiré — la notion n'existe pas dans le CRM,
+                et la source des tâches partenaires n'étant pas branchée, elle affichait
+                un « 0 » perpétuel qui se lisait comme « rien à faire ».
+              · « N dossiers à traiter » comptait en réalité les N derniers dossiers
+                créés : un simple plafond de liste, pas une charge de travail.
+              ⚠️ Le compteur reste à IMPLÉMENTER (voir la note au-dessus de Hero) : tant
+              qu'il ne compte pas quelque chose de vrai, mieux vaut pas de nombre qu'un
+              nombre faux — un compteur à côté d'une cloche est cru sur parole. */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "20px" }}>
-            <span style={chip}><Bell aria-hidden style={{ width: 14, height: 14 }} />{unread} dossier{unread > 1 ? "s" : ""} à traiter</span>
-            <span style={chip}><CalendarClock aria-hidden style={{ width: 14, height: 14 }} />{urgent} tâche{urgent > 1 ? "s" : ""} urgente{urgent > 1 ? "s" : ""}</span>
+            <span style={chip}><Bell aria-hidden style={{ width: 14, height: 14 }} />Notifications</span>
           </div>
         </div>
         {/* Les rayons sont tracés en blanc à la source : plus besoin du
@@ -2533,15 +2591,18 @@ function Hero({ firstName, unread, urgent }: { firstName: string; unread: number
   );
 }
 
-/* --- Outils. Les adresses viennent de `PAGES` / `TOOLS` (§0-bis) ; ce composant ne
-      fait que les résoudre au rendu. Une tuile sans adresse connue est rendue
-      DÉSACTIVÉE (un `<span>`, pas un `<a>`) : elle reste visible — l'outil existe, on
-      sait juste où il n'est pas encore — mais elle ne promet plus un clic qui ne mène
-      nulle part. Renseigner le slug dans §0-bis l'active, sans toucher ici. --- */
+/* --- Raccourcis vers les PAGES de l'espace Softr. Les adresses viennent de `PAGES`
+      (§0-bis) ; ce composant ne fait que les résoudre au rendu. Une tuile sans adresse
+      connue est rendue DÉSACTIVÉE (un `<span>`, pas un `<a>`) : elle reste visible — la
+      page existe, on sait juste où elle n'est pas encore — mais elle ne promet plus un
+      clic qui ne mène nulle part. Renseigner le slug dans §0-bis l'active, sans toucher
+      ici.
+      ⚠️ Titre « Raccourcis » et non « Outils » depuis que les outils ont leur onglet :
+      deux sections « Outils » aux contenus différents se liraient comme un bug. --- */
 function QuickLinks() {
   return (
-    <section aria-label="Outils">
-      <h2 style={{ ...H2, marginBottom: "14px" }}>Outils</h2>
+    <section aria-label="Raccourcis">
+      <h2 style={{ ...H2, marginBottom: "14px" }}>Raccourcis</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "13px" }}>
         {QUICK_LINKS.map(({ label, icon: Icon, page, url, solar }) => {
           /* `page` = page de l'espace (résolue, target _top) ; `url` = outil externe. */
@@ -2588,6 +2649,110 @@ function EmbedTab({ src, title }: { src: string; title: string }) {
     <section aria-label={title} style={{ borderRadius: T.rXl, overflow: "hidden", border: `1px solid ${T.line}`, boxShadow: T.shSm, backgroundColor: T.surface }}>
       <iframe src={src} title={title} loading="lazy"
         style={{ display: "block", width: "100%", height: "min(1200px, 82vh)", minHeight: 560, border: "none" }} />
+    </section>
+  );
+}
+
+/* --- ONGLET « OUTILS ». Une grille de boutons ; un clic ouvre l'outil IN PAGE, juste
+      en dessous, sans quitter le CRM. La grille reste visible : on passe d'un outil à
+      l'autre en un clic, et l'outil ouvert est marqué (bordure + fond teintés, plus
+      `aria-pressed`) — la couleur ne porte donc jamais l'information seule.
+
+      You Sign est le seul à partir dans un NOUVEL ONGLET : app à login qui refuse
+      l'iframing (cf. `OUTILS`). Son bouton l'annonce par une icône différente et un
+      `title`, pour que le départ hors du CRM ne surprenne pas.
+
+      ⚠️ Un refus d'iframe est INDÉTECTABLE depuis ici (l'iframe est cross-origin, son
+      contenu est illisible) : si une app se met à refuser l'iframing, son cadre
+      restera blanc sans erreur. D'où le lien « Nouvel onglet » présent dans l'en-tête
+      de CHAQUE outil ouvert — c'est la porte de sortie, pas un ornement. --- */
+function OutilsTab() {
+  const [openId, setOpenId] = useState<string | null>(null);
+  // L'outil ouvert doit être embarquable ET avoir une adresse : un `openId` devenu
+  // invalide (registre modifié) retombe donc proprement sur « rien d'ouvert ».
+  const open = OUTILS.find((o) => o.id === openId && o.embed) ?? null;
+
+  return (
+    <section aria-label="Outils" style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+      <div>
+        <h2 style={{ ...H2, marginBottom: "14px" }}>Outils</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "13px" }}>
+          {OUTILS.map((o) => {
+            const { id, label, icon: Icon, desc, embed, url, solar } = o;
+            const href = embed ?? url ?? "";       // "" = adresse pas encore renseignée
+            const actif = open?.id === id;
+            const btn: CSSProperties = {
+              display: "flex", alignItems: "center", gap: "12px", padding: "13px 15px",
+              textAlign: "left", width: "100%", font: "inherit", cursor: "pointer",
+              backgroundColor: actif ? T.brand050 : T.surface,
+              border: `1px solid ${actif ? T.brand100 : T.line}`,
+              borderRadius: T.rLg, boxShadow: actif ? "none" : T.shSm, textDecoration: "none",
+            };
+            const inner = (
+              <>
+                <span style={icoPill(solar)}><Icon aria-hidden style={{ width: 17, height: 17 }} strokeWidth={1.7} /></span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: "13.5px", fontWeight: 600, color: href ? (actif ? T.brand700 : T.ink) : T.ink4 }}>{label}</span>
+                  <span style={{ display: "block", fontSize: "12px", fontWeight: 500, color: T.ink3, marginTop: "1px" }}>{desc}</span>
+                </span>
+                {!href
+                  ? <span style={{ fontSize: "10.5px", fontWeight: 600, color: T.ink4, flex: "none" }}>bientôt</span>
+                  : embed
+                    ? <ChevronRight aria-hidden className="slb-arrow" style={{ width: 16, height: 16, color: actif ? T.brand600 : T.ink4, flex: "none" }} />
+                    : <ExternalLink aria-hidden style={{ width: 15, height: 15, color: T.ink4, flex: "none" }} />}
+              </>
+            );
+
+            // Pas d'adresse : ni bouton ni lien — un élément inerte qui reste lisible.
+            if (!href) return (
+              <span key={id} aria-disabled="true" title="Adresse pas encore renseignée"
+                style={{ ...btn, backgroundColor: T.surface2, boxShadow: "none", cursor: "default" }}>
+                {inner}
+              </span>
+            );
+
+            // Outil externe (You Sign) : nouvel onglet, jamais dans l'iframe du bloc.
+            if (!embed) return (
+              <a key={id} href={href} target="_blank" rel="noopener noreferrer"
+                title={`${label} — s'ouvre dans un nouvel onglet`}
+                className="slb-tile" style={btn}>
+                {inner}
+              </a>
+            );
+
+            // Outil embarquable : bascule d'affichage. Recliquer l'outil ouvert le ferme.
+            return (
+              <button key={id} type="button" aria-pressed={actif}
+                onClick={() => setOpenId(actif ? null : id)}
+                className="slb-tile" style={btn}>
+                {inner}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {open?.embed && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {/* En-tête de l'outil ouvert : ce qu'on regarde, la porte de sortie, la fermeture. */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: "13.5px", fontWeight: 600, color: T.ink }}>{open.label}</span>
+            <a href={open.embed} target="_blank" rel="noopener noreferrer"
+              className="slb-btng"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 11px", fontSize: "12.5px", fontWeight: 600, color: T.ink2, backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, textDecoration: "none" }}>
+              <ExternalLink aria-hidden style={{ width: 14, height: 14 }} strokeWidth={1.8} />
+              Nouvel onglet
+            </a>
+            <button type="button" onClick={() => setOpenId(null)}
+              className="slb-btng"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 11px", fontSize: "12.5px", fontWeight: 600, color: T.ink2, backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, cursor: "pointer", font: "inherit" }}>
+              <X aria-hidden style={{ width: 14, height: 14 }} strokeWidth={1.8} />
+              Fermer
+            </button>
+          </div>
+          <EmbedTab src={open.embed} title={open.label} />
+        </div>
+      )}
     </section>
   );
 }
@@ -4810,10 +4975,10 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
         <div>
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "26px", flexWrap: "wrap", padding: "16px 16px 0" }}>
             {marches.map((c, i) => c ? (
-              <div key={c.nom} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
+              <div key={c.nom} className="slb-pod" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
                 {/* Pastille d'initiales : même teinte stable par nom que les listes du
                     bloc (`avatarBg`), donc la même personne garde sa couleur partout. */}
-                <span aria-hidden style={{ width: i === 1 ? 56 : 42, height: i === 1 ? 56 : 42, flex: "none", borderRadius: T.rSm, display: "grid", placeItems: "center", background: avatarBg(c.nom), color: "#fff", fontSize: i === 1 ? "17px" : "13px", fontWeight: 700, letterSpacing: "-.02em" }}>
+                <span aria-hidden className="slb-pod-av" style={{ width: i === 1 ? 56 : 42, height: i === 1 ? 56 : 42, flex: "none", borderRadius: T.rSm, display: "grid", placeItems: "center", background: avatarBg(c.nom), color: "#fff", fontSize: i === 1 ? "17px" : "13px", fontWeight: 700, letterSpacing: "-.02em" }}>
                   {initials(c.nom)}
                 </span>
                 <div style={{ textAlign: "center" }}>
@@ -4833,7 +4998,7 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
                   boxShadow: `inset 0 0 0 1px ${i === 1 ? T.solar100 : T.line2}`,
                   display: "grid", placeItems: "center",
                 }}>
-                  <span style={{
+                  <span className="slb-pod-rk" style={{
                     display: "inline-grid", placeItems: "center", width: 24, height: 24, borderRadius: 999,
                     fontSize: "11.5px", fontWeight: 700, fontVariantNumeric: "tabular-nums",
                     background: rangs[i] === 1 ? T.solar050 : rangs[i] === 2 ? T.neutral050 : T.warn050,
@@ -6701,27 +6866,26 @@ function setInstanceLook(layout: Layout, id: string, title: string, tint: string
 /* ============================================================================
    11. Tableau de bord — héro, persistance & grille (mode Personnaliser)
    ============================================================================ */
-/* --- Compteurs du héro. Le héro n'est PAS un widget : il lit lui-même ce qu'il
-   affiche (dossiers récents + tâches partenaires urgentes < 3 j). `abonnes` est
-   lu EN DIRECT (source connectée) ; les tâches partenaires ne sont pas encore
-   branchées → 0 urgente en live (valeur mock en aperçu). Quand la source des tâches
-   partenaires sera connectée, la lire ici et calculer `urgent` à partir de ses
-   enregistrements.
-   ⚠️ Ces compteurs portent sur les `RECENT` derniers dossiers, indépendamment de la
-   limite choisie dans les options du widget : le héro parle de l'activité, pas de ce
-   qu'un widget montre. --- */
-function useHeroCounts() {
-  // Le héro n'est pas un widget : il lit ses sources lui-même. Comme un adapter, il
-  // appelle useRecords avec `from` en DIRECT (contrainte Softr) et retombe sur
-  // offlineState pour ce qui n'est pas connecté. À terme (phase 4), ces deux chips
-  // deviendront des mini-KPI, donc de simples consommateurs de <SourceFeed>.
-  const abonnesRes = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  const abonnes = isLive("abonnes") ? liveState(abonnesRes).rows : offlineState("abonnes").rows;
-  const taches = offlineState("tachesPa").rows;   // source pas encore connectée
-  const unread = abonnes.slice(0, RECENT).length;
-  const urgent = taches.filter((r) => !isDone(r) && relDays(asText(r.fin)) < 3).length;
-  return { unread, urgent };
-}
+/* --- Compteur du héro : À IMPLÉMENTER. Le chip « Notifications » du héro ne porte
+   volontairement AUCUN nombre pour l'instant.
+
+   Ce qui a été retiré et pourquoi :
+     · « N tâches urgentes » — la notion n'existe pas dans le CRM, et la source des
+       tâches partenaires n'étant pas connectée au héro, le chip affichait un « 0 »
+       perpétuel, qui se lit comme « rien à faire » et non comme « pas encore branché ».
+     · « N dossiers à traiter » — comptait `abonnes.slice(0, RECENT).length`, donc au
+       plus RECENT : un plafond de liste, jamais une charge de travail. Le nombre était
+       stable quoi qu'il arrive dans le parc.
+
+   Pour le brancher pour de vrai, la source existe désormais : `notifC` est connectée
+   (§6) et le widget des dossiers la lit déjà via <SourceFeed source="notifC">. Compter
+   les non-lues suppose deux précautions :
+     1. le SENS de la case est INVERSÉ dans la table (cochée = non lue, cf.
+        SELECT_NOTIF_C) — compter les cochées, pas les décochées ;
+     2. 385 des 2142 lignes n'ont AUCUN lien vers un abonné (relevé le 2026-08-05) :
+        les compter gonflerait le chip de notifications que personne ne peut ouvrir.
+   Le héro n'étant pas un widget, il lira sa source lui-même — `useRecords` avec `from`
+   en DIRECT, contrainte Softr — ou deviendra un consommateur de <SourceFeed>. --- */
 
 /* --- PERSISTANCE DES PRÉFÉRENCES (Plan A : create + update par datasource) ----
    · LECTURE au montage : useRecords(prefs) filtré sur l'e-mail courant →
@@ -7425,7 +7589,6 @@ function Dashboard() {
 export default function Block() {
   const user = useCurrentUser(); // iframe Softr — jamais window.logged_in_user
   const firstName = USE_MOCK ? MOCK_USER.firstName : firstNameOf(user);
-  const { unread, urgent } = useHeroCounts();
   const [tab, setTab] = useState<string>("accueil");
   const active = NAV_TABS.find((t) => t.id === tab) ?? NAV_TABS[0];
 
@@ -7437,13 +7600,16 @@ export default function Block() {
           grilles de widgets sur écran large, en gardant une gouttière courte. */}
       <div style={{ maxWidth: 1440, margin: "0 auto", padding: "24px 16px 56px", display: "flex", flexDirection: "column", gap: "30px" }}>
 
-        <Hero firstName={firstName} unread={unread} urgent={urgent} />
+        <Hero firstName={firstName} />
 
         <PageNavBar tabs={NAV_TABS} activeId={active.id} onSelect={setTab} />
 
         {active.embed ? (
-          // Onglet app externe (Formulaire de contact / Simulateur Grille) — iframe.
+          // Onglet app externe promue en onglet de plein droit — iframe directe.
           <EmbedTab src={active.embed} title={active.label} />
+        ) : active.id === "outils" ? (
+          // Onglet Outils — la grille de boutons ; l'outil choisi s'ouvre in-page.
+          <OutilsTab />
         ) : (
           // Onglet Accueil — outils + tableau de bord à widgets.
           <>
