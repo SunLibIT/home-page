@@ -157,9 +157,18 @@ son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appel
   l'autre, les deux marchent, inutile d'en charger deux.
 - **Pas de `data-elfsight-app-lazy`** : le montage différé dépend de la visibilité, fragile dans une
   iframe.
-- Si le conteneur est toujours vide au bout de 6 s, un **état de repli** nomme les trois causes à
-  vérifier (CSP de l'app, domaine autorisé côté Elfsight, bloqueur de contenu) au lieu de laisser un
-  cadre vide.
+- Si le conteneur est toujours vide au bout de 6 s, un **état de repli** s'affiche au lieu d'un cadre
+  vide. Depuis le 2026-08-05 il **nomme** la cause au lieu d'en lister trois, en s'appuyant sur
+  `onload`/`onerror` du runtime : script refusé ⇒ CSP ou bloqueur ; script servi mais stérile ⇒
+  domaine non autorisé côté Elfsight ; script déjà présent ⇒ état indéterminé, assumé comme tel.
+- ⛔ **Blocage en aperçu Softr, diagnostic non clos (2026-08-05)** : `script-src 'self'
+  'unsafe-inline'` y refuse les scripts tiers — mais l'erreur observée nomme le beacon Cloudflare, pas
+  Elfsight, et le **même snippet fonctionne dans un bloc « Custom Code »**. Piste principale : la CSP
+  stricte est celle de l'**iframe du bloc**, pas de la page (deux documents, deux politiques). Test qui
+  tranche : une erreur CSP nommant `elfsight` dans la console. Détail corrigé au passage — le bloc
+  chargeait `elfsightcdn.com/platform.js` au lieu du `static.elfsight.com/platform/platform.js` du
+  snippet vérifié. Voir README §D. Vrai dans tous les cas : `npm run dev` marche parce que Vite ne
+  pose aucune CSP.
 - Les titres affichés sont **neutres** (« À la une SunLib », « Annonces SunLib ») : le contenu de ces
   bannières change côté Elfsight, et ce ne sont pas des embeds LinkedIn. Les clés de type, elles,
   restent figées (`linkedinBanner`).
@@ -277,12 +286,50 @@ function SourceFeed({ source, children }) {                   // dispatch STATIQ
 }
 ```
 
-⚠️ **`orderBy` n'est pas un choix d'affichage** : rien n'est paginé ici, donc il décide **quelles
+⚠️ **`orderBy` n'est pas un choix d'affichage** : pour les adapters NON paginés, il décide **quelles
 lignes sont lues** dès qu'une table dépasse la première page. Chaque adapter trie par la colonne
 qui garde les lignes utiles à ses widgets (les plus récentes pour des notes, l'échéance la plus
-proche pour des tâches, `debut` desc pour le SAV). Corollaire pour le SAV : les indicateurs de
-`SavCard` portent sur la **fenêtre lue**, pas sur la table — le bloc « Pilotage SAV » reste la
-référence chiffrée, l'accueil est un résumé, et le widget le dit.
+proche pour des tâches).
+
+⚠️ **Corollaire, et il a coûté un bug (corrigé le 2026-08-05)** : un adapter qui alimente un widget
+qui **agrège** doit être paginé, sinon ses totaux décrivent la fenêtre et non la table. `SavSource`
+ne l'était pas : `savKpis` annonçait **6 dossiers ouverts** contre **18** réels. Le tri `debut` desc
+retournait le couteau — en gardant les dossiers récents il écartait les plus anciens, donc l'alerte
+« ouverts > 60 j » ne pouvait pas s'allumer, et son silence se lisait comme une bonne nouvelle.
+Règle à retenir : **agréger ⇒ paginer, ou dire qu'on ne sait pas.**
+
+### `drain` — la pagination suit le BESOIN, pas la source (2026-08-05)
+
+Paginer toutes les sources coûterait des dizaines de requêtes pour des listes de 12 lignes ; n'en
+paginer aucune produit des chiffres faux. `SourceFeed` prend donc un booléen **`drain`**, transmis à
+`useDrainPages(res, max, enabled)` : le même adapter sert une liste (une page) ou un agrégat
+(pagination vidée + `partial`). `enabled: false` rend `partial: false` — le drapeau qualifie la
+**promesse du widget**, pas la lecture.
+
+| Consommateur | `drain` | Pourquoi |
+| --- | --- | --- |
+| Performance ×3, Exceptions ×2, parcs ×2, Pilotage SAV | **toujours** (dans l'adapter) | ces sources n'existent que pour être agrégées |
+| Vue générique **`kpi`** (`count`/`sum`/`avg`) | **oui**, `DataView` le passe | un indicateur EST une promesse de total |
+| Vues **`list`** / **`table`** | non | elles décrivent ce qu'elles montrent, après `applyQuery` |
+| **Journal des tâches** | **oui**, les deux sources | ses pastilles d'onglet sont des compteurs |
+| **Derniers dossiers** → `notifC` | **oui** | pour **joindre**, pas pour agréger (voir ci-dessous) |
+| **Derniers dossiers** → `abonnes` | non | « les N plus récents », aucun total annoncé |
+
+Deux corrections du même jour, de la même famille :
+- **Journal des tâches** — les pastilles comptaient `prospects.length`, or les listes sont tronquées
+  à `RECENT` : un onglet affichait « 12 » là où la table en portait quarante. Les totaux sont
+  désormais calculés avant la troncature et passés séparément, et le widget écrit « 12 des 40 tâches
+  ouvertes » sous la liste pour que l'écart ne se lise pas comme une incohérence.
+- **Derniers dossiers** — l'état lu/non-lu est une **jointure** (`matchNotifC`) : une notification
+  hors fenêtre faisait retomber la ligne sur `nonLu = false`, donc un dossier non traité passait pour
+  traité, sans bouton « Vu ». Faux négatif silencieux, corrigé en drainant `notifC` ; si la lecture
+  reste tronquée, le widget affiche « État incomplet ».
+
+⚠️ **Limite résiduelle assumée** : les filtres des vues `list`/`table` (`applyQuery`) opèrent **côté
+client, sur les lignes lues**. Un filtre sur une valeur rare peut donc rendre « aucun résultat »
+alors que la table en contient — au-delà de la première page. Poser `drain` dès qu'un filtre est
+actif corrigerait le cas, au prix d'une lecture complète à chaque widget filtré : arbitrage non
+tranché.
 
 Ce que cette couche apporte :
 

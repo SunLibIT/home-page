@@ -1612,10 +1612,11 @@ const offlineState = (k: SourceKey): SourceState =>
    Chacun expose un `SourceApi`. Pour une source ÉCRIVABLE, l'adapter monte aussi
    `useRecordUpdate`/`useRecordCreate` avec son `SELECT_*_W` — la whitelist — et
    n'expose `write` QUE si une session existe (sinon Softr refuse, cf. §1). --- */
-function AbonnesSource({ children }: { children: SourceChildren }) {
+function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   // Pas de `write` : « Abonnés » n'a pas de select d'écriture (choix, §6).
-  return <>{children(liveState(res))}</>;
+  return <>{children({ ...liveState(res), partial })}</>;
 }
 
 /* Source hors ligne (mock d'aperçu, ou source pas encore connectée). En APERÇU
@@ -1668,16 +1669,24 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
    pouvoir s'arrêter : atteint, il rend `partial: true`, que le widget AFFICHE. --- */
 const COM_MAX_PAGES = 40;   // ≈ 4 000 dossiers (1 756 au 2026-08-04) — large, mais borné
 
-function useDrainPages(res: any, maxPages: number): { partial: boolean } {
+/* `enabled` : on ne draine QUE si le consommateur agrège. Une liste qui montre « les 12
+   plus récents » n'a aucun besoin des 1 700 autres lignes, et les tirer coûterait des
+   dizaines de requêtes pour rien. Mais dès qu'un widget COMPTE, SOMME ou MOYENNE, la
+   fenêtre devient un mensonge : c'est `drain` (voir SourceFeed) qui bascule le même
+   adapter d'un mode à l'autre, sans dupliquer de source.
+   ⚠️ `enabled: false` rend `partial: false` volontairement : un widget qui n'annonce pas
+   de total n'a rien d'incomplet à signaler. Le drapeau ne qualifie pas la lecture, il
+   qualifie la PROMESSE du widget. */
+function useDrainPages(res: any, maxPages: number, enabled = true): { partial: boolean } {
   const nPages = Array.isArray(res?.data?.pages) ? res.data.pages.length : 0;
   const hasNext = !!res?.hasNextPage;
   const fetching = !!res?.isFetchingNextPage;
   const canFetch = typeof res?.fetchNextPage === "function";
   useEffect(() => {
-    if (hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
-  }, [hasNext, canFetch, fetching, nPages, maxPages]);
+    if (enabled && hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
+  }, [enabled, hasNext, canFetch, fetching, nPages, maxPages]);
   // Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
-  return { partial: hasNext && nPages >= maxPages };
+  return { partial: enabled && hasNext && nPages >= maxPages };
 }
 
 /* Performance commerciale : `DS.abonnes` relue en entier, 5 champs (cf. SELECT_COM).
@@ -1719,48 +1728,52 @@ function ParcPartSource({ children }: { children: SourceChildren }) {
   return <>{children({ ...liveState(res), partial })}</>;
 }
 
-function NotesInsSource({ children }: { children: SourceChildren }) {
+function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;                        // pas de session → aucune tentative
-  return <>{children({ ...liveState(res), write })}</>;
+  return <>{children({ ...liveState(res), partial, write })}</>;
 }
 
-function NotesProSource({ children }: { children: SourceChildren }) {
+function NotesProSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.notesPro, fields: SELECT_NOTE_PRO_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), write })}</>;
+  return <>{children({ ...liveState(res), partial, write })}</>;
 }
 
 /* Tâches : `write` porte la PREMIÈRE écriture réelle du bloc — la case « Fait ».
    Sa whitelist ne contient que ce champ, donc c'est tout ce qu'un widget peut
    toucher ici, quoi que puisse déclarer le catalogue. Pas de `create` : voir la
    note « pas de création de tâche » dans le descripteur. */
-function TachesPaSource({ children }: { children: SourceChildren }) {
+function TachesPaSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), write })}</>;
+  return <>{children({ ...liveState(res), partial, write })}</>;
 }
 
-function TachesPrSource({ children }: { children: SourceChildren }) {
+function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.tachesPr, fields: SELECT_TACHE_PR_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), write })}</>;
+  return <>{children({ ...liveState(res), partial, write })}</>;
 }
 
 /* ⚠️⚠️ CAS « SAV », et c'est LE piège qui a été évité de justesse : le bloc
@@ -1776,15 +1789,26 @@ function TachesPrSource({ children }: { children: SourceChildren }) {
    ⚠️ « Total interventions » (champ FORMULE) est absent de SELECT_SAV, et doit le
    rester : un champ calculé déclaré dans un select fait échouer l'écriture du record
    entier. Le total se resomme côté bloc. Même règle pour tout futur rollup. */
+/* PAGINÉ depuis le 2026-08-05, et c'était un BUG, pas un raffinement.
+   Cette source ne lisait qu'UNE page. Or `savKpis` AGRÈGE (dossiers ouverts, ancienneté,
+   taux de résolution, causes) : ses compteurs portaient donc sur la fenêtre lue et non
+   sur la table. Constaté en production : le widget annonçait **6 dossiers ouverts** là
+   où le bloc « Pilotage SAV » en comptait **18**.
+
+   Le tri `debut` desc rendait le biais pire qu'un simple sous-comptage : il garde les
+   dossiers RÉCENTS, donc il écarte en priorité les plus anciens — précisément ceux que
+   l'alerte « ouverts > 60 j » doit trouver. Cette alerte ne s'affichant que si son
+   compte est > 0, elle restait muette en paraissant saine. Une alerte qui ne peut
+   structurellement pas s'allumer est pire que pas d'alerte.
+
+   On draine donc les pages comme les autres agrégateurs, et `partial` est remonté au
+   widget, qui l'AFFICHE : si la lecture n'atteint pas le bout, le chiffre est annoncé
+   comme partiel au lieu d'être présenté comme un total. */
 function SavSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
-  return <>{children(liveState(res))}</>;
+  const { partial } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial })}</>;
 }
-
-/* ⚠️ Trier le SAV par `debut` desc garde les dossiers récents, mais les KPI de
-   SavCard (ancienneté, taux de résolution) portent alors sur la FENÊTRE LUE, pas sur
-   la table entière. Le bloc « Pilotage SAV » reste la référence chiffrée ; l'accueil
-   est un résumé — c'est dit dans le widget lui-même. */
 /* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Connectée le
    2026-08-05 (id propre à CE bloc : onglet Chat, jamais celui d'un autre bloc — cf. la
    note du SAV).
@@ -1792,30 +1816,38 @@ function SavSource({ children }: { children: SourceChildren }) {
    ⚠️ La table fait 2 142 lignes et n'est pas paginée ici : `orderBy` desc sur la date
    décide donc QUELLES lignes sont lues. Un abonné dont la notification serait sortie de
    la fenêtre lue apparaîtra simplement sans état — c'est prévu (voir `matchNotifC`). */
-function NotifCSource({ children }: { children: SourceChildren }) {
+function NotifCSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email ? {
     update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
   } : undefined;                       // pas de session → aucune tentative
-  return <>{children({ ...liveState(res), write })}</>;
+  return <>{children({ ...liveState(res), partial, write })}</>;
 }
-function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
+/* `drain` : à passer par TOUT consommateur qui agrège (compte, somme, moyenne, ou un
+   compteur d'onglet). Les six sources « liste » ne tirent qu'une page par défaut, ce qui
+   suffit à afficher « les N plus récents » ; avec `drain`, le même adapter vide la
+   pagination et remonte `partial`. Les cinq sources d'agrégat (Performance, Exceptions,
+   parcs) et le SAV drainent TOUJOURS : elles n'existent que pour être agrégées.
+   ⚠️ Oublier `drain` sur un widget qui compte ne provoque aucune erreur — juste un
+   chiffre faux, crédible et silencieux. C'est le bug qu'a connu Pilotage SAV. */
+function SourceFeed({ source, children, drain }: { source: SourceKey; children: SourceChildren; drain?: boolean }) {
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
-    case "abonnes":  return <AbonnesSource>{children}</AbonnesSource>;
-    case "notesIns": return <NotesInsSource>{children}</NotesInsSource>;
-    case "notesPro": return <NotesProSource>{children}</NotesProSource>;
-    case "tachesPa": return <TachesPaSource>{children}</TachesPaSource>;
-    case "tachesPr": return <TachesPrSource>{children}</TachesPrSource>;
+    case "abonnes":  return <AbonnesSource drain={drain}>{children}</AbonnesSource>;
+    case "notesIns": return <NotesInsSource drain={drain}>{children}</NotesInsSource>;
+    case "notesPro": return <NotesProSource drain={drain}>{children}</NotesProSource>;
+    case "tachesPa": return <TachesPaSource drain={drain}>{children}</TachesPaSource>;
+    case "tachesPr": return <TachesPrSource drain={drain}>{children}</TachesPrSource>;
     case "sav":      return <SavSource>{children}</SavSource>;
     case "comKpi":   return <ComKpiSource>{children}</ComKpiSource>;
     case "parcAbo":  return <ParcAboSource>{children}</ParcAboSource>;
     case "excAbo":   return <ExcAboSource>{children}</ExcAboSource>;
     case "excPart":  return <ExcPartSource>{children}</ExcPartSource>;
     case "parcPart": return <ParcPartSource>{children}</ParcPartSource>;
-    case "notifC":   return <NotifCSource>{children}</NotifCSource>;
+    case "notifC":   return <NotifCSource drain={drain}>{children}</NotifCSource>;
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
 }
@@ -2958,6 +2990,17 @@ function NotifWidget({ items, cfg, notifs }: { items: Notif[]; cfg: NotifsCfg; n
                 onVu={notif && notifs.write ? () => marquerVu(notif.id) : undefined} />
             );
           })}
+          {/* L'état de lecture vient d'une JOINTURE : si sa table n'a pas été lue en
+              entier, un dossier sans correspondance retombe sur « lu ». On le dit, parce
+              qu'ici le doute doit aller à l'utilisateur et non au silence. */}
+          {cfg.marquage && notifs.partial && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px 13px" }}>
+              <Badge variant="warn" dot>État incomplet</Badge>
+              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+                « Notification Center » n'a pas été lue en entier : un dossier sans correspondance apparaît comme lu.
+              </span>
+            </div>
+          )}
         </ScrollBody>
       )}
     </Widget>
@@ -2982,13 +3025,23 @@ function TaskRow({ t }: { t: Task }) {
   );
 }
 
-function TasksWidget({ prospects, partenaires }: { prospects: Task[]; partenaires: Task[] }) {
+/* ⚠️ `totalProspects` / `totalPartenaires` sont SÉPARÉS des listes, et ce n'est pas une
+   redondance : les listes sont tronquées aux `RECENT` échéances les plus proches, alors
+   que les pastilles des onglets annoncent un NOMBRE DE TÂCHES OUVERTES. Jusqu'au
+   2026-08-05 elles comptaient `prospects.length`, donc au plus RECENT — un onglet
+   affichait « 12 » là où la table en portait quarante. Une pastille compteur est lue
+   comme un total ; elle doit en être un. */
+function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires, partial }: {
+  prospects: Task[]; partenaires: Task[];
+  totalProspects: number; totalPartenaires: number; partial?: boolean;
+}) {
   const [tab, setTab] = useState("prospects");
   const tabs: Tab[] = [
-    { id: "prospects", label: "Prospects", icon: ClipboardList, count: prospects.length },
-    { id: "partenaires", label: "Partenaires", icon: Building2, count: partenaires.length },
+    { id: "prospects", label: "Prospects", icon: ClipboardList, count: totalProspects },
+    { id: "partenaires", label: "Partenaires", icon: Building2, count: totalPartenaires },
   ];
   const rows = tab === "prospects" ? prospects : partenaires;
+  const total = tab === "prospects" ? totalProspects : totalPartenaires;
   return (
     <Widget icon={CalendarClock} title="Journal des tâches" sub="Prospects & partenaires"
       headActions={
@@ -3008,6 +3061,16 @@ function TasksWidget({ prospects, partenaires }: { prospects: Task[]; partenaire
         ) : (
           <ScrollBody>
             {rows.map((t) => <TaskRow key={t.id} t={t} />)}
+            {/* La liste est tronquée mais la pastille dit le total : sans cette ligne,
+                l'écart entre les deux se lirait comme une incohérence. On nomme ce qui
+                est montré ET sur quel critère — le tri par échéance garde les plus
+                urgentes, ce qui rend la troncature acceptable. */}
+            {total > rows.length && (
+              <div style={{ padding: "9px 16px 12px", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+                {rows.length} des {total} tâches ouvertes — les échéances les plus proches.
+                {partial && " La table dépasse ce que ce widget lit d'un coup : le total lui-même est un minimum."}
+              </div>
+            )}
           </ScrollBody>
         )}
       </div>
@@ -3447,6 +3510,15 @@ function GenericKpi({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; d
               <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>vs période précédente</span>
             </>
           )}
+          {/* Un indicateur EST une promesse de total : s'il porte sur une lecture
+              tronquée (plafond de pages atteint), il doit le dire. Sans ça, le seul
+              symptôme serait un chiffre trop bas — indétectable à l'œil. */}
+          {api.partial && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
+              <Badge variant="warn" dot>Calcul partiel</Badge>
+              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>lecture tronquée</span>
+            </span>
+          )}
         </>
       )}
     </div>
@@ -3459,8 +3531,13 @@ function GenericKpi({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; d
 function DataView({ cfg }: { cfg: InstanceCfg }) {
   const desc = CATALOG[cfg.source];
   const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+  /* `drain` UNIQUEMENT en vue KPI. Une vue `list` ou `table` applique `applyQuery` puis
+     une limite : elle décrit ce qu'elle montre, donc une page suffit. Une vue `kpi`
+     compte / somme / moyenne sur TOUTES les lignes lues (cf. `rows` ci-dessous) : sans
+     drainage elle annoncerait le total de la première page comme le total de la table. */
+  const isKpiView = cfg.view.kind === "kpi";
   return (
-    <SourceFeed source={cfg.source} key={cfg.source}>
+    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
         const rows = isKpi ? api.rows : applyQuery(api.rows, cfg);
@@ -3898,11 +3975,23 @@ const RECENT = 12;
    « Notification Center » n'est pas connectée, `SourceFeed` sert son mock (§6-bis) : le
    marquage est donc testable en aperçu — l'écriture y est simulée et tracée en console,
    plutôt que muette. */
+/* `abonnes` N'EST PAS drainée : ce widget montre « les `cfg.limite` plus récents », une
+   page suffit et rien ici ne prétend un total.
+
+   `notifC`, elle, EST drainée — non pas pour agréger mais pour JOINDRE. `matchNotifC`
+   cherche la notification de chaque abonné affiché dans les lignes lues : si elle est
+   hors fenêtre, la ligne retombe sur `nonLu = false` et s'affiche comme LUE, sans bouton
+   « Vu ». Un dossier non traité passerait donc pour traité — un faux négatif silencieux,
+   la pire forme d'erreur pour un état de lecture. Deux raisons de ne pas parier sur la
+   première page : la table fait 2 142 lignes, et 385 d'entre elles n'ont aucun lien vers
+   un abonné (elles occupent la fenêtre sans jamais pouvoir matcher).
+   ⚠️ Pas de filtrage serveur possible sur « les ids de ces 12 abonnés » avec cette API :
+   drainer est le seul moyen de rendre la jointure fiable. */
 function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
   return (
     <SourceFeed source="abonnes">
       {(ab) => (
-        <SourceFeed source="notifC">
+        <SourceFeed source="notifC" drain>
           {(nc) => <NotifWidget items={ab.rows.slice(0, cfg.limite).map(mapNotif)} cfg={cfg} notifs={nc} />}
         </SourceFeed>
       )}
@@ -3912,13 +4001,28 @@ function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
 
 /* Tâches — widget à DEUX sources : il monte simplement deux adapters côte à côte
    (imbriqués), ce que le dispatch statique autorise sans rien assouplir. */
+/* `drain` sur les DEUX sources : les pastilles des onglets sont des compteurs, donc des
+   agrégats — sans drainage elles décriraient la première page. Le tri `fin` asc reste
+   utile pour autre chose : il garantit que les lignes AFFICHÉES (tronquées à RECENT)
+   sont les plus urgentes, et non un échantillon arbitraire du total. */
 function TachesCard() {
-  const openTasks = (rows: Row[]) => rows.filter((r) => !isDone(r)).slice(0, RECENT).map(mapTask);
+  const openRows = (rows: Row[]) => rows.filter((r) => !isDone(r));
   return (
-    <SourceFeed source="tachesPa">
+    <SourceFeed source="tachesPa" drain>
       {(pa) => (
-        <SourceFeed source="tachesPr">
-          {(pr) => <TasksWidget prospects={openTasks(pr.rows)} partenaires={openTasks(pa.rows)} />}
+        <SourceFeed source="tachesPr" drain>
+          {(pr) => {
+            const oPr = openRows(pr.rows);
+            const oPa = openRows(pa.rows);
+            return (
+              <TasksWidget
+                prospects={oPr.slice(0, RECENT).map(mapTask)}
+                partenaires={oPa.slice(0, RECENT).map(mapTask)}
+                totalProspects={oPr.length}
+                totalPartenaires={oPa.length}
+                partial={!!pr.partial || !!pa.partial} />
+            );
+          }}
         </SourceFeed>
       )}
     </SourceFeed>
@@ -4451,6 +4555,18 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
               </span>
             </div>
           )}
+
+          {/* 5 — LECTURE INCOMPLÈTE : jamais silencieuse, même règle que les widgets de
+              Performance. Un « dossiers ouverts » calculé sur une partie de la table n'a
+              pas l'air faux — c'est exactement pour ça qu'il faut le dire. */}
+          {api.partial && (
+            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "11px 16px 14px" }}>
+              <Badge variant="warn" dot>Calcul partiel</Badge>
+              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+                La table dépasse ce que ce widget lit d'un coup : les compteurs portent sur les dossiers les plus récents.
+              </span>
+            </div>
+          )}
         </ScrollBody>
       )}
     </Widget>
@@ -4495,36 +4611,128 @@ const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
    tantôt `static.elfsight.com/platform/platform.js` : les deux fonctionnent, et
    un seul chargement monte TOUS les `.elfsight-app-…` de la page, quel que soit
    le widget. Inutile donc d'en charger deux si les snippets diffèrent. */
-const ELFSIGHT_PLATFORM = "https://elfsightcdn.com/platform.js";
+/* ⚠️ URL ALIGNÉE le 2026-08-05 sur celle qui fonctionne RÉELLEMENT dans un bloc
+   « Custom Code » de cette app :
+       <script src="https://static.elfsight.com/platform/platform.js" async></script>
+   Le bloc chargeait `elfsightcdn.com/platform.js`. Les deux servent le même runtime,
+   mais une seule des deux est PROUVÉE fonctionnelle ici — et si une CSP ou un filtrage
+   liste des hôtes, ce détail décide de tout. On copie donc le snippet vérifié plutôt que
+   la variante « la plus récente » de la documentation. */
+const ELFSIGHT_PLATFORM = "https://static.elfsight.com/platform/platform.js";
 
-function useElfsightPlatform() {
+/* ÉTAT DU RUNTIME, partagé par les trois widgets. Il ne sert pas à décider quoi
+   charger (un seul platform.js suffit, la garde ci-dessous s'en occupe) mais à
+   DIAGNOSTIQUER : un conteneur vide a deux causes opposées, et sans savoir si le
+   script est arrivé on ne peut pas les distinguer.
+     · "failed"  → le script n'a pas été chargé. CSP de l'app Softr qui n'autorise
+                   pas elfsightcdn.com, ou bloqueur de contenu. Le runtime n'a
+                   jamais tourné, donc AUCUN widget ne peut monter.
+     · "ready"   → le runtime est là mais n'a rien monté : c'est Elfsight qui refuse
+                   de servir ce widget sur CE domaine (liste de domaines du compte),
+                   ou l'identifiant de widget est inconnu.
+   Un état module-level plutôt qu'un contexte : le script est un singleton de la
+   PAGE, pas un état d'arbre React — il survit aux remontages de widgets. */
+type PlatformState = "unknown" | "loading" | "ready" | "failed";
+let platformState: PlatformState = "unknown";
+const platformListeners = new Set<() => void>();
+function setPlatformState(next: PlatformState) {
+  if (platformState === next) return;
+  platformState = next;
+  platformListeners.forEach((l) => l());
+}
+
+function useElfsightPlatform(): PlatformState {
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const l = () => bump((n) => n + 1);
+    platformListeners.add(l);
+    return () => { platformListeners.delete(l); };
+  }, []);
   useEffect(() => {
     // Un seul platform.js suffit pour TOUS les widgets Elfsight du compte.
+    // ⚠️ Si le script est déjà là sans venir de nous (remontage, injection Softr),
+    // on ne peut pas savoir s'il a abouti : l'état reste "unknown" et le message
+    // de diagnostic redevient prudent au lieu d'accuser une cause au hasard.
     if (document.querySelector('script[src*="elfsightcdn.com/platform"], script[src*="elfsight.com/platform"]')) return;
     const s = document.createElement("script");
     s.src = ELFSIGHT_PLATFORM;
     s.async = true;
+    // Une CSP qui refuse le script ET un bloqueur de contenu déclenchent tous deux
+    // `error` sur l'élément : d'où « n'a pas pu être chargé », sans départager les
+    // deux — c'est la console du navigateur qui le dira.
+    s.onload = () => setPlatformState("ready");
+    s.onerror = () => setPlatformState("failed");
+    setPlatformState("loading");
     document.body.appendChild(s);
   }, []);
+  return platformState;
 }
 
 /* --- Embed Elfsight avec DIAGNOSTIC. Dans le bloc Softr, l'embed restait vide et
-   silencieux ; deux corrections :
+   silencieux ; trois corrections successives :
    · plus de `data-elfsight-app-lazy` : le montage différé s'appuie sur la
      visibilité, ce qui est fragile dans une iframe — l'embed monte immédiatement ;
    · si rien n'est monté au bout de quelques secondes, on affiche un état guidant
-     au lieu d'un cadre vide. Les trois causes à vérifier dans cet ordre sont la
-     CSP de l'app Softr (`script-src`/`frame-src` doivent autoriser Elfsight), le
-     domaine autorisé côté Elfsight (la page vit sur sunlibcrm2.softr.app), et un
-     bloqueur de contenu dans le navigateur. --- */
+     au lieu d'un cadre vide ;
+   · le message NOMME la cause au lieu d'en lister trois, en s'appuyant sur l'état
+     du runtime (`useElfsightPlatform`). Un conteneur vide parce que le script est
+     bloqué et un conteneur vide parce qu'Elfsight refuse le domaine demandent des
+     corrections opposées, dans deux consoles différentes.
+
+   ⚠️ CE QUI A ÉTÉ CORRIGÉ LE 2026-08-05 : ce commentaire affirmait qu'un embed ne
+   PEUT PAS fonctionner en local, « Elfsight n'autorisant que les domaines déclarés
+   dans le compte ». C'est FAUX en pratique — les widgets montent bien sous
+   `npm run dev`. La conséquence était mauvaise : le message d'aperçu local déclarait
+   la panne normale et invitait à ne pas chercher, alors qu'un échec sur un domaine
+   Softr (`*.preview.softr.app` par exemple) reste, lui, une vraie anomalie à
+   instruire. On ne prétend donc plus deviner ce qu'Elfsight autorise.
+
+   ⚠️⚠️ PISTE PRINCIPALE (2026-08-05), pas encore une certitude — À LIRE AVANT DE
+   TOUCHER À CE CODE. Sur `sunlibcrm2.preview.softr.app`, la console refuse un script
+   tiers sur une directive qui n'autorise AUCUN domaine externe :
+
+       Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/…'
+       violates the following Content Security Policy directive:
+       "script-src 'self' 'unsafe-inline'"
+
+   Ce que cela prouve : une CSP stricte s'applique, et elle bloquerait Elfsight de la
+   même façon. Ce que cela NE prouve PAS : que ce soit la cause de CE symptôme — cette
+   erreur nomme le beacon Cloudflare de Softr, pas Elfsight.
+
+   ⚠️ FAIT QUI COMPLIQUE LE TABLEAU : le MÊME snippet Elfsight fonctionne dans un bloc
+   « Custom Code » de cette app. Deux lectures possibles, et elles n'ont pas la même
+   conclusion :
+     a) la CSP stricte est celle de l'IFRAME DU BLOC vibe code, pas celle de la page —
+        le Custom Code s'exécute dans le document Softr, le bloc dans son iframe, deux
+        documents donc deux politiques. Dans ce cas Elfsight est inatteignable ICI par
+        construction, et seule Softr peut le changer ;
+     b) la CSP n'est pas en cause pour Elfsight, et le blocage a une autre origine —
+        l'URL du runtime en faisait partie (voir ELFSIGHT_PLATFORM, corrigée depuis).
+   LE TEST QUI TRANCHE : chercher dans la console une erreur CSP nommant `elfsight`.
+   Présente ⇒ (a). Absente ⇒ (b), et le diagnostic est à reprendre.
+
+   Reste vrai dans les deux cas : `npm run dev` fonctionne parce que Vite ne pose
+   aucune CSP — le local ne teste JAMAIS ce mécanisme, et un embed qui marche en local
+   ne prouve que la justesse du code et de l'identifiant de widget. Et si (a) se
+   confirme, aucun code de ce bloc n'y remédiera : une CSP est appliquée par le
+   navigateur. La correction serait chez Softr — autoriser `static.elfsight.com` et
+   `elfsightcdn.com` dans le `script-src` servi à l'iframe des blocs vibe code.
+   ⚠️ MÊME VERROU POSSIBLE POUR L'ONGLET OUTILS : ses cinq iframes dépendent de
+   `frame-src`. L'erreur ci-dessus ne montre que `script-src`, donc `frame-src` reste
+   inconnu — mais si la CSP porte un `default-src 'self'`, `frame-src` retombe dessus
+   et les apps Vercel seront bloquées de la même façon. À vérifier en ouvrant un
+   outil sur le domaine publié. --- */
 /* Domaine RÉEL de la page qui exécute le bloc, et non une valeur codée en dur : le
    diagnostic ci-dessous nommait « sunlibcrm2.softr.app » même quand il tournait sur
-   localhost, ce qui envoyait chercher une panne de CSP là où il n'y en avait pas. */
+   localhost, ce qui envoyait chercher une panne de CSP là où il n'y en avait pas.
+   ⚠️ `sunlibcrm2.preview.softr.app` (l'aperçu de l'éditeur) et `sunlibcrm2.softr.app`
+   (l'app publiée) sont DEUX domaines distincts : une liste d'autorisations ou une CSP
+   peut connaître l'un sans connaître l'autre. D'où l'affichage de l'hôte exact. */
 const pageHost = (): string => (typeof window === "undefined" ? "" : window.location.hostname);
 const isLocalHost = (h: string): boolean => h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "";
 
 function ElfsightEmbed({ appClass, label }: { appClass: string; label: string }) {
-  useElfsightPlatform();
+  const platform = useElfsightPlatform();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [stalled, setStalled] = useState(false);
   useEffect(() => {
@@ -4545,21 +4753,28 @@ function ElfsightEmbed({ appClass, label }: { appClass: string; label: string })
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
           <XCircle aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none", marginTop: 1 }} />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>
-              {label} {local ? "— non disponible en aperçu local" : "indisponible"}
-            </div>
-            {/* Deux messages, parce que les causes n'ont RIEN à voir. En local il n'y
-                a pas de panne à chercher : Elfsight n'autorise ses widgets que sur les
-                domaines déclarés dans le compte, et localhost n'en fait pas partie.
-                Envoyer quelqu'un vérifier une CSP dans ce cas lui fait perdre l'après-midi. */}
+            <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>{label} indisponible</div>
+            {/* Le message suit l'ÉTAT DU RUNTIME : script jamais chargé, chargé mais
+                stérile, ou indéterminé. Trois corrections différentes — envoyer
+                quelqu'un vérifier une CSP quand le script est arrivé sans encombre
+                lui fait perdre l'après-midi. */}
             <div style={{ marginTop: 2, fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
-              {local ? (
-                <>C'est normal : Elfsight n'autorise ses widgets que sur les domaines déclarés dans le compte
-                  (la page tourne ici sur <code>{host || "un hôte local"}</code>). Ce widget se vérifie sur la page publiée, pas en local.</>
+              {platform === "failed" ? (
+                <>Le runtime <code>static.elfsight.com/platform/platform.js</code> n'a pas pu être chargé sur <code>{host || "cet hôte"}</code>.
+                  La cause est <strong>en amont d'Elfsight</strong>. Piste principale : la CSP servie à l'iframe de ce bloc refuse les
+                  scripts tiers (<code>script-src 'self' 'unsafe-inline'</code> relevé sur l'aperçu le 2026-08-05).
+                  Le même snippet fonctionne dans un bloc « Custom Code », qui s'exécute hors de cette iframe.
+                  À confirmer par une erreur CSP nommant <code>elfsight</code> dans la console.</>
+              ) : platform === "ready" ? (
+                <>Le runtime Elfsight s'est bien chargé mais n'a monté aucun widget : ce n'est donc <strong>ni la CSP ni un bloqueur</strong>.
+                  Vérifiez qu'<code>{host || "cet hôte"}</code> figure bien dans les domaines autorisés du compte Elfsight — l'aperçu
+                  (<code>*.preview.softr.app</code>) et l'app publiée sont deux domaines distincts — et que l'identifiant de widget existe toujours.</>
               ) : (
-                <>L'embed n'a pas démarré sur <code>{host}</code> : vérifiez que la CSP de l'app autorise <code>elfsightcdn.com</code> et <code>elfsight.com</code>,
-                  que <code>{host}</code> est autorisé côté Elfsight, et l'absence de bloqueur de contenu.</>
+                <>L'embed n'a pas démarré sur <code>{host || "cet hôte"}</code> et l'état du runtime est indéterminé
+                  (<code>platform.js</code> était déjà présent, chargé par autre chose que ce bloc).
+                  La console du navigateur tranche : script refusé ⇒ CSP ou bloqueur ; script servi ⇒ domaine non autorisé côté Elfsight.</>
               )}
+              {local && <> Cet échec en local n'est pas attendu : les widgets montent normalement sous <code>npm run dev</code>.</>}
             </div>
           </div>
         </div>

@@ -81,11 +81,19 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **Embeds Elfsight** (à la une, annonces) et les **utilitaires sans source** : Heure,
      Pense-bête, Liste à cocher.
 
-   ⚠️ Les trois widgets de **Performance** sont les seuls à **agréger sur tout le parc** (≈1 771
-   dossiers) : ils lisent donc leur source **page par page**, contrairement aux autres widgets qui
-   montrent « les N plus récents ». Posés, ils coûtent cette lecture ; absents de la grille, ils ne
-   coûtent **rien** — seules les instances affichées montent leur adapter. Si la lecture ne va pas
-   au bout, ils affichent **« Calcul partiel »** plutôt qu'un classement faux.
+   ⚠️ Les widgets qui **agrègent** lisent leur source **page par page**, contrairement à ceux qui
+   montrent « les N plus récents » : les trois widgets de **Performance** (≈1 771 dossiers), les
+   deux d'**Exceptions** avec leurs dénominateurs, et **Pilotage SAV**. Posés, ils coûtent cette
+   lecture ; absents de la grille, ils ne coûtent **rien** — seules les instances affichées montent
+   leur adapter. Si la lecture ne va pas au bout, ils affichent **« Calcul partiel »** plutôt qu'un
+   chiffre faux.
+
+   > 🐛 **Corrigé le 2026-08-05 — Pilotage SAV comptait faux.** Le widget ne lisait qu'une page :
+   > ses compteurs portaient sur la fenêtre lue, pas sur la table. Il annonçait **6 dossiers
+   > ouverts** contre **18** dans le bloc « Pilotage SAV ». Le tri `debut` desc aggravait le biais —
+   > en gardant les dossiers récents il écartait les plus anciens, donc l'alerte **« ouverts > 60 j »
+   > ne pouvait structurellement pas s'allumer** (elle ne s'affiche que si son compte est > 0, et
+   > restait donc muette en paraissant saine).
 
    Chaque widget se règle par son ⋮, et **tous sont renommables et colorables** : champ « Titre du
    widget » puis une palette de 8 teintes qui colorent **toute la carte** — les 3 couleurs SunLib
@@ -167,6 +175,29 @@ Widget **Elfsight** (bannière SunLib) `elfsight-app-488a28ed-…` intégré tel
 `LinkedInSection` : le `<div>` cible est rendu sans restyle et `platform.js` est chargé
 une fois via `useEffect` (un `<script>` en JSX ne s'exécute pas). Rien à faire, sinon
 vérifier que `elfsightcdn.com` est autorisé par la CSP de l'iframe Softr.
+
+> ⛔ **Les embeds Elfsight sont BLOQUÉS sur `sunlibcrm2.preview.softr.app` (2026-08-05).** Diagnostic
+> en cours, avec une piste principale et un fait qui l'empêche de conclure.
+>
+> **Ce qui est mesuré** : la console refuse un script tiers sur **`script-src 'self' 'unsafe-inline'`**,
+> directive qui n'autorise aucun domaine externe. ⚠️ Mais cette erreur nomme le **beacon Cloudflare
+> de Softr**, pas Elfsight : elle prouve qu'une CSP stricte s'applique, pas qu'elle est la cause de
+> ce symptôme.
+>
+> **Le fait qui complique** : le même snippet Elfsight **fonctionne dans un bloc « Custom Code »** de
+> cette app. Deux lectures : (a) la CSP stricte est celle de l'**iframe du bloc vibe code** et non de
+> la page — deux documents, deux politiques — et alors seule Softr peut la lever ; (b) la CSP n'est
+> pas en cause pour Elfsight et l'origine est ailleurs. L'URL du runtime en faisait partie : le bloc
+> chargeait `elfsightcdn.com/platform.js` au lieu du `static.elfsight.com/platform/platform.js` du
+> snippet vérifié — **corrigé**.
+>
+> **Le test qui tranche** : chercher dans la console une erreur CSP nommant `elfsight`. Présente ⇒
+> (a). Absente ⇒ (b), diagnostic à reprendre.
+>
+> Vrai dans les deux cas : les widgets **fonctionnent sous `npm run dev`** parce que Vite ne pose
+> aucune CSP — le local ne teste jamais ce mécanisme.
+> ⚠️ Si (a) se confirme, le même verrou peut toucher l'**onglet Outils** : ses iframes dépendent de
+> `frame-src`, non visible dans cette erreur.
 
 ### D — « Marquer comme vu » ✅ branché le 2026-08-05
 Le masquage local a été retiré (il ne survivait pas au rechargement, donc il faisait croire
