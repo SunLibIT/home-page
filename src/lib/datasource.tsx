@@ -35,6 +35,10 @@ export const DS_IDS = {
   tachesPa: "7198b954-7fdd-41a7-b92b-a114ff88009e", // Bdd Installateurs · « Taches »
   tachesPr: "9414183e-2624-4e6e-8d7c-89470546251b", // « Taches prospect »
   sav: "3f5f8f6c-c6af-4909-a8dc-46e2f123e9a6",      // SAV · « Tickets »
+  excAbo: "b8340293-183b-40c3-acfa-63b5cb237957",   // Exception · « Projet solaire »
+  excPart: "9cf1e459-e689-48b1-9876-487b8084db84",  // Exception · « Partenaire »
+  parcPart: "e82df933-0c1b-434c-9970-f9a341777e74", // Exception · « BDD Installateur »
+  notifC: "fecd4e37-cc12-4780-ae87-e412b431a852",   // BDD Abonné · « Notification Center »
 } as const;
 
 /* ============================ Types ============================ */
@@ -50,6 +54,10 @@ const store: Record<string, Rec[]> = {
   [DS_IDS.notesIns]: [],
   [DS_IDS.notesPro]: [],
   [DS_IDS.sav]: [],
+  [DS_IDS.excAbo]: [],
+  [DS_IDS.excPart]: [],
+  [DS_IDS.parcPart]: [],
+  [DS_IDS.notifC]: [],
 };
 
 let version = 0;

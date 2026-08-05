@@ -397,8 +397,21 @@ function Badge({
 }
 
 // Statut métier → badge coloré + icône (double codage couleur + icône, a11y)
-function StatusBadge({ value }: { value: string }) {
-  const v = statusVariant(value);
+/* Statut d'EXCEPTION — dédiée, et c'est un piège payé par le bloc `dashboard-KPI` :
+   `statusVariant` matche `/actif/`, donc « Inactif » (l'une des quatre options réelles du
+   champ « Statut » de la table « Partenaire ») ressortirait EN VERT, c'est-à-dire lu comme
+   une exception en vigueur alors qu'elle ne s'applique plus. Les quatre options :
+   Brouillon (neutre) · En cours (ambre) · Validée (vert) · Inactif (NEUTRE). */
+function excStatutVariant(value: string): BadgeVariant {
+  const l = value.trim().toLowerCase();
+  if (!l) return "neutral";
+  if (l.startsWith("inactif")) return "neutral";
+  if (l.startsWith("brouillon")) return "neutral";
+  return statusVariant(value);
+}
+
+function StatusBadge({ value, variant }: { value: string; variant?: BadgeVariant }) {
+  const v = variant ?? statusVariant(value);
   const Icon = v === "ok" ? CheckCircle : v === "warn" ? Clock : v === "danger" ? XCircle : undefined;
   return <Badge variant={v} icon={Icon}>{value}</Badge>;
 }
@@ -564,19 +577,27 @@ const DS = datasource.define({
   tachesPa: "7198b954-7fdd-41a7-b92b-a114ff88009e", // Bdd Installateurs · « Taches »
   tachesPr: "9414183e-2624-4e6e-8d7c-89470546251b", // « Taches prospect »
   sav: "3f5f8f6c-c6af-4909-a8dc-46e2f123e9a6",      // SAV · « Tickets »
+  // ✅ Connectées le 2026-08-05 — les deux périmètres du registre des exceptions.
+  excAbo: "b8340293-183b-40c3-acfa-63b5cb237957",   // « Projet solaire »  (tblDiXeZn207S4hBE)
+  excPart: "9cf1e459-e689-48b1-9876-487b8084db84",  // « Partenaire »      (tbl6RsrSjP1FijHzJ)
+  parcPart: "e82df933-0c1b-434c-9970-f9a341777e74", // « BDD Installateur »(tblQLEpjqyUn54XTb)
+  // ✅ Connectée le 2026-08-05. SEULE source ÉCRIVABLE du bloc en dehors des notes/tâches.
+  //    ⚠️ Le sens de « Statut de lecture » suit les formules INVERSÉES de la table : voir
+  //    SELECT_NOTIF_C. Le jour où elles sont corrigées côté Airtable, inverser ici aussi.
+  notifC: "fecd4e37-cc12-4780-ae87-e412b431a852",   // « Notification Center » (tblqF71AO8nFVpWi5)
 });
 
-/* Source PAS ENCORE connectée : notifC (« Notification Center », l'état lu/non lu
-   des dossiers abonnés). On NE la déclare PAS dans le define ci-dessus (Softr
-   rejette tout id non connecté) et on ne la lit PAS : le widget des dossiers
-   s'affiche alors sans état de lecture ni bouton « Vu » — dégradation prévue, cf.
-   `matchNotifC`. Pour l'activer : la connecter (onglet Sources DE CE BLOC),
-   récupérer son id (onglet Chat), l'ajouter comme membre ci-dessus, décommenter
-   `NotifCSource` et son `case`, puis passer `connected: true` dans CATALOG.
+/* Le registre est COMPLET depuis le 2026-08-05 : les 9 sources du catalogue qui
+   demandaient une datasource ont la leur, et `CATALOG` ne porte plus aucun
+   `connected: false`. Toute source ajoutée ensuite repart du même chemin : la
+   connecter (onglet Sources DE CE BLOC), relever son id (onglet Chat), l'ajouter
+   comme membre ci-dessus, écrire son adapter et son `case` dans `SourceFeed`, puis
+   passer `connected: true` dans CATALOG.
 
-   ⚠️ La table existe déjà dans le workspace et deux blocs de page la lisent, mais
-   un id de datasource appartient à UNE connexion d'UN bloc : il faut la connecter
-   à celui-ci. Voir la note détaillée au-dessus de `SourceFeed`. */
+   ⚠️ Un id de datasource appartient à UNE connexion d'UN bloc : « Notification
+   Center » est lue par deux autres blocs de page (dont la page d'accueil) sous
+   D'AUTRES ids, qui ne fonctionneraient pas ici. Même règle pour les trois ids du
+   bloc `dashboard-KPI`. Voir la note au-dessus de `SourceFeed`. */
 
 // alias (clé JS) -> nom EXACT du champ Airtable. Filtres/tri par ALIAS.
 // ⚠️ Certains noms comportent des espaces exacts (« … Installateur ) », « Date »,
@@ -733,18 +754,29 @@ const SELECT_COM = q.select({
 
 /* ── EXCEPTIONS ← deux tables, deux PÉRIMÈTRES ─────────────────────────────────
    Le registre des exceptions du bloc `dashboard-KPI` est l'UNION de deux tables qui ne
-   portent pas les mêmes champs :
-     · « Projet solaire » (base Bdd Installateurs, tblDiXeZn207S4hBE) → exceptions
-       ABONNÉ. Son titre est le dossier (« SL- Dossier ») et elle n'a PAS de statut ;
+   portent pas les mêmes champs. Toutes deux vivent dans la base AIRTABLE « Exception »
+   (`appsvzvqbgcGURcJ1`) — PAS dans « Bdd Installateurs », qui ne porte que le parc :
+     · « Projet solaire » (tblDiXeZn207S4hBE) → exceptions ABONNÉ. Son titre est le
+       dossier (« SL- Dossier ») et elle n'a PAS de statut ;
      · « Partenaire » (tbl6RsrSjP1FijHzJ) → exceptions PARTENAIRE. Son titre est
-       « Name », et elle porte un statut (« Validée »…).
+       « Name », et elle porte un statut (« Validée »…) ;
+     · « BDD Installateur » (tblQLEpjqyUn54XTb) → le PARC partenaire, dénominateur.
    Les deux alias sont volontairement IDENTIQUES quand le sens l'est (description,
    categorie, valideur…) : c'est ce qui permet aux widgets de traiter une seule forme de
    ligne, le périmètre étant porté par la source qui l'a lue.
 
+   État relevé par l'API Airtable le 2026-08-04 (ces nombres bougent chaque semaine —
+   les revérifier avant de conclure qu'un chiffre affiché est faux) : **6** exceptions
+   abonné, **15** exceptions partenaire, **510** partenaires au parc. Les NOMS de champs
+   des deux selects ci-dessous ont été résolus contre le schéma réel ce jour-là.
+
+   ⚠️ Deux creux de saisie constatés dans le réel, qui ne sont PAS des bugs d'affichage :
+   le lien « BDD Installateur » est vide sur les 6 exceptions abonné (colonne Partenaire
+   à « — »), et 5 des 15 exceptions partenaire n'ont pas encore de statut.
+
    ⚠️ Les ids de datasource du bloc `dashboard-KPI` (77b25e6b, ef44c8f5, 6415ed0c) NE
-   FONCTIONNENT PAS ici : un id appartient à UNE connexion d'UN bloc. Ces trois tables
-   sont donc à connecter à CE bloc, d'où leur `connected: false` au catalogue. */
+   FONCTIONNENT PAS ici : un id appartient à UNE connexion d'UN bloc. Les TROIS tables
+   ont donc reçu leurs propres ids sur CE bloc le 2026-08-05 (cf. `DS`). */
 const SELECT_EXC_ABO = q.select({
   dossier: "SL- Dossier",
   description: "Description",
@@ -1039,10 +1071,15 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
   excPart: [
     { id: "ep1", nom: "Etude solaire", description: "Pour les dossiers CAPEO déposés dans le CRM avant juillet.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "CAPEO", statut: "Validée", creeLe: daysAgo(1) },
     { id: "ep2", nom: "Contractualisation", description: "Dossiers avant la signature : le contrat est préparé en amont.", categorie: "Contractualisation", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [{ url: "#", filename: "c.pdf" }], installateur: "Premium Solar", statut: "Validée", creeLe: daysAgo(1) },
-    { id: "ep3", nom: "Etude solaire", description: "Les conditions spéciales Premium s'appliquent au périmètre entier.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Premium Solar", statut: "En attente", creeLe: daysAgo(2) },
-    { id: "ep4", nom: "Etude solaire", description: "Dossier GUADELOUPE : la TVA en Guadeloupe suit un régime propre.", categorie: "Etude solaire", sousCategorie: "Fiscalité", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Neosoleil", statut: "En attente", creeLe: daysAgo(5) },
-    { id: "ep5", nom: "Contractualisation", description: "Envoi contrat : prévoir l'envoi en recommandé.", categorie: "Contractualisation", sousCategorie: "", service: "Commerce", valideur: "Julien RAMON", justificatif: [], installateur: "A.D.W", statut: "Refusée", creeLe: daysAgo(12) },
-    { id: "ep6", nom: "Contrat Grande Distribution", description: "Pas de nécessité de contrat cadre pour ce partenaire.", categorie: "Contractualisation", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [{ url: "#", filename: "gd.pdf" }], installateur: "Premium Solar", statut: "Validée", creeLe: daysAgo(28) },
+    /* ⚠️ Les statuts du mock sont les QUATRE options réelles du champ (Brouillon · En
+       cours · Validée · Inactif), plus UNE ligne SANS statut : 5 des 15 exceptions
+       partenaire n'en portent pas dans le réel, et « Inactif » est là exprès pour que
+       l'aperçu montre le badge NEUTRE (le générique le passerait en vert, cf.
+       `excStatutVariant`). Un mock qui n'utilise que « Validée » ne le révélerait pas. */
+    { id: "ep3", nom: "Etude solaire", description: "Les conditions spéciales Premium s'appliquent au périmètre entier.", categorie: "Etude solaire", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Premium Solar", statut: "En cours", creeLe: daysAgo(2) },
+    { id: "ep4", nom: "Etude solaire", description: "Dossier GUADELOUPE : la TVA en Guadeloupe suit un régime propre.", categorie: "Etude solaire", sousCategorie: "Fiscalité", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [], installateur: "Neosoleil", statut: "", creeLe: daysAgo(5) },
+    { id: "ep5", nom: "Contractualisation", description: "Envoi contrat : prévoir l'envoi en recommandé.", categorie: "Contractualisation", sousCategorie: "", service: "Commerce", valideur: "Julien RAMON", justificatif: [], installateur: "A.D.W", statut: "Inactif", creeLe: daysAgo(12) },
+    { id: "ep6", nom: "Contrat Grande Distribution", description: "Pas de nécessité de contrat cadre pour ce partenaire.", categorie: "Contractualisation", sousCategorie: "", service: "Service technique", valideur: "Arnaud LANGLOIS", justificatif: [{ url: "#", filename: "gd.pdf" }], installateur: "Premium Solar", statut: "Brouillon", creeLe: daysAgo(28) },
   ],
   /* Les deux PARCS : seul leur NOMBRE de lignes compte (dénominateurs). Assez de lignes
      pour que les pourcentages de couverture ne soient pas absurdes en aperçu. */
@@ -1300,7 +1337,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     key: "notifC",
     label: "État de lecture — Notification Center",
     icon: "Inbox",
-    connected: false,   // ⚠️ à connecter dans l'onglet Sources DU BLOC (cf. NotifCSource)
+    connected: true,    // connectée à CE bloc le 2026-08-05 (id dans DS.notifC)
     technical: true,
     fields: {
       liens: { label: "Abonné lié", kind: "text" },
@@ -1324,12 +1361,12 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
   /* ── EXCEPTIONS ── Deux périmètres, deux tables (cf. SELECT_EXC_*), plus les deux
      PARCS qui servent de dénominateurs. Toutes techniques : on ne « pose » pas une
      liste d'exceptions depuis la galerie, ce sont les deux widgets du §9-octies qui les
-     consomment. ⚠️ Trois d'entre elles attendent d'être connectées À CE BLOC. */
+     consomment. ⚠️ Seul le parc partenaire attend encore sa connexion À CE BLOC. */
   excAbo: {
     key: "excAbo",
     label: "Exceptions abonné — Projet solaire",
     icon: "ClipboardList",
-    connected: false,   // ⚠️ à connecter (onglet Sources DE CE BLOC), puis id dans DS
+    connected: true,    // connectée à CE bloc le 2026-08-05 (id dans DS.excAbo)
     technical: true,
     fields: {
       dossier: { label: "Dossier", kind: "text" },
@@ -1348,7 +1385,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     key: "excPart",
     label: "Exceptions partenaire — Partenaire",
     icon: "Handshake",
-    connected: false,   // ⚠️ idem
+    connected: true,    // connectée à CE bloc le 2026-08-05 (id dans DS.excPart)
     technical: true,
     fields: {
       nom: { label: "Exception", kind: "text" },
@@ -1359,8 +1396,13 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       valideur: { label: "Valideur", kind: "text" },
       justificatif: { label: "Justificatif", kind: "bool" },
       installateur: { label: "Partenaire", kind: "text" },
-      statut: { label: "Statut", kind: "badge", options: ["Validée", "En attente", "Refusée"],
-                variants: { "Validée": "ok", "En attente": "warn", "Refusée": "danger" } },
+      /* ⚠️ LES QUATRE OPTIONS RÉELLES du singleSelect « Statut », relevées sur Airtable
+         le 2026-08-04 (`fldnI1T9BvP1C267Y`) : le catalogue annonçait « En attente » et
+         « Refusée », qui n'existent pas dans la table — un filtre sur une option absente
+         ne rend jamais rien, sans rien dire. « Inactif » est explicitement NEUTRE : voir
+         `excStatutVariant`, le générique le classerait « ok » sur son `/actif/`. */
+      statut: { label: "Statut", kind: "badge", options: ["Brouillon", "En cours", "Validée", "Inactif"],
+                variants: { "Validée": "ok", "En cours": "warn", "Brouillon": "neutral", "Inactif": "neutral" } },
       creeLe: { label: "Créée le", kind: "date" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
@@ -1380,7 +1422,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     key: "parcPart",
     label: "Parc partenaires (dénominateur)",
     icon: "Handshake",
-    connected: false,   // ⚠️ « BDD Installateur » à connecter à ce bloc
+    connected: true,    // « BDD Installateur » connectée à CE bloc le 2026-08-05
     technical: true,
     fields: { nom: { label: "Nom de l'entreprise", kind: "text" } },
     defaultSort: { by: "nom", dir: "asc" },
@@ -1637,25 +1679,28 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
   return <>{children({ ...liveState(res), partial })}</>;
 }
 
-/* ⚠️ Les trois sources d'exceptions attendent leur connexion À CE BLOC. Adapters prêts à
-   décommenter le jour où les ids entrent dans `DS` — ils sont paginés comme ParcAbo,
-   parce que les deux widgets AGRÈGENT (un registre tronqué mentirait sur ses totaux) :
+/* Les deux périmètres du registre des exceptions, connectés le 2026-08-05. Paginés comme
+   ParcAbo, parce que les deux widgets AGRÈGENT (un registre tronqué mentirait sur ses
+   totaux). Leur dénominateur `parcPart` est connecté juste en dessous, donc les « X % du
+   parc » d'`excKpis` sont désormais chiffrés au lieu de rester muets. */
+function ExcAboSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial })}</>;
+}
+function ExcPartSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial })}</>;
+}
 
-     function ExcAboSource({ children }: { children: SourceChildren }) {
-       const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
-       const { partial } = useDrainPages(res, COM_MAX_PAGES);
-       return <>{children({ ...liveState(res), partial })}</>;
-     }
-     function ExcPartSource({ children }: { children: SourceChildren }) {
-       const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
-       const { partial } = useDrainPages(res, COM_MAX_PAGES);
-       return <>{children({ ...liveState(res), partial })}</>;
-     }
-     function ParcPartSource({ children }: { children: SourceChildren }) {
-       const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
-       const { partial } = useDrainPages(res, COM_MAX_PAGES);
-       return <>{children({ ...liveState(res), partial })}</>;
-     } */
+/* Parc partenaire ← « BDD Installateur », connectée le 2026-08-05. Paginée : c'est le
+   dénominateur des « X % du parc », il doit être JUSTE (~510 lignes au 2026-08-04). */
+function ParcPartSource({ children }: { children: SourceChildren }) {
+  const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
+  const { partial } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial })}</>;
+}
 
 function NotesInsSource({ children }: { children: SourceChildren }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
@@ -1723,23 +1768,22 @@ function SavSource({ children }: { children: SourceChildren }) {
    SavCard (ancienneté, taux de résolution) portent alors sur la FENÊTRE LUE, pas sur
    la table entière. Le bloc « Pilotage SAV » reste la référence chiffrée ; l'accueil
    est un résumé — c'est dit dans le widget lui-même. */
-/* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Adapter
-   prêt à décommenter le jour où la table est connectée à CE bloc (l'id est propre au
-   bloc : onglet Chat, jamais celui d'un autre bloc — cf. la note du SAV) :
+/* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Connectée le
+   2026-08-05 (id propre à CE bloc : onglet Chat, jamais celui d'un autre bloc — cf. la
+   note du SAV).
 
-     function NotifCSource({ children }: { children: SourceChildren }) {
-       const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
-       const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
-       const email = asText(useCurrentUser()?.email).trim();
-       const write = email ? {
-         update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
-       } : undefined;                       // pas de session → aucune tentative
-       return <>{children({ ...liveState(res), write })}</>;
-     }
-
-   ⚠️ La table fait ~2 130 lignes et n'est pas paginée ici : `orderBy` desc sur la date
+   ⚠️ La table fait 2 142 lignes et n'est pas paginée ici : `orderBy` desc sur la date
    décide donc QUELLES lignes sont lues. Un abonné dont la notification serait sortie de
    la fenêtre lue apparaîtra simplement sans état — c'est prévu (voir `matchNotifC`). */
+function NotifCSource({ children }: { children: SourceChildren }) {
+  const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
+  const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
+  const email = asText(useCurrentUser()?.email).trim();
+  const write = email ? {
+    update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
+  } : undefined;                       // pas de session → aucune tentative
+  return <>{children({ ...liveState(res), write })}</>;
+}
 function SourceFeed({ source, children }: { source: SourceKey; children: SourceChildren }) {
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
@@ -1751,10 +1795,10 @@ function SourceFeed({ source, children }: { source: SourceKey; children: SourceC
     case "sav":      return <SavSource>{children}</SavSource>;
     case "comKpi":   return <ComKpiSource>{children}</ComKpiSource>;
     case "parcAbo":  return <ParcAboSource>{children}</ParcAboSource>;
-    // case "excAbo":   return <ExcAboSource>{children}</ExcAboSource>;      // à connecter
-    // case "excPart":  return <ExcPartSource>{children}</ExcPartSource>;    // à connecter
-    // case "parcPart": return <ParcPartSource>{children}</ParcPartSource>;  // à connecter
-    // case "notifC": return <NotifCSource>{children}</NotifCSource>;   // à connecter
+    case "excAbo":   return <ExcAboSource>{children}</ExcAboSource>;
+    case "excPart":  return <ExcPartSource>{children}</ExcPartSource>;
+    case "parcPart": return <ParcPartSource>{children}</ParcPartSource>;
+    case "notifC":   return <NotifCSource>{children}</NotifCSource>;
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
 }
@@ -5446,7 +5490,8 @@ function ExcRegistreWidget({ cfg, abo, part }: { cfg: ExcRegistreCfg; abo: Sourc
                     <td style={TD}>{l.service ? <Badge variant="brand">{l.service}</Badge> : DASH}</td>
                     <td style={{ ...TD, whiteSpace: "nowrap" }}>{ou(l.partenaire)}</td>
                     <td style={{ ...TD, whiteSpace: "nowrap" }}>{ou(l.valideur)}</td>
-                    <td style={TD}>{l.statut ? <StatusBadge value={l.statut} /> : DASH}</td>
+                    {/* Statut : variante dédiée — « Inactif » ne doit pas passer en vert. */}
+                    <td style={TD}>{l.statut ? <StatusBadge value={l.statut} variant={excStatutVariant(l.statut)} /> : DASH}</td>
                     <td style={{ ...TD, textAlign: "right", whiteSpace: "nowrap" }} title={fmtDate(l.creeLe)}>{fmtDate(l.creeLe)}</td>
                   </tr>
                 ))}
@@ -7387,7 +7432,10 @@ export default function Block() {
   return (
     <div id="slb" style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
-      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "24px 20px 56px", display: "flex", flexDirection: "column", gap: "30px" }}>
+      {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
+          les marges latérales. 1440 (au lieu de 1240) pour rendre de la place aux
+          grilles de widgets sur écran large, en gardant une gouttière courte. */}
+      <div style={{ maxWidth: 1440, margin: "0 auto", padding: "24px 16px 56px", display: "flex", flexDirection: "column", gap: "30px" }}>
 
         <Hero firstName={firstName} unread={unread} urgent={urgent} />
 
