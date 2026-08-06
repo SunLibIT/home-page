@@ -2192,7 +2192,27 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
    · `isFetchingNextPage` empêche de tirer deux pages en parallèle à chaque render.
    Et un PLAFOND, parce qu'une boucle qui dépend de la réponse du serveur doit toujours
    pouvoir s'arrêter : atteint, il rend `partial: true`, que le widget AFFICHE. --- */
-const COM_MAX_PAGES = 40;   // ≈ 4 000 dossiers (1 756 au 2026-08-04) — large, mais borné
+/* ⚠️⚠️ RELEVÉ DE 40 À 120 LE 2026-08-06, sur une observation à l'écran : le bandeau
+   « Calcul partiel » s'affichait sur le classement commercial alors que la table
+   « Abonnés » ne compte que 1 774 lignes (relevé par l'API ce jour-là).
+
+   Ce que ça prouve, par l'arithmétique : 40 pages n'ont pas suffi à lire 1 774 lignes,
+   donc une page Softr fait MOINS DE 45 lignes (1774 / 40 = 44,4) — et non les 100 que
+   supposait l'ancienne valeur. C'est exactement le cas prévu dans le README §4-F :
+   « si le message s'affiche alors que le parc fait moins de 4 000 dossiers, la taille de
+   page est plus petite que prévu et il faut relever COM_MAX_PAGES ».
+
+   120 pages couvrent 3 000 lignes à 25 par page — le parc actuel, plus une marge de
+   croissance confortable. Le plafond RESTE indispensable : une boucle qui dépend de la
+   réponse du serveur doit toujours pouvoir s'arrêter, et `partial` reste affiché s'il est
+   atteint. Ne pas le supprimer, seulement le recalibrer.
+
+   ⚠️ CE N'EST PAS GRATUIT : le drainage tire une page par cycle d'effet, donc relever le
+   plafond allonge le temps avant qu'un agrégat soit juste (des dizaines d'allers-retours
+   sur le parc entier). Les widgets concernés affichent leurs squelettes pendant ce
+   temps-là. La vraie sortie serait d'obtenir de plus grandes pages côté API (le mock
+   documente un `count`, non vérifié contre Softr) : à tester un jour, pas à supposer. */
+const COM_MAX_PAGES = 120;
 
 /* `enabled` : on ne draine QUE si le consommateur agrège. Une liste qui montre « les 12
    plus récents » n'a aucun besoin des 1 700 autres lignes, et les tirer coûterait des
@@ -2211,7 +2231,26 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
     if (enabled && hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
   }, [enabled, hasNext, canFetch, fetching, nPages, maxPages]);
   // Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
-  return { partial: enabled && hasNext && nPages >= maxPages };
+  const partial = enabled && hasNext && nPages >= maxPages;
+
+  /* TRACE DE DIAGNOSTIC — la TAILLE DE PAGE de Softr n'est écrite nulle part, et c'est
+     elle qui décide si `maxPages` est bien calibré. On l'a déduite une fois par
+     l'arithmétique (cf. `COM_MAX_PAGES`) ; la prochaine fois, cette ligne la donnera
+     directement. Émise UNE SEULE FOIS par montage, et seulement quand le plafond est
+     atteint : ce n'est pas du bruit de fonctionnement, c'est le relevé dont on a besoin
+     le jour où le bandeau « Calcul partiel » réapparaît. */
+  const dit = useRef(false);
+  useEffect(() => {
+    if (!partial || dit.current) return;
+    dit.current = true;
+    const lignes = (res?.data?.pages ?? []).reduce((n: number, p: any) => n + (p?.items?.length ?? 0), 0);
+    console.info(
+      `[SunLib] lecture TRONQUÉE au plafond : ${nPages} pages, ${lignes} lignes` +
+      ` (~${Math.round(lignes / Math.max(1, nPages))} par page). Relever COM_MAX_PAGES.`,
+    );
+  }, [partial, nPages]);
+
+  return { partial };
 }
 
 /* Performance commerciale : `DS.abonnes` relue en entier, 5 champs (cf. SELECT_COM).

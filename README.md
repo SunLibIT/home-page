@@ -292,9 +292,16 @@ formules) :
 - **La table est drainée** (pagination vidée) : le filtre et le regroupement doivent porter sur
   tout, sinon une page presque entièrement écartée donnerait un widget vide.
   ⚠️ L'avertissement « Lecture incomplète » a été **retiré le 2026-08-06** (demandé). Sans
-  risque tant que la table reste sous le plafond de drainage `COM_MAX_PAGES` (≈ 4 000 lignes
-  pour 2 154 aujourd'hui) : au-delà, la liste deviendrait silencieusement partielle et c'est
-  **le plafond** qu'il faudrait relever.
+  risque tant que la table reste sous le plafond de drainage `COM_MAX_PAGES` : au-delà, la
+  liste deviendrait silencieusement partielle et c'est **le plafond** qu'il faudrait relever.
+
+> ⚠️ **`COM_MAX_PAGES` relevé de 40 à 120 le 2026-08-06.** Le bandeau « Calcul partiel »
+> s'affichait sur le classement commercial alors que « Abonnés » ne compte que **1 774 lignes** :
+> 40 pages n'ayant pas suffi, une page Softr fait donc **moins de 45 lignes** — pas les 100
+> supposées. 120 pages couvrent 3 000 lignes à 25 par page. Le plafond reste indispensable (une
+> boucle serveur doit pouvoir s'arrêter) mais coûte des allers-retours : les agrégats mettent
+> plus longtemps à être justes. Une trace console donne désormais **pages, lignes et taille de
+> page réelle** dès que le plafond est atteint, pour recalibrer sans deviner.
 
 ### E — Les adresses : un seul endroit (`Block.tsx` §0-bis)
 
