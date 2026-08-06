@@ -2107,7 +2107,13 @@ const variantOf = (desc: SourceDesc, alias: string | undefined, value: string): 
  *  doit le montrer. Un total calculé sur un échantillon ne se distingue pas d'un total
  *  juste : c'est le défaut le plus sournois de ce projet, et il a déjà coûté cher au
  *  bloc SAV (« 60 centrales lues sur 771 », sans erreur ni alerte). */
-type SourceState = { rows: Row[]; loading: boolean; error: boolean; partial?: boolean };
+type SourceState = {
+  rows: Row[]; loading: boolean; error: boolean; partial?: boolean;
+  /** Lecture du parc EN COURS : il reste des pages et le plafond n'est pas atteint, donc
+   *  l'agrégat finira juste — il ne l'est pas encore. À annoncer (cf. `AggregateNote`) :
+   *  un total qui monte en silence est indiscernable d'un total faux. */
+  draining?: boolean;
+};
 
 /* Ce qu'un adapter expose à un widget : les lignes, les états, et — seulement si
    la source déclare un SELECT d'écriture ET qu'une session existe — de quoi
@@ -2139,9 +2145,9 @@ const offlineState = (k: SourceKey): SourceState =>
    n'expose `write` QUE si une session existe (sinon Softr refuse, cf. §1). --- */
 function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   // Pas de `write` : « Abonnés » n'a pas de select d'écriture (choix, §6).
-  return <>{children({ ...liveState(res), partial })}</>;
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 
 /* Source hors ligne (mock d'aperçu, ou source pas encore connectée). En APERÇU
@@ -2222,7 +2228,7 @@ const COM_MAX_PAGES = 120;
    ⚠️ `enabled: false` rend `partial: false` volontairement : un widget qui n'annonce pas
    de total n'a rien d'incomplet à signaler. Le drapeau ne qualifie pas la lecture, il
    qualifie la PROMESSE du widget. */
-function useDrainPages(res: any, maxPages: number, enabled = true): { partial: boolean } {
+function useDrainPages(res: any, maxPages: number, enabled = true): { partial: boolean; draining: boolean } {
   const nPages = Array.isArray(res?.data?.pages) ? res.data.pages.length : 0;
   const hasNext = !!res?.hasNextPage;
   const fetching = !!res?.isFetchingNextPage;
@@ -2232,6 +2238,15 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
   }, [enabled, hasNext, canFetch, fetching, nPages, maxPages]);
   // Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
   const partial = enabled && hasNext && nPages >= maxPages;
+  /* DRAINAGE EN COURS — il reste des pages, mais le plafond n'est pas atteint : le total
+     finira JUSTE, il n'est simplement pas encore complet.
+     ⚠️ Sans ce drapeau, un agrégat affiche pendant quelques secondes un chiffre qui MONTE
+     à chaque page, sans rien signaler : `isLoading` ne couvre que la première requête, pas
+     les suivantes. Un CAPEX lu à mi-chemin est faux — et rien ne le disait. C'est le trou
+     que le relèvement du plafond a rendu visible : avant, on finissait par voir « Calcul
+     partiel » ; maintenant on lit tout, donc il faut annoncer l'attente au lieu d'une
+     troncature. */
+  const draining = enabled && hasNext && nPages < maxPages;
 
   /* TRACE DE DIAGNOSTIC — la TAILLE DE PAGE de Softr n'est écrite nulle part, et c'est
      elle qui décide si `maxPages` est bien calibré. On l'a déduite une fois par
@@ -2250,23 +2265,23 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
     );
   }, [partial, nPages]);
 
-  return { partial };
+  return { partial, draining };
 }
 
 /* Performance commerciale : `DS.abonnes` relue en entier, 5 champs (cf. SELECT_COM).
    Lecture seule — l'accueil ne modifie pas un dossier abonné. */
 function ComKpiSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_COM, orderBy: q.desc("moisSignature") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial })}</>;
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 
 /* Parc DOSSIERS : même datasource qu'`abonnes`, UN champ, pagination complète. C'est un
    COMPTEUR, pas une liste — d'où le select minimal. */
 function ParcAboSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_PARC_ABO });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial })}</>;
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 
 /* Les deux périmètres du registre des exceptions, connectés le 2026-08-05. Paginés comme
@@ -2275,43 +2290,43 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
    parc » d'`excKpis` sont désormais chiffrés au lieu de rester muets. */
 function ExcAboSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial })}</>;
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 function ExcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial })}</>;
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 
 /* Parc partenaire ← « BDD Installateur », connectée le 2026-08-05. Paginée : c'est le
    dénominateur des « X % du parc », il doit être JUSTE (~510 lignes au 2026-08-04). */
 function ParcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial })}</>;
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 
 function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;                        // pas de session → aucune tentative
-  return <>{children({ ...liveState(res), partial, write })}</>;
+  return <>{children({ ...liveState(res), partial, draining, write })}</>;
 }
 
 function NotesProSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.notesPro, fields: SELECT_NOTE_PRO_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), partial, write })}</>;
+  return <>{children({ ...liveState(res), partial, draining, write })}</>;
 }
 
 /* Tâches : `write` porte la PREMIÈRE écriture réelle du bloc — la case « Fait ».
@@ -2320,24 +2335,24 @@ function NotesProSource({ children, drain }: { children: SourceChildren; drain?:
    note « pas de création de tâche » dans le descripteur. */
 function TachesPaSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), partial, write })}</>;
+  return <>{children({ ...liveState(res), partial, draining, write })}</>;
 }
 
 function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.tachesPr, fields: SELECT_TACHE_PR_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), partial, write })}</>;
+  return <>{children({ ...liveState(res), partial, draining, write })}</>;
 }
 
 /* ⚠️⚠️ CAS « SAV », et c'est LE piège qui a été évité de justesse : le bloc
@@ -2370,8 +2385,8 @@ function TachesPrSource({ children, drain }: { children: SourceChildren; drain?:
    comme partiel au lieu d'être présenté comme un total. */
 function SavSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial })}</>;
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children({ ...liveState(res), partial, draining })}</>;
 }
 /* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Connectée le
    2026-08-05 (id propre à CE bloc : onglet Chat, jamais celui d'un autre bloc — cf. la
@@ -2383,13 +2398,13 @@ function SavSource({ children }: { children: SourceChildren }) {
    lieu de simplement y chercher un état. `partial` remonte si le drainage a été coupé. */
 function NotifCSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
-  const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email ? {
     update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
   } : undefined;                       // pas de session → aucune tentative
-  return <>{children({ ...liveState(res), partial, write })}</>;
+  return <>{children({ ...liveState(res), partial, draining, write })}</>;
 }
 /* `drain` : à passer par TOUT consommateur qui agrège (compte, somme, moyenne, ou un
    compteur d'onglet). Les six sources « liste » ne tirent qu'une page par défaut, ce qui
@@ -4357,6 +4372,30 @@ function kpiCompute(rows: Row[], cfg: InstanceCfg): { value: number; delta: numb
    feuille injectée peut ne pas s'appliquer dans le bloc Softr (§1).
    --------------------------------------------------------------------------- */
 
+/* --- ÉTAT DE COMPLÉTUDE D'UN AGRÉGAT — une seule implémentation ------------------
+   Six widgets d'agrégat portaient le même bandeau, recopié six fois avec des textes
+   presque identiques. Ils disent maintenant la même chose au même endroit, et il y a
+   DEUX états à distinguer — c'est tout l'intérêt :
+     · « Calcul en cours » (neutre) — il reste des pages à lire, le total finira JUSTE.
+       Le chiffre affiché monte encore : le dire évite de lire un CAPEX à mi-chemin.
+     · « Calcul partiel » (ambre) — le plafond de pages est atteint (`COM_MAX_PAGES`),
+       le total ne sera PAS complet. C'est une alerte, pas une attente.
+   Rien à afficher quand la lecture est finie : un widget sain ne se commente pas. --- */
+function AggregateNote({ api, style }: { api: SourceState; style?: CSSProperties }) {
+  if (!api.draining && !api.partial) return null;
+  const enCours = !!api.draining;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 16px 14px", ...style }}>
+      <Badge variant={enCours ? "neutral" : "warn"} dot>{enCours ? "Calcul en cours" : "Calcul partiel"}</Badge>
+      <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+        {enCours
+          ? "Lecture du parc en cours — le calcul se complète à mesure."
+          : "Le parc dépasse ce que ce widget lit d'un coup : le calcul porte sur les dossiers les plus récents."}
+      </span>
+    </div>
+  );
+}
+
 /** Valeur d'un champ formatée selon son `kind` (partagée liste / tableau). */
 function FieldValue({ row, alias, desc }: { row: Row; alias: string; desc: SourceDesc }) {
   const f = desc.fields[alias];
@@ -4869,13 +4908,17 @@ function GenericKpi({ rows, cfg, desc, api }: ViewProps) {
               <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>vs période précédente</span>
             </>
           )}
-          {/* Un indicateur EST une promesse de total : s'il porte sur une lecture
-              tronquée (plafond de pages atteint), il doit le dire. Sans ça, le seul
-              symptôme serait un chiffre trop bas — indétectable à l'œil. */}
-          {api.partial && (
+          {/* Un indicateur EST une promesse de total : tant qu'il n'a pas tout lu, ou si
+              sa lecture est tronquée, il doit le dire. Sans ça, le seul symptôme serait un
+              chiffre trop bas — indétectable à l'œil. */}
+          {(api.draining || api.partial) && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: "7px" }}>
-              <Badge variant="warn" dot>Calcul partiel</Badge>
-              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>lecture tronquée</span>
+              <Badge variant={api.draining ? "neutral" : "warn"} dot>
+                {api.draining ? "Calcul en cours" : "Calcul partiel"}
+              </Badge>
+              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+                {api.draining ? "lecture du parc" : "lecture tronquée"}
+              </span>
             </span>
           )}
         </>
@@ -6008,14 +6051,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
           {/* 5 — LECTURE INCOMPLÈTE : jamais silencieuse, même règle que les widgets de
               Performance. Un « dossiers ouverts » calculé sur une partie de la table n'a
               pas l'air faux — c'est exactement pour ça qu'il faut le dire. */}
-          {api.partial && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "11px 16px 14px" }}>
-              <Badge variant="warn" dot>Calcul partiel</Badge>
-              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
-                La table dépasse ce que ce widget lit d'un coup : les compteurs portent sur les dossiers les plus récents.
-              </span>
-            </div>
-          )}
+          <AggregateNote api={api} style={{ padding: "11px 16px 14px" }} />
         </ScrollBody>
       )}
     </Widget>
@@ -6540,14 +6576,7 @@ function ComIndicsWidget({ api, cfg }: { api: SourceApi; cfg: ComIndicsCfg }) {
       ) : (
         <>
           <KpiTiles tiles={tiles} zone={zone} />
-          {api.partial && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "0 16px 14px" }}>
-              <Badge variant="warn" dot>Calcul partiel</Badge>
-              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
-                Le parc dépasse ce que ce widget lit d'un coup : les totaux portent sur les dossiers les plus récents.
-              </span>
-            </div>
-          )}
+          <AggregateNote api={api} style={{ padding: "0 16px 14px" }} />
         </>
       )}
     </Widget>
@@ -6745,14 +6774,7 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
           </div>
           {/* LECTURE INCOMPLÈTE : jamais silencieuse. Un classement calculé sur une
               partie du parc n'a pas l'air faux — c'est bien pour ça qu'il faut le dire. */}
-          {api.partial && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 16px 14px" }}>
-              <Badge variant="warn" dot>Calcul partiel</Badge>
-              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
-                Le parc dépasse ce que ce widget lit d'un coup : le classement porte sur les dossiers les plus récents.
-              </span>
-            </div>
-          )}
+          <AggregateNote api={api} style={{ padding: "12px 16px 14px" }} />
         </div>
       )}
     </Widget>
@@ -6987,14 +7009,7 @@ function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: Classemen
               </table>
             </div>
           </ScrollBody>
-          {api.partial && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px 12px", borderTop: `1px solid ${T.line}` }}>
-              <Badge variant="warn" dot>Calcul partiel</Badge>
-              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
-                Le parc dépasse ce que ce widget lit d'un coup : le classement porte sur les dossiers les plus récents.
-              </span>
-            </div>
-          )}
+          <AggregateNote api={api} style={{ padding: "10px 16px 12px", borderTop: `1px solid ${T.line}` }} />
         </>
       )}
     </Widget>
@@ -7238,14 +7253,12 @@ function ExcIndicsWidget({ cfg, abo, part, parcA, parcP }: {
               <KpiTiles tiles={couverture} zone={zone} />
             </>
           )}
-          {(abo.partial || part.partial) && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "0 16px 14px" }}>
-              <Badge variant="warn" dot>Calcul partiel</Badge>
-              <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
-                Toutes les exceptions n'ont pas pu être lues d'un coup : ces totaux sont incomplets.
-              </span>
-            </div>
-          )}
+          {/* DEUX sources ici (les deux périmètres d'exception) : la note porte sur la plus
+              en retard des deux — un total est incomplet dès qu'UNE de ses sources l'est. */}
+          <AggregateNote style={{ padding: "0 16px 14px" }}
+            api={{ rows: [], loading: false, error: false,
+              draining: !!abo.draining || !!part.draining,
+              partial: !!abo.partial || !!part.partial }} />
         </div>
       )}
     </Widget>
