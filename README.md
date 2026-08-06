@@ -95,6 +95,14 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      toast. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
      est décidée à la pose par le modèle de la galerie et ne change plus — un indicateur
      reste un indicateur. Pour une autre forme, on pose un autre widget.
+   - **Tous les installateurs** (2026-08-06) — le classement du bloc KPI, en version resserrée :
+     rang, installateur, **signés** (avec barre de volume), CAPEX, puissance kWc, taux de pose
+     et **courbe sur 12 mois**. Quatre colonnes de chiffres au lieu de neuf, les deux graphiques
+     gardés ; annulés, taux d'annulation, poses et délai restent dans le bloc KPI, fait pour
+     l'analyse. Recherche par nom (le parc compte ~112 installateurs), tri par en-tête persisté.
+     ⚠️ **Aucun calcul propre** : `comStats(…, "installateur")` réutilise celui du classement
+     commercial — deux agrégats concurrents sur les mêmes dossiers finiraient par se contredire.
+     Le rang reste celui du classement complet : filtrer ne renumérote pas.
    - **Barre d'outils de consultation** (2026-08-06), dans tous les widgets liste et tableau :
      **recherche** plein-texte (mot par mot, sans accents, sur les champs déclarés),
      **filtre à cases en multi-sélection** sur un champ (`cfg.facet` — par défaut

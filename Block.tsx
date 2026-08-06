@@ -6592,7 +6592,15 @@ type ComStat = {
   nom: string; capex: number; contrats: number; annules: number; tauxAnnulation: number;
   poses: number; tauxPose: number; delaiMoy: number; aboMoyen: number;
   installateurs: number; tendance: number; monthly: number[];
+  /** Puissance installée (kWc) des dossiers signés du groupe. Ajoutée le 2026-08-06 pour
+   *  le classement des installateurs, où c'est une colonne attendue. */
+  kwc: number;
 };
+
+/* Ce par quoi on REGROUPE. Le calcul est le même — seule la clé change, et c'est tout
+   l'intérêt : le classement des installateurs n'est pas un second calcul à maintenir en
+   parallèle du classement commercial, sous peine de voir les deux diverger. */
+type ComGroupBy = "commercial" | "installateur";
 
 /** Clé « AAAA-MM » du mois courant, et « AAAA » de l'année — mêmes formes que le champ
  *  « Mois de signature contrat », donc comparables par simple préfixe. */
@@ -6625,7 +6633,7 @@ function joursEntre(a: unknown, b: unknown): number | null {
        LES DONNÉES — un mois sans aucune signature ferait sinon afficher −100 % à tout
        le monde. Elle ignore la période choisie, exprès : c'est une dynamique.
    PURE, donc identique en mock et en live. --- */
-function comStats(rows: Row[], periode: PodiumPeriode, now: Date): { stats: ComStat[]; mois: string[] } {
+function comStats(rows: Row[], periode: PodiumPeriode, now: Date, groupBy: ComGroupBy = "commercial"): { stats: ComStat[]; mois: string[] } {
   const portefeuille = rows.filter((r) => hasFile(r.contratSigne));
   const mCourant = moisCourant(now);
   const annee = `${now.getFullYear()}`;
@@ -6645,8 +6653,11 @@ function comStats(rows: Row[], periode: PodiumPeriode, now: Date): { stats: ComS
 
   const par = new Map<string, Row[]>();
   portefeuille.forEach((r) => {
-    const nom = asText(r.commercial).trim();
-    if (!nom || nom === PODIUM_NON_ASSIGNE) return;   // « Non assigné » n'est pas une personne
+    const nom = asText(groupBy === "installateur" ? r.installateur : r.commercial).trim();
+    /* ⚠️ La garde « Non assigné » ne vaut que pour un COMMERCIAL : c'est le libellé que
+       porte un dossier sans propriétaire, et ce n'est pas une personne à classer. Un
+       installateur, lui, n'a pas de valeur équivalente — un nom vide suffit à écarter. */
+    if (!nom || (groupBy === "commercial" && nom === PODIUM_NON_ASSIGNE)) return;
     (par.get(nom) ?? par.set(nom, []).get(nom)!).push(r);
   });
 
@@ -6663,6 +6674,7 @@ function comStats(rows: Row[], periode: PodiumPeriode, now: Date): { stats: ComS
     return {
       nom,
       capex: signes.reduce((s, r) => s + savNum(r.capex), 0),
+      kwc: signes.reduce((s, r) => s + savNum(r.kwc), 0),
       contrats: signes.length,
       annules: annules.length,
       tauxAnnulation: pct(annules.length, dansP.length),
@@ -6817,7 +6829,14 @@ const coerceClassementCfg = (raw: unknown): ClassementCfg => {
   };
 };
 
-function ClassementOptions({ cfg, onChange }: { cfg: ClassementCfg; onChange: (next: ClassementCfg) => void }) {
+/* Panneau d'options PARTAGÉ par les deux classements (commerciaux, installateurs) : même
+   période, même tri, même sens — seule la liste des colonnes triables change. Les deux
+   `Options` du registre en sont des habillages d'une ligne. */
+function RankOptions<C extends string>({ cfg, onChange, cols }: {
+  cfg: { periode: PodiumPeriode; tri: C; dir: "asc" | "desc" };
+  onChange: (next: { periode: PodiumPeriode; tri: C; dir: "asc" | "desc" }) => void;
+  cols: readonly { key: C; label: string }[];
+}) {
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
   const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer" });
   const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
@@ -6832,8 +6851,8 @@ function ClassementOptions({ cfg, onChange }: { cfg: ClassementCfg; onChange: (n
       </div>
       <span style={{ ...lbl, marginTop: "10px" }}>Trier par</span>
       <select style={field} value={cfg.tri} aria-label="Colonne de tri"
-        onChange={(e) => onChange({ ...cfg, tri: e.target.value as ComCol })}>
-        {COM_COLS.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+        onChange={(e) => onChange({ ...cfg, tri: e.target.value as C })}>
+        {cols.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
       </select>
       <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
         <button style={seg(cfg.dir === "desc")} onClick={() => onChange({ ...cfg, dir: "desc" })}
@@ -6847,6 +6866,9 @@ function ClassementOptions({ cfg, onChange }: { cfg: ClassementCfg; onChange: (n
     </div>
   );
 }
+
+const ClassementOptions = (p: { cfg: ClassementCfg; onChange: (n: ClassementCfg) => void }) =>
+  <RankOptions cfg={p.cfg} onChange={p.onChange} cols={COM_COLS} />;
 
 /** Courbe des 12 derniers mois. Le point final est vert si le dernier mois se tient au
  *  niveau du précédent, rouge s'il décroche — jamais la couleur seule : le nombre de
@@ -7026,6 +7048,166 @@ function ClassementCard({ id, cfg }: { id: string; cfg: ClassementCfg }) {
   };
   void id;
   return <SourceFeed source="comKpi">{(s) => <ClassementWidget api={s} cfg={cfg} onSort={onSort} />}</SourceFeed>;
+}
+
+/* ── TOUS LES INSTALLATEURS — le classement du bloc KPI, en version RESSERRÉE ────
+   Repris de la capture du bloc `dashboard-KPI` (2026-08-06), mais volontairement PLUS
+   SIMPLE : là-bas neuf colonnes de chiffres, ici QUATRE, et les deux graphiques gardés
+   — la barre de volume sous les signés, la courbe sur 12 mois. Le reste (annulés, taux
+   d'annulation, poses, délai) reste dans le bloc KPI, qui est fait pour l'analyse ; un
+   widget d'accueil doit se lire d'un coup d'œil.
+
+   ⚠️ AUCUN CALCUL PROPRE : `comStats(…, "installateur")` réutilise exactement le calcul
+   du classement commercial. C'était la condition pour que ce widget existe — deux
+   agrégats concurrents sur les mêmes dossiers finiraient par se contredire, et on ne
+   saurait pas lequel croire. Mêmes critères, donc : portefeuille = contrat signé JOINT,
+   annulés exclus des totaux, « posé » = « Etat facture 2 » à « Validée ».
+
+   La RECHERCHE n'est pas un ornement : le parc compte ~112 installateurs, un classement
+   sans filtre n'y est pas exploitable. Elle est locale et non persistée (même règle que
+   la barre d'outils des widgets liste, §9-bis). --- */
+const INST_COLS = [
+  { key: "contrats", label: "Signés" },
+  { key: "capex", label: "CAPEX HT" },
+  { key: "kwc", label: "Puissance" },
+  { key: "tauxPose", label: "Taux pose" },
+] as const;
+type InstCol = (typeof INST_COLS)[number]["key"];
+type InstCfg = { periode: PodiumPeriode; tri: InstCol; dir: "asc" | "desc" };
+
+const coerceInstCfg = (raw: unknown): InstCfg => {
+  const o = asObj(raw);
+  const p = asText(o.periode);
+  const t = asText(o.tri);
+  return {
+    periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee",
+    tri: INST_COLS.some((c) => c.key === t) ? (t as InstCol) : "contrats",
+    dir: o.dir === "asc" ? "asc" : "desc",
+  };
+};
+
+const InstOptions = (p: { cfg: InstCfg; onChange: (n: InstCfg) => void }) =>
+  <RankOptions cfg={p.cfg} onChange={p.onChange} cols={INST_COLS} />;
+
+/* La puissance se formate avec `fmtKwc` (§9-septies), déjà écrit pour les indicateurs
+   globaux : deux fonctions pour « 2 121,5 kWc » finiraient par diverger d'une décimale. */
+/** CAPEX : en k€ sous le million, en M€ au-delà — c'est la forme de la capture, et elle
+ *  évite « 0,291 M€ » pour un installateur à 291 k€. */
+const fmtCapexCourt = (n: number): string =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(3).replace(".", ",")} M€` : `${Math.round(n / 1000).toLocaleString("fr-FR")} k€`;
+
+function InstWidget({ api, cfg, onSort }: { api: SourceApi; cfg: InstCfg; onSort: (col: InstCol) => void }) {
+  const [q, setQ] = useState("");
+  const { stats } = comStats(api.rows, cfg.periode, new Date(), "installateur");
+  const signe = cfg.dir === "asc" ? 1 : -1;
+  const tries = [...stats].sort((a, b) => (a[cfg.tri] - b[cfg.tri]) * signe);
+  // Le RANG est celui du classement complet : filtrer ne renumérote pas (chercher un
+  // installateur pour le voir « 1er » alors qu'il est 37e serait un mensonge).
+  const avecRang = tries.map((c, i) => ({ c, rang: i + 1 }));
+  const terme = foldText(q).trim();
+  const vus = terme ? avecRang.filter(({ c }) => foldText(c.nom).includes(terme)) : avecRang;
+  const maxContrats = Math.max(1, ...stats.map((c) => c.contrats));
+
+  const TH: CSSProperties = { position: "sticky", top: 0, zIndex: 1, background: T.surface2, textAlign: "right", padding: "8px 10px", fontSize: "10.5px", fontWeight: 700, color: T.ink3, textTransform: "uppercase", letterSpacing: ".04em", whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}`, cursor: "pointer" };
+  const TD: CSSProperties = { padding: "9px 10px", fontSize: "12.5px", fontWeight: 600, color: T.ink2, textAlign: "right", whiteSpace: "nowrap", borderBottom: `1px solid ${T.line}`, fontVariantNumeric: "tabular-nums" };
+  const flecheTri = (col: InstCol) => cfg.tri !== col ? null
+    : cfg.dir === "asc" ? <ChevronUp aria-hidden style={{ width: 11, height: 11 }} /> : <ChevronDown aria-hidden style={{ width: 11, height: 11 }} />;
+
+  return (
+    <Widget icon={HardHat} title="Tous les installateurs"
+      sub={api.loading ? "Chargement…" : `${stats.length} installateur${stats.length > 1 ? "s" : ""} · ${PODIUM_PERIODES.find((p) => p.key === cfg.periode)?.label ?? ""}`}>
+      {api.error ? (
+        <EmptyState dense icon={XCircle} title="Classement indisponible"
+          hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
+      ) : api.loading ? (
+        <ListSkeleton />
+      ) : !stats.length ? (
+        <EmptyState dense icon={Inbox} title="Aucun installateur sur la période"
+          hint="Seuls les dossiers dont le contrat signé est joint sont comptés." />
+      ) : (
+        <>
+          <div style={{ padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+            <label style={{ display: "flex", alignItems: "center", gap: "7px", padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface2 }}>
+              <Search aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Rechercher un installateur…"
+                aria-label="Rechercher un installateur"
+                style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink }} />
+              {q !== "" && (
+                <button onClick={() => setQ("")} aria-label="Effacer la recherche"
+                  style={{ display: "grid", placeItems: "center", flex: "none", width: 18, height: 18, borderRadius: 999, border: "none", background: "none", cursor: "pointer", color: T.ink4 }}>
+                  <X aria-hidden style={{ width: 13, height: 13 }} />
+                </button>
+              )}
+            </label>
+          </div>
+          <ScrollBody>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...TH, textAlign: "left", cursor: "default", width: 28 }}>#</th>
+                    <th style={{ ...TH, textAlign: "left", cursor: "default" }}>Installateur</th>
+                    {INST_COLS.map((c) => (
+                      <th key={c.key} style={TH} onClick={() => onSort(c.key)} title={`Trier par ${c.label}`}
+                        aria-sort={cfg.tri === c.key ? (cfg.dir === "asc" ? "ascending" : "descending") : "none"}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", color: cfg.tri === c.key ? T.brand700 : undefined }}>
+                          {c.label}{flecheTri(c.key)}
+                        </span>
+                      </th>
+                    ))}
+                    <th style={{ ...TH, cursor: "default" }}>12 mois</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vus.map(({ c, rang }) => (
+                    <tr key={c.nom} className="slb-row">
+                      <td style={{ ...TD, textAlign: "left", color: T.ink4, fontWeight: 700 }}>{rang}</td>
+                      <td style={{ ...TD, textAlign: "left", fontWeight: 700, color: T.ink, maxWidth: 210, overflow: "hidden", textOverflow: "ellipsis" }}
+                        title={c.nom}>{c.nom}</td>
+                      {/* SIGNÉS + barre de volume : le nombre seul ne dit pas l'écart entre
+                          le premier et le dixième, la barre le montre sans un mot. */}
+                      <td style={TD}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px" }}>
+                          <span style={{ fontWeight: 700, color: T.ink }}>{c.contrats}</span>
+                          <span aria-hidden style={{ width: 68, height: 4, borderRadius: 999, background: T.neutral050, overflow: "hidden" }}>
+                            <span style={{ display: "block", height: "100%", width: `${pct(c.contrats, maxContrats)}%`, background: T.brand, borderRadius: 999 }} />
+                          </span>
+                        </div>
+                      </td>
+                      <td style={TD}>{fmtCapexCourt(c.capex)}</td>
+                      <td style={TD}>{c.kwc > 0 ? fmtKwc(c.kwc) : DASH}</td>
+                      {/* Taux de pose : vert au-delà de 80 %, ambre sous 50 % — et le chiffre
+                          reste écrit, la couleur ne porte jamais l'information seule. */}
+                      <td style={{ ...TD, color: c.tauxPose >= 80 ? T.okInk : c.tauxPose < 50 ? T.warnInk : T.ink2 }}>
+                        {c.contrats ? `${c.tauxPose} %` : DASH}
+                      </td>
+                      <td style={{ ...TD, padding: "6px 10px" }}><Sparkline data={c.monthly} /></td>
+                    </tr>
+                  ))}
+                  {!vus.length && (
+                    <tr><td colSpan={INST_COLS.length + 3} style={{ ...TD, textAlign: "center", color: T.ink4, fontWeight: 500 }}>
+                      Aucun installateur ne correspond à « {q} ».
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </ScrollBody>
+          <AggregateNote api={api} style={{ padding: "10px 16px 12px", borderTop: `1px solid ${T.line}` }} />
+        </>
+      )}
+    </Widget>
+  );
+}
+
+function InstCard({ id, cfg }: { id: string; cfg: InstCfg }) {
+  const writer = useCfgWriter();
+  const onSort = (col: InstCol) => {
+    if (!writer) return;                       // mode Personnaliser : le corps est inerte
+    writer.save(col === cfg.tri ? { ...cfg, dir: cfg.dir === "desc" ? "asc" : "desc" } : { ...cfg, tri: col, dir: "desc" });
+  };
+  void id;
+  return <SourceFeed source="comKpi">{(s) => <InstWidget api={s} cfg={cfg} onSort={onSort} />}</SourceFeed>;
 }
 
 /* ============================================================================
@@ -7800,7 +7982,7 @@ type WidgetTypeKey =
      posé depuis les presets `sav` du catalogue (§6-bis) — aucun code requis. */
   | "sav"
   /* ← Performance commerciale (§9-septies) : les seuls widgets qui agrègent sur tout le parc. */
-  | "podium" | "classementCom" | "comIndics"
+  | "podium" | "classementCom" | "classementInst" | "comIndics"
   /* ← Exceptions (§9-octies) : les tuiles de couverture et le registre. */
   | "excIndics" | "excRegistre"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
@@ -7856,6 +8038,8 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
             defaults: () => coercePodiumCfg({}), coerce: coercePodiumCfg, Options: PodiumOptions },
   classementCom: { title: "Classement des commerciaux", icon: Users, Render: ClassementCard,
                    defaults: () => coerceClassementCfg({}), coerce: coerceClassementCfg, Options: ClassementOptions },
+  classementInst: { title: "Tous les installateurs", icon: HardHat, Render: InstCard,
+                    defaults: () => coerceInstCfg({}), coerce: coerceInstCfg, Options: InstOptions },
   comIndics: { title: "Indicateurs commerciaux", icon: BarChart3, Render: ComIndicsCard,
                defaults: () => coerceComIndicsCfg({}), coerce: coerceComIndicsCfg, Options: ComIndicsOptions },
   /* Exceptions (§9-octies). */
@@ -8132,6 +8316,9 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string; shape:
   { type: "podium", h: "lg", group: "perf", shape: "podium", desc: "Les trois premiers commerciaux par CAPEX signé." },
   // Le classement est un TABLEAU de dix colonnes : à poser en pleine largeur et haut.
   { type: "classementCom", h: "lg", group: "perf", shape: "table", desc: "Le tableau complet : CAPEX, tendance, taux de pose, délai, courbe sur 12 mois." },
+  // À poser en pleine largeur comme le classement commercial : six colonnes et deux
+  // graphiques ne tiennent pas dans une demi-carte.
+  { type: "classementInst", h: "lg", group: "perf", shape: "table", desc: "Le classement des partenaires : signés, CAPEX, puissance, taux de pose et courbe sur 12 mois." },
   // Une rangée de tuiles : basse, mais large — cinq tuiles ne tiennent pas en demi-largeur.
   { type: "comIndics", h: "sm", group: "perf", shape: "tiles", desc: "Contrats, CAPEX, installateurs actifs et pipeline à signer." },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
