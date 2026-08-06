@@ -48,6 +48,7 @@ home-page/
 | **Styles : le fonctionnel en INLINE** | Softr style ses blocs avec **Tailwind** ; rien ne garantit qu'une balise `<style>` injectée dans `document.head` atteigne le bloc, ni que l'attribut `id` du conteneur survive. Constaté en collant le bloc : widgets **collés sans gouttière**, « pleine largeur » **sans effet**, corps de widget qui s'étire au lieu de scroller. → **Toute mise en page, dimension ou débordement doit être en style inline** (grille + `gap`, hauteur du corps scrollable, troncature, filets). `StyleInjector` ne garde que du cosmétique (hover, focus, scrollbars, keyframes) et ses sélecteurs de classe ne sont plus préfixés par `#slb`. |
 | **Container queries : non** | Le nombre de colonnes se mesure en JS (`ResizeObserver` sur la grille), pour la même raison. |
 | **Animations** | Une animation nécessaire doit passer par la **Web Animations API** (`element.animate()`), pas par des `@keyframes` injectés — c'est ainsi qu'est animé le dégradé du héro. Les `@keyframes` restants ne portent que des effets dont l'absence ne casse rien. |
+| **Survol (`:hover`) : en JS** | Même cause, même remède (constaté à l'écran le 2026-08-06 : *« les animations de survol ne fonctionnent pas dans Softr »*). La feuille ne s'appliquant pas, **tous** les `:hover` tombaient d'un coup — tuiles Raccourcis et Outils, boutons, lignes de widget, podium, poignées. `useHoverFX` (§2-bis) pose désormais ces états **en style inline via le CSSOM**, depuis un écouteur délégué unique sur le conteneur du bloc : indépendant de toute feuille, et prioritaire sur le Tailwind de Softr. La table `HOVER_RULES` reprend règle pour règle les `:hover` de `StyleInjector`, qui restent en place comme repli. **Deux invariants** : un élément ne matche qu'UNE règle déclenchante, et on n'écrit que des **longhands** (`background-color`, jamais `background` — sur un raccourci, la restauration effacerait la valeur posée par React). |
 | **Imports autorisés** | UNIQUEMENT `react`, `lucide-react`, `@/components/ui/card`, `@/lib/datasource`, `@/lib/user`. Aucune lib externe, aucune Google Font. |
 | **`datasource.define`** | Un seul appel, IDs en **littéraux inline**. Ne doit contenir QUE des IDs réellement connectés dans l'onglet *Sources* du bloc — un ID placeholder fait planter le bloc (« New data source does not match / Remap the fields »). |
 | **`from` des hooks** | Doit être **directement** un membre du `define` (`DS.abonnes`) ou un littéral string. **Jamais** une prop, une variable ou un élément de tableau. → *Il est impossible d'écrire un composant générique `<Feed from={x}>`* (approche testée et abandonnée). C'est LA contrainte structurante. |
@@ -71,6 +72,11 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 |---|---|
 | 0 | `USE_MOCK` |
 | 1-2 | `IMG`, thème `T` (couleurs/rayons/ombres), styles constants (`CARD`, `WHEAD`, `TABBAR`…), `StyleInjector()` qui injecte une balise `<style>` unique `#slb-styles` |
+| 2-bis | `HOVER_RULES` + `useHoverFX()` — les états de **survol et de focus** posés en style inline depuis un écouteur délégué, pour ne plus dépendre de la feuille de §2 (cf. la contrainte « Survol : en JS ») |
+| 8 | `WidgetOptionsMenu` — les réglages d'un widget sont une **MODALE** depuis le 2026-08-06, plus un panneau flottant de 292 px. Deux colonnes : *Apparence* (titre, couleur — commun à tous les types) et *Contenu* (le formulaire du type, plus large car il porte les `<select>`, filtres et colonnes). En-tête et pied fixes, corps scrollable, largeur adaptée à la présence d'un formulaire. Toujours un **brouillon** : rien n'est appliqué avant « Enregistrer ». Fermeture par le voile ou Échap — pas `useDismissOnOutside`, car un clic sur une option de `<select>` (rendue par l'OS, hors document) n'atteint jamais le voile. |
+| 9-bis | `RecordDialog` — **pop-up de détail d'une ligne**, générique : cliquer une ligne (liste, tableau, ou le widget « Nouveaux dossiers abonnés ») ouvre une fiche qui affiche **tous** les champs déclarés par le descripteur, dans leur ordre de déclaration. Aucun code par source. Champs vides montrés avec un tiret (sur un dossier, « Signé le — » est une information). `detailPage` sur `SourceDesc` ajoute « Ouvrir la fiche complète » ; `ficheHref` permet de forcer l'URL quand le record id de la ligne n'est pas celui de la fiche (cas de `notifC`). ⚠️ Rendue **frère du widget** et jamais dans son corps : le corps est inerte en mode Personnaliser et reçoit un `transform` pendant le FLIP, ce qui capturerait le `position: fixed`. Pas de portail possible (`react-dom` n'est pas importable). |
+| 5-ter | `MONOGRAMS` / `monogramOf` / `<Monogram>` — les **initiales**, refondues le 2026-08-06 (variante « monogramme teinté »). Fond pastel + encre foncée assortie, au lieu du dégradé `hsl()` saturé à texte blanc : la teinte était libre donc hors charte, et douze pastilles saturées passaient devant le contenu. Palette **fermée** (8 paires reprises de la charte), choisie de façon **déterministe** sur le nom — la même personne garde sa couleur partout. Pas de rouge (couleur d'alerte). Contrastes **mesurés** (≥ 4,5:1) ; l'ambre utilise `warnInk` et non `solar600`, qui ne donnait que 2,95:1. Une seule implémentation pour les 5 emplacements, dont le podium qui garde sa classe `slb-pod-av` (animation de survol). |
+| 5-bis | `identWords` / `identOf` / `ownerIsUser` — rapprochement **session ↔ champ « propriétaire »** de la base. Softr identifie par e-mail, la base ne stocke que des noms : le rapprochement se fait sur les mots du nom, et exige **deux mots communs** dès que les deux côtés ont prénom + nom (sinon « Frédéric Martin » verrait les dossiers de « Frédéric HUET »). Pures, 16 cas vérifiés le 2026-08-06. |
 | 3 | `Badge` / `statusVariant` (statut métier → variante de couleur) |
 | 4 | `TabBar` (onglets réutilisables avec pastille compteur) |
 | 5 | Helpers de formatage : `fmtDate`, `relDays`, `fmtRel`, `fmtDue`, `dueVariant`, `initials`, `avatarBg`, `firstNameOf` |
@@ -161,14 +167,13 @@ son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appel
   vide. Depuis le 2026-08-05 il **nomme** la cause au lieu d'en lister trois, en s'appuyant sur
   `onload`/`onerror` du runtime : script refusé ⇒ CSP ou bloqueur ; script servi mais stérile ⇒
   domaine non autorisé côté Elfsight ; script déjà présent ⇒ état indéterminé, assumé comme tel.
-- ⛔ **Blocage en aperçu Softr, diagnostic non clos (2026-08-05)** : `script-src 'self'
-  'unsafe-inline'` y refuse les scripts tiers — mais l'erreur observée nomme le beacon Cloudflare, pas
-  Elfsight, et le **même snippet fonctionne dans un bloc « Custom Code »**. Piste principale : la CSP
-  stricte est celle de l'**iframe du bloc**, pas de la page (deux documents, deux politiques). Test qui
-  tranche : une erreur CSP nommant `elfsight` dans la console. Détail corrigé au passage — le bloc
-  chargeait `elfsightcdn.com/platform.js` au lieu du `static.elfsight.com/platform/platform.js` du
-  snippet vérifié. Voir README §D. Vrai dans tous les cas : `npm run dev` marche parce que Vite ne
-  pose aucune CSP.
+- ⛔ **Le Fil LinkedIn ne monte pas dans le bloc, diagnostic non clos (2026-08-05)** : le runtime **se
+  charge** (`onload`), donc CSP et bloqueurs sont écartés ; le domaine et le compte Elfsight aussi,
+  puisqu'un bloc « Custom Code » y sert un autre widget. La CSP `script-src 'self' 'unsafe-inline'`
+  relevée en aperçu était un **faux indice** — l'erreur nommait le beacon Cloudflare, pas Elfsight.
+  Deux différences ont été corrigées depuis (URL du runtime alignée sur `static.elfsight.com`,
+  `data-elfsight-app-lazy` remis). Restent l'**identifiant du widget** et le **contexte iframe/React** :
+  le test d'isolation (poser la Barre d'annonces, dont l'id est prouvé) est décrit dans README §D.
 - Les titres affichés sont **neutres** (« À la une SunLib », « Annonces SunLib ») : le contenu de ces
   bannières change côté Elfsight, et ce ne sont pas des embeds LinkedIn. Les clés de type, elles,
   restent figées (`linkedinBanner`).
@@ -192,7 +197,7 @@ type WidgetTypeDef = {
 };
 
 const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
-  notifs:             { title: "Derniers dossiers Abonné", icon: Bell,          Render: NotifsCard,
+  notifs:             { title: "Nouveaux dossiers abonnés", icon: Bell,         Render: NotifsCard,   // clé inchangée : contrat de persistance
                         defaults: () => coerceNotifsCfg({}), coerce: coerceNotifsCfg, Options: NotifsOptions },
   taches:             { title: "Journal des tâches",       icon: CalendarClock, Render: TachesCard },
   horloge:            { title: "Heure",                    icon: Clock,         Render: HorlogeCard, Options: HorlogeOptions },
@@ -312,18 +317,25 @@ paginer aucune produit des chiffres faux. `SourceFeed` prend donc un booléen **
 | Vue générique **`kpi`** (`count`/`sum`/`avg`) | **oui**, `DataView` le passe | un indicateur EST une promesse de total |
 | Vues **`list`** / **`table`** | non | elles décrivent ce qu'elles montrent, après `applyQuery` |
 | **Journal des tâches** | **oui**, les deux sources | ses pastilles d'onglet sont des compteurs |
-| **Derniers dossiers** → `notifC` | **oui** | pour **joindre**, pas pour agréger (voir ci-dessous) |
-| **Derniers dossiers** → `abonnes` | non | « les N plus récents », aucun total annoncé |
+| **Nouveaux dossiers abonnés** → `notifC` | **oui** | pour **filtrer et regrouper** sur toute la table (voir ci-dessous) |
 
 Deux corrections du même jour, de la même famille :
 - **Journal des tâches** — les pastilles comptaient `prospects.length`, or les listes sont tronquées
   à `RECENT` : un onglet affichait « 12 » là où la table en portait quarante. Les totaux sont
   désormais calculés avant la troncature et passés séparément, et le widget écrit « 12 des 40 tâches
   ouvertes » sous la liste pour que l'écart ne se lise pas comme une incohérence.
-- **Derniers dossiers** — l'état lu/non-lu est une **jointure** (`matchNotifC`) : une notification
+- **Derniers dossiers** — l'état lu/non-lu était une **jointure** (`matchNotifC`) : une notification
   hors fenêtre faisait retomber la ligne sur `nonLu = false`, donc un dossier non traité passait pour
-  traité, sans bouton « Vu ». Faux négatif silencieux, corrigé en drainant `notifC` ; si la lecture
-  reste tronquée, le widget affiche « État incomplet ».
+  traité, sans bouton « Vu ». Faux négatif silencieux, corrigé en drainant `notifC`.
+
+> **2026-08-06 — la jointure a disparu, et avec elle ce faux négatif.** Le widget, renommé
+> **« Nouveaux dossiers abonnés »**, lit `notifC` **seule** : l'état est porté par la ligne
+> affichée. Le drainage reste nécessaire, pour une autre raison — le **filtre** (propriétaire non
+> vide) et le **regroupement des jumelles** doivent porter sur toute la table, sinon une page
+> presque entièrement écartée donnerait un widget vide sur une table pleine. Le preset de galerie
+> « Derniers dossiers Abonné » de la source `abonnes` a été **retiré** : c'était le widget jumeau,
+> même liste sans l'état de lecture. `matchNotifC` et `mapNotif` sont supprimés, `mapNotifC` et
+> `dedupeNotifs` (pure) les remplacent.
 
 ⚠️ **Limite résiduelle assumée** : les filtres des vues `list`/`table` (`applyQuery`) opèrent **côté
 client, sur les lignes lues**. Un filtre sur une valeur rare peut donc rendre « aucun résultat »

@@ -58,12 +58,65 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    section s'appelait « Outils » avant que les outils aient leur onglet.
 5. **Tableau de bord** (onglet Accueil) — grille de widgets **indépendants, redimensionnables et
    déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui) :
-   - **Derniers dossiers Abonné** — avatar dégradé, badges statut et type d'installation, temps
-     relatif, lien « Détail », pastille « Non lu » et bouton « Vu » (`notifC` est connectée),
+   - **Nouveaux dossiers abonnés** — lit **`Notification Center` et cette table seule** (refonte
+     du 2026-08-06 : avant, il lisait `Abonnés` et joignait l'état de lecture, et un preset de
+     galerie affichait la même liste — deux widgets jumeaux). Avatar, texte de la notification,
+     badge de statut, temps relatif, lien « Détail », pastille « Non lu » et bouton « Vu »,
      et un ⋮ Options pour choisir les informations affichées et le nombre de lignes.
+     **C'est une FILE À TRAITER** : seules les notifications pas encore marquées « Vu » sont
+     affichées, et cliquer « Vu » fait **disparaître la ligne immédiatement** (masquage local
+     optimiste, annulé avec un message si l'écriture échoue — ce n'est donc pas l'ancien
+     masquage sans écriture retiré le 2026-08-03). Quand la file est vide : « Tout est traité ».
+     Décocher « File à traiter » dans ⋮ redonne l'historique complet.
+     Quatre filtres **assumés en code** (`selectNotifs`, pure) : propriétaire **non vide**,
+     propriétaire = **utilisateur connecté** (`cfg.mesDossiers`, actif par défaut),
+     regroupement des **jumelles** (chaque événement crée 2 lignes), et **non traitées
+     seulement**. En pied de liste, un
+     **« Lire plus »** déroule le palier suivant (de `cfg.limite` lignes) sous les
+     précédentes, dans le même corps scrollable — état local, jamais persisté.
+     ⚠️ **Le rapprochement se fait sur le NOM, pas sur l'e-mail** : la table ne porte aucun
+     e-mail, seulement des noms (`Ilan LEVY`, `Frédéric HUET`…). La règle exige **deux mots
+     communs** dès que les deux côtés ont prénom + nom, pour qu'un homonyme de prénom ne voie
+     pas les dossiers de l'autre (« Frédéric Martin » ≠ « Frédéric HUET »). Voir `ownerIsUser`.
+     Décocher « Seulement les dossiers dont je suis propriétaire » dans ⋮ ouvre la liste.
    - **Journal des tâches** — onglets denses Prospects | Partenaires (pastilles compteur), badge
      d'échéance par seuil (vert > 14 j, ambre 3–14 j, rouge < 3 j), case **« Fait » qui écrit en base**.
    - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques).
+   - **⋮ Réglages du widget** (2026-08-06) — une **modale** en deux colonnes (*Apparence* :
+     titre, couleur ; *Contenu* : les réglages du type), et non plus un panneau de 292 px.
+     Elle porte aussi le **retrait du widget** (confirmation en deux temps) et son
+     **encombrement** (largeur moitié / pleine, hauteur petit / moyen / grand) : plus besoin
+     d'entrer dans « Personnaliser » pour redimensionner ou supprimer une carte. Les
+     **poignées de bord** font la même chose à la souris et sont désormais actives **dans les
+     deux modes** — discrètes au repos, révélées au survol de la carte, et déportées dans la
+     gouttière hors édition pour ne pas voler les clics des lignes ni recouvrir la barre de
+     défilement. Le geste s'écrit **une seule fois, au relâchement** (pas à chaque cran). ⚠️ Hors mode Personnaliser,
+     ce retrait est **écrit immédiatement** (pas de brouillon), d'où la confirmation et le
+     toast. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
+     est décidée à la pose par le modèle de la galerie et ne change plus — un indicateur
+     reste un indicateur. Pour une autre forme, on pose un autre widget.
+   - **Barre d'outils de consultation** (2026-08-06), dans tous les widgets liste et tableau :
+     **recherche** plein-texte (mot par mot, sans accents, sur les champs déclarés),
+     **filtre à cases en multi-sélection** sur un champ (`cfg.facet` — par défaut
+     l'installateur pour les notes et les dossiers, le partenaire / prospect pour les tâches,
+     l'installateur initial pour le SAV ; les valeurs sont déduites des données, triées par
+     fréquence, avec leur compte), et **tri** : par clic sur l'en-tête de colonne en vue
+     tableau (recliquer inverse le sens, tri **typé** par la nature du champ), par un bouton
+     « Trier » en vue liste, qui n'a pas d'en-têtes. Les trois s'appliquent **avant la limite
+     de lignes**, donc sur toute la table lue. Rien n'est persisté : recharger remet à plat
+     (un filtre « collant » donnerait un widget vide sans raison visible). Réglable dans ⋮ →
+     *Consultation*.
+   - **Clic sur une ligne → fiche détaillée** (2026-08-06). Dans **tous** les widgets liste et
+     tableau, ainsi que dans « Nouveaux dossiers abonnés », cliquer une ligne ouvre une pop-up
+     qui affiche **tous les champs déclarés par le descripteur de la source** — pas seulement
+     les trois que la ligne montrait. Générique : ajouter un alias au catalogue l'ajoute à la
+     fiche. Accessible au clavier (Entrée / Espace, Échap pour fermer) ; les boutons d'action
+     de la ligne n'ouvrent pas la fiche. Pour les dossiers abonné, un bouton « Ouvrir la fiche
+     complète » mène à la page de l'espace (`target="_top"`).
+     Au passage, `SELECT_ABONNE` a été **élargi de 10 champs** (référence, statut abonné, CAPEX,
+     abonnement, kWc, état facture 2, dates de signature et d'édition, contrats signé / en
+     attente) — tous déjà lus par `SELECT_COM` sur la même datasource, donc leur exposition est
+     prouvée. Ils servent aussi de colonnes et de filtres aux widgets génériques.
    - **Pilotage SAV — synthèse** — les valeurs cochées dans son ⋮, en **tuiles** (grande valeur,
      détail dessous, barre pour les proportions) ou en **lignes** denses.
    - **Indicateurs commerciaux** — rangée de tuiles : contrats signés, annulés (+ taux), CAPEX
@@ -125,7 +178,7 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | `sav`      | « Tickets » (SAV) — *lecture seule*            | ✅ `3f5f8f6c-…` | 22 alias : ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût |
 | `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` |
 | `parcAbo`  | « Abonnés » **relue en 1 champ**, paginée       | ✅ (même `8fc957d0-…`) | ref `Contrat abonné` — dénominateur « % du parc » |
-| `notifC`   | « Notification Center » (BDD Abonné) — *écrivable* | ✅ `fecd4e37-…` | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` |
+| `notifC`   | « Notification Center » (BDD Abonné) — *écrivable*, **seule source du widget « Nouveaux dossiers abonnés »** | ✅ `fecd4e37-…` | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` · **⚠️ à exposer dans Softr** : texte `Notification` · nom `Nom (from Liens BDD)` · partenaire `Installateur (from Liens BDD)` · statut `Statut Dossiers (from Liens BDD)` · proprio `Proprietaire (from Installateur ) (from Liens BDD)` |
 | `excAbo`   | « Projet solaire » (Exception)                  | ✅ `b8340293-…` | exceptions **abonné** : dossier `SL- Dossier` · description · categorie · sousCategorie · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe |
 | `excPart`  | « Partenaire » (Exception)                      | ✅ `9cf1e459-…` | exceptions **partenaire** : nom `Name` + les mêmes champs, plus statut `Statut` |
 | `parcPart` | « BDD Installateur » (Exception)                | ✅ `e82df933-…` | nom `Nom de l'entreprise` — dénominateur « % du parc partenaires » |
@@ -148,9 +201,19 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 > which is not present in your datasource » au collage, il faut **remapper la source**.
 
 Détails du choix :
-- **Derniers dossiers** = table `Abonnés`, par `date de création`. L'état lu / non lu vient de
-  `Notification Center` (cf. §4-D). L'« offre » Duo/Solo/Pro du prototype n'existe pas →
-  remplacée par `Type d installation`.
+- **Nouveaux dossiers abonnés** = table `Notification Center`, par `Created Date`. L'état lu /
+  non lu est porté par la ligne affichée (plus de jointure, donc plus d'« état incomplet »).
+  ⚠️ **Point de données à trancher** : sur les 400 notifications les plus récentes, les
+  propriétaires sont `Ilan LEVY` (91), `Julien RAMON` (80), `Philippe GERY` (53),
+  `Frédéric HUET` (37), `Edouard Da Silva` (36), `Guillaume Niggli` (6), `Fabrice MORVAN` (4),
+  `Alexandre DUGOIS` (4) — et 89 lignes sans propriétaire. Un utilisateur absent de cette
+  liste voit donc un widget **vide**, avec un état vide explicite qui nomme l'identité
+  cherchée et propose d'ouvrir la liste. La vraie correction est côté base : un champ
+  **e-mail** sur le propriétaire rendrait le rapprochement exact.
+  ⚠️ **Reste à faire côté Softr** : la datasource `notifC` doit exposer 5 champs de plus —
+  `Notification`, `Nom (from Liens BDD)`, `Installateur (from Liens BDD)`,
+  `Statut Dossiers (from Liens BDD)`, `Proprietaire (from Installateur ) (from Liens BDD)`.
+  Sans eux, le bloc échoue au chargement (« does not match / Remap the fields »).
 - **Tâches** : seules celles non cochées `Fait` sont affichées, et **cocher « Fait » écrit
   réellement en base** — c'est la première écriture métier du bloc.
 - **SAV** : lecture seule. Un dossier se saisit dans le bloc « Pilotage SAV », qui porte les
@@ -176,34 +239,41 @@ Widget **Elfsight** (bannière SunLib) `elfsight-app-488a28ed-…` intégré tel
 une fois via `useEffect` (un `<script>` en JSX ne s'exécute pas). Rien à faire, sinon
 vérifier que `elfsightcdn.com` est autorisé par la CSP de l'iframe Softr.
 
-> ⛔ **Les embeds Elfsight sont BLOQUÉS sur `sunlibcrm2.preview.softr.app` (2026-08-05).** Diagnostic
-> en cours, avec une piste principale et un fait qui l'empêche de conclure.
+> ⛔ **Le Fil LinkedIn ne monte pas dans le bloc, y compris sur le domaine publié (2026-08-05).**
+> Diagnostic en cours. Ce qui est **éliminé**, et par quelle observation :
 >
-> **Ce qui est mesuré** : la console refuse un script tiers sur **`script-src 'self' 'unsafe-inline'`**,
-> directive qui n'autorise aucun domaine externe. ⚠️ Mais cette erreur nomme le **beacon Cloudflare
-> de Softr**, pas Elfsight : elle prouve qu'une CSP stricte s'applique, pas qu'elle est la cause de
-> ce symptôme.
+> | Suspect | Écarté par |
+> | --- | --- |
+> | CSP, bloqueur de contenu | le runtime **se charge** (`onload` appelé) — l'état du loader le dit |
+> | Domaine, compte Elfsight | le même runtime sert un autre widget depuis un bloc « Custom Code » sur ce domaine |
+> | URL du runtime | le bloc chargeait `elfsightcdn.com/platform.js`, aligné depuis sur le `static.elfsight.com/platform/platform.js` du snippet vérifié |
+> | `data-elfsight-app-lazy` manquant | attribut **remis**, pour ne plus différer du snippet vérifié |
 >
-> **Le fait qui complique** : le même snippet Elfsight **fonctionne dans un bloc « Custom Code »** de
-> cette app. Deux lectures : (a) la CSP stricte est celle de l'**iframe du bloc vibe code** et non de
-> la page — deux documents, deux politiques — et alors seule Softr peut la lever ; (b) la CSP n'est
-> pas en cause pour Elfsight et l'origine est ailleurs. L'URL du runtime en faisait partie : le bloc
-> chargeait `elfsightcdn.com/platform.js` au lieu du `static.elfsight.com/platform/platform.js` du
-> snippet vérifié — **corrigé**.
+> ⚠️ La CSP `script-src 'self' 'unsafe-inline'` relevée en aperçu était un **faux indice** : l'erreur
+> nommait le beacon Cloudflare de Softr, pas Elfsight. Elle reste vraie, mais n'explique pas ce
+> symptôme.
 >
-> **Le test qui tranche** : chercher dans la console une erreur CSP nommant `elfsight`. Présente ⇒
-> (a). Absente ⇒ (b), diagnostic à reprendre.
+> **Deux pistes restantes, et un test qui les sépare.** Le snippet « Custom Code » qui fonctionne
+> porte l'id de la **Barre d'annonces** (`8f372b94-…`), alors que le widget en échec est le **Fil
+> LinkedIn** (`2df6db63-…`) : deux variables changent à la fois, le contexte d'exécution ET
+> l'identifiant. Pour n'en garder qu'une, **poser le widget « Barre d'annonces » dans la grille** (il
+> est dans la galerie, avec ce même id) :
+> - il **monte** ⇒ le contexte iframe/React est sain, et c'est l'id du Fil LinkedIn qui est en cause
+>   (widget supprimé ou désactivé côté Elfsight) ;
+> - il **ne monte pas** ⇒ le runtime ne voit pas un conteneur rendu par React dans l'iframe du bloc,
+>   et le sujet devient l'intégration elle-même.
 >
-> Vrai dans les deux cas : les widgets **fonctionnent sous `npm run dev`** parce que Vite ne pose
-> aucune CSP — le local ne teste jamais ce mécanisme.
-> ⚠️ Si (a) se confirme, le même verrou peut toucher l'**onglet Outils** : ses iframes dépendent de
-> `frame-src`, non visible dans cette erreur.
+> Les widgets **fonctionnent sous `npm run dev`** : le code et les ids y sont donc corrects, mais le
+> local ne teste ni la CSP ni le contexte iframe.
 
 ### D — « Marquer comme vu » ✅ branché le 2026-08-05
 Le masquage local a été retiré (il ne survivait pas au rechargement, donc il faisait croire
-qu'on avait traité quelque chose). L'état vit dans **`Notification Center`**, joint par le
-**record id** de l'abonné. C'est la **seule source écrivable** du bloc hors notes et tâches, et
-sa whitelist n'ouvre que `Statut de lecture`.
+qu'on avait traité quelque chose). L'état vit dans **`Notification Center`**. C'est la **seule
+source écrivable** du bloc hors notes et tâches, et sa whitelist n'ouvre que `Statut de lecture`.
+
+> **2026-08-06 — plus de jointure.** Le widget lit désormais cette table **seule** : l'état de
+> lecture est porté par la ligne affichée, il ne peut donc plus manquer (l'avertissement « état
+> incomplet » a disparu avec la jointure, `matchNotifC` a été supprimé).
 
 ⚠️ Particularités de cette table, **subies et non corrigées** (d'autres écrans consomment ses
 formules) :
@@ -212,12 +282,19 @@ formules) :
   inversées elles aussi (`IF({Statut de lecture}, "Non lue", "Lue")`) — vérifié par l'API le
   2026-08-05 : **1354 lignes cochées affichent « Non lue »**. Le jour où la base est corrigée,
   **inverser aussi le bloc**, sinon le widget dira l'exact contraire de la vérité.
-- **385 lignes sur 2142 n'ont aucun lien vers un abonné** (relevé le 2026-08-05) : `matchNotifC`
-  ne peut pas les rattacher, elles restent donc invisibles au widget.
+- **385 lignes sur 2142 n'ont aucun lien vers un abonné** (relevé le 2026-08-05), donc tous leurs
+  lookups sont vides, texte compris (« Nouveau abonné créé pour :  »). Le **filtre propriétaire
+  non vide** les écarte, et le widget dit combien il en a écarté.
+- **Chaque événement crée DEUX lignes** (une « Lue », une « Non lue ») : le widget les **regroupe**
+  par dossier + texte et garde celle encore « à lire » — celle sur laquelle « Vu » agit.
 - **L'état est global, pas par utilisateur** (aucun champ destinataire) : cocher vaut pour tout
   le monde — à dire aux utilisateurs.
-- **La table n'est pas paginée** ici : `orderBy` desc sur la date décide quelles lignes sont lues.
-  Un abonné dont la notification est sortie de la fenêtre s'affiche sans état — c'est prévu.
+- **La table est drainée** (pagination vidée) : le filtre et le regroupement doivent porter sur
+  tout, sinon une page presque entièrement écartée donnerait un widget vide.
+  ⚠️ L'avertissement « Lecture incomplète » a été **retiré le 2026-08-06** (demandé). Sans
+  risque tant que la table reste sous le plafond de drainage `COM_MAX_PAGES` (≈ 4 000 lignes
+  pour 2 154 aujourd'hui) : au-delà, la liste deviendrait silencieusement partielle et c'est
+  **le plafond** qu'il faudrait relever.
 
 ### E — Les adresses : un seul endroit (`Block.tsx` §0-bis)
 

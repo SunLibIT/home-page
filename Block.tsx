@@ -41,6 +41,17 @@
      C) LinkedInSection          → embed LinkedIn existant : ✅ intégré (Elfsight)
      D) Paramètre d'URL des pages de détail → `PAGE_RECORD_PARAM` (§0-bis) : reste à
                                   CONFIRMER que Softr attend bien « recordId »
+     E) ⚠️ À FAIRE DANS SOFTR (2026-08-06) → la datasource `notifC` doit EXPOSER cinq
+                                  champs de plus, sinon le bloc échoue au chargement
+                                  (« New data source does not match / Remap the fields ») :
+                                    · Notification
+                                    · Nom (from Liens BDD)
+                                    · Installateur (from Liens BDD)
+                                    · Statut Dossiers (from Liens BDD)
+                                    · Proprietaire (from Installateur ) (from Liens BDD)
+                                  Onglet Sources du bloc → « Notification Center » → cocher
+                                  ces champs. Les champs exposés se choisissent À LA
+                                  CONNEXION, pas d'après la table (leçon du 2026-08-04).
    ⚠️ USE_MOCK est passé à FALSE le 2026-08-04 : le bloc lit Airtable en direct.
    ============================================================================ */
 
@@ -56,8 +67,10 @@ import {
   type CSSProperties,
   type DragEvent as ReactDragEvent,
   type FC,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from "react";
 import {
   UserPlus, Handshake, BookUser, Users, Library, BarChart3, Trash2,
@@ -67,7 +80,9 @@ import {
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Save, X, Newspaper, Megaphone, Sparkles, Trophy,
-  Wrench, ExternalLink,
+  // ⚠️ `Filter` est renommé : le fichier a déjà un TYPE `Filter` (§9-bis, les filtres
+  //    d'une cfg). Importer l'icône sous son nom d'origine masquerait le type.
+  Wrench, ExternalLink, Search, Filter as FilterIcon,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -216,8 +231,16 @@ const IMG = {
 /* ============================================================================
    1. DESIGN TOKENS `T` + constantes de style — kit visuel de référence
    ============================================================================ */
+/* ⚠️ `canvas` est BLANC depuis le 2026-08-06, et c'est un ÉCART ASSUMÉ à la charte
+   (qui prescrit #F3F6F7, un gris bleuté destiné à faire ressortir les cartes) —
+   demandé à l'écran : « le fond n'est pas blanc alors qu'il est censé l'être ».
+   Conséquence à connaître avant de retoucher les cartes : sur fond blanc, une carte
+   blanche ne se distingue plus que par sa BORDURE (`T.line`) et son ombre `shSm`. Ne
+   pas les supprimer en croyant alléger le rendu — elles portent seules la séparation.
+   Un seul token à remettre à "#F3F6F7" pour revenir en arrière : les barres d'onglets
+   sticky (`TABBAR`, `PageNavBar`) le lisent aussi, donc elles suivront. */
 const T = {
-  canvas: "#F3F6F7", surface: "#FFFFFF", surface2: "#F8FAFB",
+  canvas: "#FFFFFF", surface: "#FFFFFF", surface2: "#F8FAFB",
   line: "#EAEEF0", line2: "#E0E6E9",
   ink: "#101A28", ink2: "#465264", ink3: "#6A7686", ink4: "#9AA5B2",
   brand: "#0E9384", brand600: "#0B7A6E", brand700: "#0A5F56", brand050: "#EBF8F6", brand100: "#CFEEEA",
@@ -347,6 +370,10 @@ function StyleInjector() {
       .slb-rzh:hover > span, .slb-rzh:active > span{ background:${T.brand}; height:48px; }
       .slb-rzv > span{ transition:background .15s ease, width .15s ease; }
       .slb-rzv:hover > span, .slb-rzv:active > span{ background:${T.brand}; width:48px; }
+      /* Le trait n'apparaît qu'au survol de SON bord (hors mode Personnaliser il est à
+         opacity:0 en ligne). Doublon volontaire de la règle HoverFX de §2-bis. */
+      .slb-rzh > span, .slb-rzv > span{ transition:opacity .15s ease, background .15s ease, height .15s ease, width .15s ease; }
+      .slb-rzh:hover > span, .slb-rzh:active > span, .slb-rzv:hover > span, .slb-rzv:active > span{ opacity:1; }
       @keyframes slb-skel{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
       .slb-skel{ animation:slb-skel 1.3s ease-in-out infinite; }
 
@@ -367,6 +394,210 @@ function StyleInjector() {
     document.head.appendChild(el);
   }, []);
   return null;
+}
+
+/* ============================================================================
+   2-bis. HoverFX — les effets de SURVOL, en JS et en style INLINE
+   ----------------------------------------------------------------------------
+   POURQUOI. Dans le bloc Softr, la feuille de §2 peut ne pas s'appliquer — et
+   avec elle disparaissent d'un coup TOUS les `:hover` : tuiles Raccourcis et
+   Outils, boutons, lignes de widget, podium. Symptôme rapporté à l'écran :
+   « les animations de survol ne fonctionnent pas dans Softr ».
+
+   Le remède suit les deux règles déjà établies du fichier : ce qui doit marcher
+   vit en style INLINE (§2), et une animation nécessaire passe par le JS plutôt
+   que par la feuille (comme le dégradé du héro et le sunburst, §12). Ici : UN
+   SEUL écouteur délégué sur le conteneur du bloc traduit chaque survol en
+   écritures `element.style` — du style inline posé via le CSSOM, qui ne dépend
+   d'aucune feuille et l'emporte sur le Tailwind de Softr.
+
+   MÉCANIQUE.
+   · `HOVER_RULES` reprend, règle pour règle, les `:hover` de §2 : `self` = ce
+     qui change sur l'élément survolé, `kids` = sur ses descendants (ce que
+     faisait `.slb-tile:hover .slb-arrow`).
+   · À chaque `mouseover` / `focusin`, on remonte la chaîne des ancêtres, on
+     calcule l'ensemble des déclencheurs VOULUS et on ne touche qu'à la
+     différence avec ceux déjà actifs — une tuile qui contient un bouton ne
+     clignote donc pas quand la souris passe de l'une à l'autre.
+   · L'ancienne valeur inline de chaque propriété est MÉMORISÉE à l'entrée et
+     restaurée à la sortie. Jamais de `removeProperty` aveugle : il effacerait
+     une valeur posée par React (p. ex. la couleur de repos de la flèche, ou le
+     fond d'une tuile active) que React ne réécrirait pas sans re-rendu.
+   · La `transition` est posée au premier contact et n'est plus retirée : c'est
+     elle qui rend le mouvement progressif à l'aller ET au retour. Sous
+     `prefers-reduced-motion: reduce` elle n'est jamais posée — les états
+     basculent alors instantanément, ce qui est le comportement attendu (même
+     garde que le FLIP et le pan du héro).
+   · Le focus clavier passe par le même moteur (`focusin`), donc les lignes
+     révèlent aussi leurs actions à la tabulation, et l'anneau `:focus-visible`
+     est posé en ligne — §2 ne peut plus l'assurer non plus.
+
+   ⚠️ INVARIANT : un élément ne doit matcher qu'UNE règle déclenchante (d'où le
+   `:not(.slb-nbtn-ok)`). Deux règles sur le même élément mémoriseraient la même
+   propriété et la restauration rendrait une valeur déjà écrasée.
+   ⚠️ Propriétés en LONGHAND uniquement (`background-color`, jamais `background`) :
+   sur un raccourci, `getPropertyValue` rend souvent "" et la sortie effacerait
+   alors TOUS les longhands, dont celui posé par React.
+   ⚠️ §2 garde les mêmes `:hover` : si la feuille s'applique, les deux posent les
+   mêmes valeurs — aucun conflit visible. Ne pas « dédoublonner » l'un des deux ;
+   la feuille sert de repli, le JS de garantie.
+   ============================================================================ */
+type HoverStyles = Record<string, string>;
+type HoverRule = {
+  sel: string;                                            // déclencheur (survol ou focus)
+  trans?: string;                                         // transition posée sur le déclencheur
+  self?: HoverStyles;                                     // ce qui change sur le déclencheur
+  kids?: { sel: string; trans?: string; on: HoverStyles }[]; // … et sur ses descendants
+};
+
+const HOVER_RULES: HoverRule[] = [
+  // Ligne de widget : fond au survol, et les actions de ligne apparaissent. `.slb-hact`
+  // porte `opacity:0` EN LIGNE (sans quoi, feuille absente, elle serait toujours visible).
+  { sel: ".slb-row", trans: "background-color .15s ease", self: { "background-color": T.surface2 },
+    kids: [{ sel: ".slb-hact", trans: "opacity .15s ease", on: { opacity: "1" } }] },
+  { sel: ".slb-tab", trans: "color .16s ease", self: { color: T.ink } },
+  { sel: ".slb-nbtn:not(.slb-nbtn-ok)", trans: "background-color .15s ease, color .15s ease",
+    self: { "background-color": T.neutral050, color: T.ink2 } },
+  { sel: ".slb-nbtn-ok", trans: "background-color .15s ease, color .15s ease",
+    self: { "background-color": T.ok050, color: T.okInk } },
+  { sel: ".slb-btng:not(:disabled)", trans: "border-color .15s ease, color .15s ease, background-color .15s ease",
+    self: { "border-color": T.brand100, color: T.brand700, "background-color": T.brand050 } },
+  // Tuiles (Raccourcis, Outils) : la tuile se soulève, sa flèche glisse de ~6 px — la
+  // micro-interaction de la charte, c'est-à-dire précisément ce que l'écran ne montrait plus.
+  { sel: ".slb-tile:not(:disabled)", trans: "border-color .16s ease, box-shadow .16s ease, transform .16s ease",
+    self: { "border-color": T.brand100, "box-shadow": T.shMd, transform: "translateY(-1px)" },
+    kids: [{ sel: ".slb-arrow", trans: "transform .5s ease, color .16s ease", on: { transform: "translateX(6px)", color: T.brand600 } }] },
+  { sel: ".slb-btnp:not(:disabled)", trans: "background-color .15s ease", self: { "background-color": T.brand600 } },
+  { sel: ".slb-menu-item:not(:disabled)", trans: "background-color .12s ease", self: { "background-color": T.surface2 } },
+  /* Poignées de redimensionnement — RÉVÉLÉES PAR LEUR PROPRE BORD, et par lui seul.
+     Le trait apparaît, s'allonge et prend la couleur de marque quand la souris entre dans
+     SA bande ; les deux autres poignées de la même carte restent invisibles.
+     C'est le comportement d'un bord de fenêtre : on ne montre pas les quatre côtés parce
+     que le pointeur est entré dans la fenêtre. Le `cursor` de la bande (`ew-resize` /
+     `ns-resize`) est ce qui annonce le geste AVANT même que le trait ne se montre.
+     ⚠️ Hors mode Personnaliser, le trait est à `opacity: 0` EN LIGNE (§11) : sans cette
+     règle il resterait invisible pour toujours. En édition il vaut déjà 1, la règle est
+     alors sans effet visible — et la restauration lui rend bien sa valeur d'origine. */
+  { sel: ".slb-rzh", kids: [{ sel: ":scope > span", trans: "opacity .15s ease, background-color .15s ease, height .15s ease", on: { opacity: "1", "background-color": T.brand, height: "48px" } }] },
+  { sel: ".slb-rzv", kids: [{ sel: ":scope > span", trans: "opacity .15s ease, background-color .15s ease, width .15s ease", on: { opacity: "1", "background-color": T.brand, width: "48px" } }] },
+  // Podium CAPEX : la marche survolée se soulève, pastille et numéro grossissent. On
+  // n'anime que `transform` — leur `box-shadow` est en ligne (cf. §2).
+  { sel: ".slb-pod", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", self: { transform: "translateY(-4px)" },
+    kids: [
+      { sel: ".slb-pod-av", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", on: { transform: "scale(1.07)" } },
+      { sel: ".slb-pod-rk", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", on: { transform: "scale(1.14)" } },
+    ] },
+];
+
+// Anneau de focus clavier — l'équivalent en ligne de `#slb :focus-visible` (§2).
+const FOCUS_RING: HoverStyles = { outline: `2px solid ${T.brand}`, "outline-offset": "2px", "border-radius": "6px" };
+
+function useHoverFX(rootRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    // Même garde que les autres animations du bloc : sous « réduire les animations »,
+    // les états changent, mais sans transition.
+    const motion = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    type Entry = { saved: Map<HTMLElement, HoverStyles> };
+    const active = new Map<HTMLElement, Entry>();          // déclencheur → valeurs à rendre
+    let hoverNode: Element | null = null;
+    let focusNode: Element | null = null;
+
+    /** Pose des propriétés en mémorisant CE QU'ELLES VALAIENT en ligne. */
+    const put = (el: HTMLElement, on: HoverStyles, saved: Map<HTMLElement, HoverStyles>, trans?: string) => {
+      if (motion && trans) el.style.setProperty("transition", trans);
+      const prev: HoverStyles = { ...(saved.get(el) ?? {}) };
+      for (const p of Object.keys(on)) {
+        if (!(p in prev)) prev[p] = el.style.getPropertyValue(p);
+        el.style.setProperty(p, on[p]);
+      }
+      saved.set(el, prev);
+    };
+    const restore = (saved: Map<HTMLElement, HoverStyles>) => {
+      saved.forEach((prev, el) => {
+        for (const p of Object.keys(prev)) {
+          const v = prev[p];
+          if (v) el.style.setProperty(p, v); else el.style.removeProperty(p);
+        }
+      });
+    };
+
+    const enter = (el: HTMLElement, rule: HoverRule) => {
+      const saved = new Map<HTMLElement, HoverStyles>();
+      if (rule.self) put(el, rule.self, saved, rule.trans);
+      else if (motion && rule.trans) el.style.setProperty("transition", rule.trans);
+      rule.kids?.forEach((k) => el.querySelectorAll<HTMLElement>(k.sel).forEach((n) => put(n, k.on, saved, k.trans)));
+      active.set(el, { saved });
+    };
+    const leave = (el: HTMLElement) => {
+      const e = active.get(el);
+      if (!e) return;
+      active.delete(el);
+      restore(e.saved);
+    };
+
+    /** Déclencheurs sous un nœud : lui-même puis ses ancêtres, jusqu'au conteneur. */
+    const chain = (node: Element | null, out: Map<HTMLElement, HoverRule>) => {
+      let n: Element | null = node;
+      while (n && root.contains(n)) {
+        const el = n as HTMLElement;
+        // `break` = l'invariant « une seule règle par élément », vérifié à la lecture.
+        for (const rule of HOVER_RULES) { if (el.matches?.(rule.sel)) { out.set(el, rule); break; } }
+        n = el.parentElement;
+      }
+    };
+
+    const sync = () => {
+      const want = new Map<HTMLElement, HoverRule>();
+      chain(hoverNode, want);
+      chain(focusNode, want);
+      // Copie des clés : `leave` mute la map qu'on parcourt.
+      for (const el of [...active.keys()]) if (!want.has(el) || !el.isConnected) leave(el);
+      want.forEach((rule, el) => { if (!active.has(el)) enter(el, rule); });
+    };
+
+    // Anneau de focus : un seul élément à la fois, propriétés disjointes des règles
+    // ci-dessus — il vit donc à côté de `active`, sans risque de collision.
+    let ring: { el: HTMLElement; saved: Map<HTMLElement, HoverStyles> } | null = null;
+    const dropRing = () => { if (ring) { restore(ring.saved); ring = null; } };
+
+    const onOver = (e: Event) => { hoverNode = e.target as Element; sync(); };
+    const onOut = (e: Event) => {
+      const rel = (e as MouseEvent).relatedTarget as Element | null;
+      hoverNode = rel && root.contains(rel) ? rel : null;
+      sync();
+    };
+    const onFocusIn = (e: Event) => {
+      focusNode = e.target as Element;
+      dropRing();
+      const el = e.target as HTMLElement;
+      // `:focus-visible` n'existe pas partout ; sans lui, pas d'anneau — jamais d'erreur.
+      try {
+        if (el.matches?.(":focus-visible")) {
+          const saved = new Map<HTMLElement, HoverStyles>();
+          put(el, FOCUS_RING, saved);
+          ring = { el, saved };
+        }
+      } catch { /* pseudo-classe non supportée */ }
+      sync();
+    };
+    const onFocusOut = () => { focusNode = null; dropRing(); sync(); };
+
+    root.addEventListener("mouseover", onOver);
+    root.addEventListener("mouseout", onOut);
+    root.addEventListener("focusin", onFocusIn);
+    root.addEventListener("focusout", onFocusOut);
+    return () => {
+      root.removeEventListener("mouseover", onOver);
+      root.removeEventListener("mouseout", onOut);
+      root.removeEventListener("focusin", onFocusIn);
+      root.removeEventListener("focusout", onFocusOut);
+      for (const el of [...active.keys()]) leave(el);
+      dropRing();
+    };
+  }, [rootRef]);
 }
 
 /* ============================================================================
@@ -538,11 +769,130 @@ function dueVariant(date: DateInput): BadgeVariant {
 }
 
 const initials = (name: string) => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-// Dégradé d'avatar déterministe depuis le nom (cf. onglet Notes du gabarit)
-function avatarBg(name: string) {
+
+/* --- MONOGRAMME D'INITIALES — refonte du 2026-08-06 ----------------------------
+   AVANT : un dégradé `hsl()` calculé sur le nom, saturé, avec les initiales en
+   BLANC. Deux défauts, et le second est le vrai :
+   · la teinte était LIBRE (360 valeurs possibles), donc hors charte par
+     construction — elle tombait aussi bien sur un rouge alarme que sur un violet
+     criard, et le contraste du texte blanc variait avec elle ;
+   · à douze lignes par widget, ces pastilles saturées devenaient le premier
+     élément vu de la carte. Un monogramme sert à RECONNAÎTRE une ligne du coin de
+     l'œil, pas à attirer le regard avant le contenu.
+
+   MAINTENANT : fond PASTEL + initiales dans l'encre FONCÉE de la même famille
+   (variante « monogramme teinté » validée par l'utilisateur). La palette est
+   FERMÉE et reprend les paires de la charte déjà utilisées par les badges, donc
+   leur contraste est acquis. Même règle que `WIDGET_TINTS` : on choisit une paire
+   dans une liste, jamais une couleur au hasard.
+
+   ⚠️ La sélection reste DÉTERMINISTE sur le nom (même hachage) : la même personne
+   ou le même installateur garde sa couleur partout dans le bloc, d'un widget à
+   l'autre et d'une session à l'autre. C'est ce qui rend le monogramme utile.
+   ⚠️ PAS DE ROUGE dans la palette. Le rouge est la couleur d'alerte de la charte :
+   un monogramme rouge se lirait comme un statut, et apprendrait à l'œil à ignorer
+   le rouge là où il compte. Même raison que pour les teintes de widget. */
+/* ⚠️ CONTRASTE VÉRIFIÉ, PAS SUPPOSÉ (WCAG, 2026-08-06). Les initiales font 10 à 19 px
+   selon l'endroit : c'est du TEXTE NORMAL, donc le seuil est 4,5:1 — pas les 3:1 du gros
+   texte. Ratios mesurés : teal 6,9 · vert 4,9 · bleu 5,1 · lavande 6,6 · rosé 5,4 ·
+   ambre 4,8 · cyan 5,4 · ardoise 7,2.
+   ⚠️ L'ambre n'utilise PAS `T.solar600` (#D97706) comme le fait le badge solaire :
+   sur `solar050` il ne donne que 2,95:1, illisible pour deux lettres de 11 px. C'est
+   `T.warnInk`, plus foncé, qui est employé ici. Ne pas « harmoniser » avec le badge —
+   un badge porte un mot entier, un monogramme deux lettres serrées. */
+const MONOGRAMS: { bg: string; ink: string }[] = [
+  { bg: T.brand050, ink: T.brand700 },
+  { bg: T.ok050, ink: T.okInk },
+  { bg: T.info050, ink: T.infoInk },
+  { bg: "#F2EFFC", ink: "#57489E" },   // lavande — comme WIDGET_TINTS
+  { bg: "#FCEFF5", ink: "#9C4374" },   // rosé
+  { bg: T.solar050, ink: T.warnInk },  // ambre (cf. l'avertissement ci-dessus)
+  { bg: "#E7F3F5", ink: "#1E6B76" },   // cyan sourd
+  { bg: T.neutral050, ink: T.ink2 },   // ardoise — le repli neutre
+];
+
+/** Paire (fond, encre) d'un nom. PURE et stable. */
+function monogramOf(name: string): { bg: string; ink: string } {
   let h = 0;
-  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360;
-  return `linear-gradient(150deg, hsl(${h} 52% 50%), hsl(${(h + 26) % 360} 56% 37%))`;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 9973;   // 9973 premier : meilleure dispersion
+  return MONOGRAMS[h % MONOGRAMS.length];
+}
+
+/* Le monogramme lui-même. Une SEULE implémentation pour les cinq endroits qui en
+   affichaient un (lignes de liste, notifications, fiche détaillée, podium, classement) :
+   avant cette refonte, chacun redéclarait sa taille, son rayon et son poids en ligne, et
+   ils avaient déjà divergé (rayons de 8, 9 et 10 px pour des tailles voisines).
+   Le rayon suit la taille (~29 %, soit 11 px pour 38 comme dans la maquette) : un carré
+   arrondi garde sa forme à toutes les échelles, là où un rayon fixe paraît carré en
+   grand et rond en petit. */
+function Monogram({ name, size = 32, className }: { name: string; size?: number; className?: string }) {
+  const { bg, ink } = monogramOf(name);
+  return (
+    <span aria-hidden className={className} style={{
+      width: size, height: size, flex: "none", display: "grid", placeItems: "center",
+      borderRadius: Math.round(size * 0.29),
+      background: bg, color: ink,
+      fontSize: Math.max(10, Math.round(size * 0.34)),
+      fontWeight: 600, letterSpacing: ".01em",
+    }}>
+      {initials(name)}
+    </span>
+  );
+}
+
+/* --- IDENTITÉ DE LA SESSION ↔ un champ « propriétaire » de la base ---------------
+   ⚠️ LE PROBLÈME EST DANS LES DONNÉES, PAS DANS LE CODE. Softr identifie
+   l'utilisateur par son E-MAIL ; le champ « Proprietaire (from Installateur ) » ne
+   porte que des NOMS — relevés le 2026-08-06 sur les 400 notifications les plus
+   récentes : Ilan LEVY, Julien RAMON, Philippe GERY, Frédéric HUET, Edouard Da Silva,
+   Guillaume Niggli, Fabrice MORVAN, Alexandre DUGOIS. Aucune table ne fait le pont
+   entre les deux : le rapprochement se fait donc sur les MOTS du nom, et c'est la
+   seule chose que la base rende possible aujourd'hui.
+
+   RÈGLE, choisie pour ne JAMAIS montrer les dossiers de quelqu'un d'autre :
+   · deux informations sont tentées — le `name` de la session, et la partie locale de
+     l'e-mail éclatée sur « . _ - » (`ilan.levy@…` → « ilan », « levy ») ;
+   · le nombre de mots communs EXIGÉ est `min(2, mots de l'identité, mots du
+     propriétaire)`. Dès que les deux côtés ont un prénom ET un nom, il faut donc les
+     DEUX : c'est ce qui écarte le faux positif le plus probable — « Frédéric Martin »
+     ne doit pas ouvrir les dossiers de « Frédéric HUET » ;
+   · une identité d'un seul mot (`romain@…`) exige ce mot comme MOT ENTIER : « romain »
+     ne matche donc ni « Romainville » ni « Ilan LEVY ».
+   Reste assumé : deux homonymes exacts partageraient leur vue, et un propriétaire
+   écrit en prénom seul (« Arnaud ») matche tous les Arnaud. Mieux vaut ces cas rares
+   qu'un filtre qui laisse fuir les dossiers d'autrui.
+
+   ⚠️ Accents et casse sont neutralisés (« Frédéric » ↔ « frederic »), et les mots de
+   moins de 3 lettres écartés : un filtre qui échoue sur un accent ne se voit pas, et
+   « da » (de « Da Silva ») matcherait la moitié du fichier.
+   ⚠️ LA VRAIE SOLUTION est côté base : un champ e-mail sur le propriétaire, ou un
+   « Propio SOFTR » renseigné en e-mail. Le jour où il existe, ce rapprochement devient
+   une égalité de chaînes et ces trente lignes disparaissent. */
+const identWords = (s: string): string[] =>
+  asText(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter((w) => w.length >= 3);
+
+/** Identité de la session, sous les deux formes exploitables. `known: false` = aucune
+ *  information : le filtre « mes dossiers » ne peut alors PAS être appliqué (il rendrait
+ *  une liste vide sans que personne puisse comprendre pourquoi). */
+type UserIdent = { name: string[]; mail: string[]; known: boolean };
+
+function identOf(user: { name?: string; email?: string } | null | undefined): UserIdent {
+  const name = identWords(asText(user?.name));
+  const mail = identWords(asText(user?.email).split("@")[0]);
+  return { name, mail, known: name.length > 0 || mail.length > 0 };
+}
+
+/** Ce propriétaire désigne-t-il l'utilisateur connecté ? PURE (cf. la règle ci-dessus). */
+function ownerIsUser(proprio: string, ident: UserIdent): boolean {
+  const owner = identWords(proprio);
+  if (!owner.length) return false;
+  const correspond = (mine: string[]) => {
+    if (!mine.length) return false;
+    const requis = Math.min(2, mine.length, owner.length);
+    return mine.filter((w) => owner.includes(w)).length >= requis;
+  };
+  return correspond(ident.name) || correspond(ident.mail);
 }
 
 /** Prénom pour le héro. En prod, user.name est souvent vide → repli sur l'e-mail. */
@@ -564,7 +914,9 @@ function firstNameOf(user: { name?: string; email?: string } | null | undefined)
    `from` = DS.membre en direct, `select`/filtres/tri par ALIAS.
 
    Mapping widget → table Airtable (voir README §4) :
-     · Nouveaux dossiers Abonné  → base BDD Abonné · table « Abonnés »        ✅ ID fourni
+     · Nouveaux dossiers abonnés → base BDD Abonné · table « Notification Center »
+       (⚠️ 2026-08-06 : ce widget lisait « Abonnés » ; il lit maintenant cette table SEULE.
+        Cinq champs de plus lui sont nécessaires — voir SELECT_NOTIF_C et le point E.)
      · Notes — Installateurs     → base Installateurs · table « Suivi client »
      · Notes — Prospects         → base BDD Propect · table « Suivi propect »
      · Tâches — Partenaires      → base Installateurs · table « Taches »
@@ -621,9 +973,22 @@ const DS = datasource.define({
 //    « date ») ou une casse précise (« date de fin » vs « Date de fin ») : NE PAS
 //    normaliser — Softr résout le champ par ce nom littéral.
 
-// Derniers dossiers ← « Abonnés ». Il n'y a PAS de champ « Lu » dans cette table, et
-// le widget n'en simule plus un (cf. la note sur NotifsCard) : c'est une liste, pas
-// une file de notifications.
+// Dossiers ← « Abonnés ». Sert les widgets GÉNÉRIQUES de la galerie (dossiers
+// incomplets, tableau, indicateur du mois) et le comptage du parc.
+// ⚠️ Ne sert PLUS « Nouveaux dossiers abonnés » : depuis le 2026-08-06 ce widget lit
+// « Notification Center » et rien d'autre (§9). Cette table n'a pas de champ « Lu » —
+// c'est justement ce qui a fait passer le widget sur l'autre table.
+/* ⚠️ ÉLARGI le 2026-08-06 pour la POP-UP DE DÉTAIL (`RecordDialog`) : cliquer une ligne
+   doit montrer le dossier, pas les quatre colonnes que la ligne avait la place d'écrire.
+   Les 10 champs ajoutés ne sont pas un pari — ils sont TOUS déjà lus sur CETTE MÊME
+   datasource par `SELECT_COM` (podium CAPEX) et `SELECT_PARC_ABO` (dénominateur du
+   parc), donc leur exposition côté Softr est prouvée par du code qui tourne.
+   ⚠️ NE PAS y ajouter « Nom de l'entreprise » ni « Propio SOFTR » sans vérifier : ces
+   champs existent dans la table mais rien ne prouve qu'ils sont exposés par CETTE
+   connexion, et un champ non exposé fait échouer le bloc entier.
+   ⚠️ `partenaire` s'écrit « (from Installateur ) » AVEC un espace avant la parenthèse,
+   là où `SELECT_COM.installateur` s'écrit SANS : ce sont deux champs distincts de la
+   même table. Ne pas « harmoniser ». */
 const SELECT_ABONNE = q.select({
   nom: "Nom",
   prenom: "Prenom",
@@ -631,6 +996,18 @@ const SELECT_ABONNE = q.select({
   statut: "Statut Dossiers",
   offre: "Type d installation", // pas de Duo/Solo/Pro → « PV seul », « PV + Batterie Virtuelle »…
   creeLe: "date de création",
+  // ── Ajouts « fiche détaillée ». Ils servent aussi de colonnes et de filtres aux
+  //    widgets génériques, puisque le catalogue les déclare (§6-bis).
+  ref: "Contrat abonné",                       // référence du dossier (SL-…)
+  statutAbonne: "Statut de l'abonné",          // ≠ « Statut Dossiers » : Annulé / Repris / Refusé
+  capex: "Prix Installation HT total",
+  aboMoyen: "Prix En nombre",                  // abonnement mensuel
+  kwc: "Puissance installe en KWC",
+  etatFacture2: "Etat facture 2",
+  dateSignature: "Date signature contrat",
+  dateEdition: "Date édition contrat",
+  contratSigne: "Contrat abonnement signe",    // PIÈCE JOINTE → « signé » = fichier présent
+  contratNonSigne: "Contrat d abonnement non signe",
 });
 
 // Notes installateurs ← « Suivi client » (base Installateurs)
@@ -664,7 +1041,8 @@ const SELECT_TACHE_PR = q.select({
 /* ── NOTIFICATION CENTER ← base « BDD Abonné » (appe55vTZRk6Ssd2w) · table
    « Notification Center » (tblqF71AO8nFVpWi5, ~2 130 lignes au 2026-08-03).
    Relevé sur Airtable ce jour-là. C'est la table qui porte l'état LU / NON LU des
-   dossiers abonnés — le widget « Derniers dossiers Abonné » y écrit.
+   dossiers abonnés, et depuis le 2026-08-06 la SEULE table lue par le widget
+   « Nouveaux dossiers abonnés » (§9), qui y lit ses lignes et y écrit « Vu ».
 
    ⚠️⚠️⚠️ LE SENS DE LA CASE EST INVERSÉ PAR RAPPORT À SON NOM, et c'est vérifié sur
    les données, pas supposé :
@@ -688,11 +1066,27 @@ const SELECT_TACHE_PR = q.select({
    ~380 lignes n'ont aucun lien vers un abonné. Le widget ne peut que les subir.
    ⚠️ Aucun champ destinataire : l'état de lecture est GLOBAL, pas par utilisateur.
    Cocher vaut pour tout le monde — à dire aux utilisateurs. */
+/* ⚠️⚠️ CINQ CHAMPS AJOUTÉS le 2026-08-06, quand ce widget est devenu une lecture de
+   CETTE SEULE table (avant, il lisait « Abonnés » et ne venait chercher ici que l'état
+   de lecture). Les noms sont relevés sur Airtable par l'API, à la lettre — noter que
+   « Proprietaire » n'a PAS d'accent et qu'il y a un ESPACE avant sa parenthèse
+   fermante, tel quel dans la base. Ne pas « corriger » l'orthographe : le nom doit
+   correspondre au champ, pas au français.
+   ⚠️ ILS DOIVENT ÊTRE COCHÉS DANS LA CONNEXION de la datasource `notifC` (onglet
+   Sources du bloc) : les champs qu'une datasource expose sont choisis À LA CONNEXION,
+   pas déduits de la table. Un champ demandé ici mais non exposé là-bas fait échouer le
+   bloc (« New data source does not match / Remap the fields »). */
 const SELECT_NOTIF_C = q.select({
-  liens: "Liens BDD",                 // lien vers l'abonné → sert la jointure
+  liens: "Liens BDD",                 // lien vers l'abonné → porte son record id (lien « Détail »)
   aLire: "Statut de lecture",         // ⚠️ COCHÉE = NON LUE (voir ci-dessus)
   etat: "Statut de la notification",  // formule « Lue » / « Non lue » (lecture seule)
   creeLe: "Created Date",
+  texte: "Notification",              // formule : « Nouveau abonné créé pour : Prénom Nom »
+  nom: "Nom (from Liens BDD)",        // nom de famille de l'abonné → titre de ligne
+  partenaire: "Installateur (from Liens BDD)",
+  statut: "Statut Dossiers (from Liens BDD)",
+  // Le champ du FILTRE du widget : une ligne sans propriétaire n'est pas montrée.
+  proprio: "Proprietaire (from Installateur ) (from Liens BDD)",
 });
 /* WHITELIST d'écriture : la case, et rien d'autre. */
 const SELECT_NOTIF_C_W = q.select({ aLire: "Statut de lecture" });
@@ -856,7 +1250,22 @@ const SELECT_PREFS = q.select({
 });
 
 // Modèles de vue — mêmes formes pour le mock et le mapping Airtable.
-type Notif = { id: string; nom: string; societe?: string; partenaire: string; statut: string; offre: string; creeLe: string };
+/* Une ligne du widget « Nouveaux dossiers abonnés ». Elle décrit une NOTIFICATION
+   (une ligne de « Notification Center »), et non plus un dossier de « Abonnés » —
+   changement du 2026-08-06, cf. §9. D'où deux ids distincts, et il faut les garder
+   distincts : `id` sert la liste ET l'écriture de l'état de lecture, `abonneId` sert
+   le lien « Détail » et peut être vide (~380 lignes de la table n'ont aucun lien). */
+type Notif = {
+  id: string;          // record id de la LIGNE Notification Center
+  abonneId: string;    // record id de l'ABONNÉ lié, "" si la ligne est orpheline
+  nom: string; texte: string; partenaire: string; statut: string; proprio: string;
+  creeLe: string; nonLu: boolean;
+  /** La ligne BRUTE, conservée pour la pop-up de détail : `RecordDialog` est générique
+   *  et lit les alias du descripteur, pas ce modèle de vue. Sans elle, il faudrait
+   *  écrire une fiche sur-mesure pour ce widget — exactement ce que le catalogue existe
+   *  pour éviter. */
+  raw: Row;
+};
 type Task = { id: string; desc: string; associe: string; fin: string };
 /* (Le modèle de vue « Note » a disparu avec le passage des widgets notes au type
    liste générique : ces widgets lisent désormais les alias directement.) */
@@ -873,14 +1282,32 @@ type Row = { id: string } & Record<string, unknown>;
 const flattenRows = (res: { data?: { pages?: { items: any[] }[] } } | undefined): Row[] =>
   flatten(res).map((r) => ({ id: r.id, ...r.fields }));
 
-const mapNotif = (r: Row): Notif => ({
+/** Ids portés par un champ LIEN. Les trois formes qu'une valeur de lien peut prendre
+ *  selon la couche traversée sont acceptées : tableau d'objets `{id, name}` (Airtable),
+ *  tableau de chaînes, ou chaîne unique.
+ *  ⚠️ Rien ne garantit que Softr expose les IDS d'un champ lien plutôt que les libellés
+ *  du champ primaire. Si ce sont des libellés, `abonneId` ne sera pas un record id et le
+ *  bouton « Détail » mènerait à une fiche vide : c'est pourquoi le widget ne l'affiche
+ *  que sur une valeur en forme de record id (cf. `NotifRow`). */
+const linkIds = (v: unknown): string[] => {
+  if (Array.isArray(v)) {
+    return v.map((x) => (x && typeof x === "object" ? asText((x as Record<string, unknown>).id) : asText(x))).filter(Boolean);
+  }
+  const s = asText(v);
+  return s ? [s] : [];
+};
+
+const mapNotifC = (r: Row): Notif => ({
   id: r.id,
-  nom: [asText(r.prenom), asText(r.nom)].filter(Boolean).join(" "),
-  societe: asText(r.partenaire), // repli d'affichage si nom/prénom absents
+  abonneId: linkIds(r.liens)[0] ?? "",
+  nom: asText(r.nom),
+  texte: asText(r.texte),
   partenaire: asText(r.partenaire),
   statut: asText(r.statut),
-  offre: asText(r.offre),
+  proprio: asText(r.proprio),
   creeLe: asText(r.creeLe),
+  nonLu: isTruthy(r.aLire),           // ⚠️ case COCHÉE = non lue (cf. SELECT_NOTIF_C)
+  raw: r,
 });
 const mapTask = (r: Row): Task => ({
   id: r.id,
@@ -925,13 +1352,30 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
   // « Type d installation » (les anciennes Duo / Solo / Pro n'existent plus). Le
   // catalogue (§6-bis) en porte la liste, et un banc d'essai vérifie que le mock
   // n'utilise que des valeurs déclarées.
+  /* ⚠️ Les 10 champs de la FICHE DÉTAILLÉE sont renseignés ici (2026-08-06), sans quoi la
+     pop-up n'afficherait que des tirets en aperçu et on ne verrait jamais sa mise en
+     page réelle. Deux lignes portent des creux VOLONTAIRES — n1 sans signature ni PDF
+     (dossier en cours), n2 sans CAPEX — parce que la fiche doit rester lisible quand la
+     base est incomplète, et que c'est le cas le plus fréquent en vrai. */
   abonnes: [
-    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "PV + Batterie", creeLe: daysAgo(1) },
-    { id: "n2", prenom: "", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(2) },
-    { id: "n3", prenom: "", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier complet pour instruction", offre: "PV seul", creeLe: daysAgo(2) },
-    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15) },
-    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15) },
-    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Extension PV", creeLe: daysAgo(15) },
+    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "PV + Batterie", creeLe: daysAgo(1),
+      ref: "SL-002310", statutAbonne: "", capex: 21400, aboMoyen: 189, kwc: 9, etatFacture2: "A traiter",
+      dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: [] },
+    { id: "n2", prenom: "", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(2),
+      ref: "SL-002104", statutAbonne: "", capex: 0, aboMoyen: 0, kwc: 36, etatFacture2: "En attente de document",
+      dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
+    { id: "n3", prenom: "", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier complet pour instruction", offre: "PV seul", creeLe: daysAgo(2),
+      ref: "SL-002291", statutAbonne: "", capex: 118500, aboMoyen: 940, kwc: 62, etatFacture2: "Traitement IA en cours",
+      dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
+    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15),
+      ref: "SL-002188", statutAbonne: "", capex: 27300, aboMoyen: 232, kwc: 11.5, etatFacture2: "A traiter",
+      dateSignature: "", dateEdition: daysAgo(9), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
+    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15),
+      ref: "SL-002077", statutAbonne: "Repris", capex: 14900, aboMoyen: 128, kwc: 6, etatFacture2: "Validée",
+      dateSignature: daysAgo(6), dateEdition: daysAgo(12), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
+    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Extension PV", creeLe: daysAgo(15),
+      ref: "SL-002050", statutAbonne: "Annulé", capex: 9200, aboMoyen: 84, kwc: 4.5, etatFacture2: "Non conforme",
+      dateSignature: daysAgo(8), dateEdition: daysAgo(14), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
   ],
 
   // ← SELECT_TACHE_PR / SELECT_TACHE_PA : desc / associe / fin / fait
@@ -963,18 +1407,46 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
     { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib." },
   ],
 
-  /* ← SELECT_NOTIF_C. Les `liens` portent les IDS des lignes `abonnes` ci-dessus :
-     c'est la clé de jointure du widget. Reproduit les deux défauts réels de la table
-     (⚠️ n1 a DEUX notifications, n6 n'en a aucune) pour que le widget soit testé sur
-     ce qu'il rencontrera vraiment, pas sur un cas idéal.
+  /* ← SELECT_NOTIF_C. Depuis la refonte du 2026-08-06, ces lignes sont TOUT ce que lit
+     le widget « Nouveaux dossiers abonnés » : plus de jointure avec `abonnes`, donc les
+     `liens` ne renvoient plus aux lignes mock ci-dessus mais portent des record ids de
+     la FORME réelle (`rec` + 14 caractères) — c'est cette forme que le bouton « Détail »
+     exige avant de s'afficher.
+     L'échantillon reproduit exprès les deux défauts de la table, pour que le filtre et
+     le regroupement soient testés sur ce qu'ils rencontreront : une paire de JUMELLES
+     (nc1 / nc1b) et une ligne SANS PROPRIÉTAIRE (nc5).
      ⚠️ RAPPEL : `aLire: true` = NON LUE. */
   notifC: [
-    { id: "nc1", liens: [{ id: "n1", name: "n1" }], aLire: true, etat: "Non lue", creeLe: daysAgo(1) },
-    { id: "nc1b", liens: [{ id: "n1", name: "n1" }], aLire: false, etat: "Lue", creeLe: daysAgo(1) },
-    { id: "nc2", liens: [{ id: "n2", name: "n2" }], aLire: true, etat: "Non lue", creeLe: daysAgo(2) },
-    { id: "nc3", liens: [{ id: "n3", name: "n3" }], aLire: false, etat: "Lue", creeLe: daysAgo(2) },
-    { id: "nc4", liens: [{ id: "n4", name: "n4" }], aLire: true, etat: "Non lue", creeLe: daysAgo(15) },
-    { id: "nc5", liens: [{ id: "n5", name: "n5" }], aLire: false, etat: "Lue", creeLe: daysAgo(15) },
+    { id: "nc1", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: true, etat: "Non lue", creeLe: daysAgo(1),
+      texte: "Nouveau contrat signé pour l'abonné : Mathéo et Lionel RAMBEAUX", nom: "RAMBEAUX",
+      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY" },
+    // ⚠️ La JUMELLE de nc1 (même dossier, même texte, état inverse) : elle doit être
+    // regroupée avec elle, et c'est nc1 — encore « à lire » — qui doit rester.
+    { id: "nc1b", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: false, etat: "Lue", creeLe: daysAgo(1),
+      texte: "Nouveau contrat signé pour l'abonné : Mathéo et Lionel RAMBEAUX", nom: "RAMBEAUX",
+      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY" },
+    { id: "nc2", liens: [{ id: "recAAAAAAAAAAAAA2", name: "80000000572270" }], aLire: true, etat: "Non lue", creeLe: daysAgo(2),
+      texte: "Nouveau abonné créé pour : Frederic Fouqueteau", nom: "Fouqueteau",
+      partenaire: "HORIZON ENERGIE", statut: "En attente de validation technique", proprio: "Fabrice MORVAN" },
+    { id: "nc3", liens: [{ id: "recAAAAAAAAAAAAA3", name: "80000000318842" }], aLire: false, etat: "Lue", creeLe: daysAgo(2),
+      texte: "Nouveau abonné créé pour : Sandrine Delaunay", nom: "Delaunay",
+      partenaire: "MC ENERGY", statut: "Contrat signé", proprio: "Philippe GERY" },
+    { id: "nc4", liens: [{ id: "recAAAAAAAAAAAAA4", name: "09185962331004" }], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
+      texte: "Nouveau abonné créé pour : Julien Charrier", nom: "Charrier",
+      partenaire: "Enertec", statut: "Demande d'infos : solvabilité", proprio: "Audrey QUINTANA" },
+    /* ⚠️ AU NOM DE L'UTILISATEUR MOCK (« Frédéric Martin », cf. src/lib/user.tsx) : sans
+       elle, le filtre « mes dossiers » écarterait TOUT en aperçu et on ne verrait jamais
+       le cas qui fonctionne — seulement l'état vide. Le mock porte donc les deux.
+       ⚠️ « Frédéric HUET » est volontairement ABSENT de cet échantillon : c'est le
+       faux positif que `ownerIsUser` doit refuser (même prénom, autre personne). Le
+       jour où on l'ajoute, il DOIT apparaître dans « à un autre propriétaire ». */
+    { id: "nc6", liens: [{ id: "recAAAAAAAAAAAAA6", name: "09185962331188" }], aLire: true, etat: "Non lue", creeLe: daysAgo(4),
+      texte: "Nouveau contrat signé pour l'abonné : Claire BONNET", nom: "BONNET",
+      partenaire: "Neosoleil", statut: "Contrat signé", proprio: "Frédéric Martin" },
+    // ⚠️ SANS PROPRIÉTAIRE : le widget doit l'ÉCARTER et la compter dans « lignes
+    // écartées ». C'est le cas des ~380 lignes réelles sans lien vers un abonné.
+    { id: "nc5", liens: [], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
+      texte: "Nouveau abonné créé pour :  ", nom: "", partenaire: "", statut: "", proprio: "" },
   ],
 
   /* ← SELECT_SAV. Échantillon RÉALISTE plutôt qu'aléatoire : il reproduit les
@@ -1178,6 +1650,20 @@ type SourceDesc = {
      modèle « liste » par défaut, et on proposerait de poser « une liste d'états de
      lecture », ce qui n'a aucun sens pour un utilisateur. */
   technical?: boolean;
+  /* Page de l'espace Softr qui porte la FICHE d'une ligne de cette source (slug de
+     `PAGES`, §0-bis). Renseignée, la pop-up de détail (`RecordDialog`) propose
+     « Ouvrir la fiche complète » avec le record id de la ligne.
+     ⚠️ À ne déclarer que si la source EST la table de cette fiche : sinon le record id
+     transmis ne désignerait rien et le lien ouvrirait une page vide. C'est pourquoi
+     cette information est DÉCLARÉE ici et non déduite du nom de la source. */
+  detailPage?: string;
+  /* ALIAS proposé par défaut comme FILTRE À VALEURS (cases à cocher, multi-sélection)
+     dans la barre d'outils d'un widget liste ou tableau. À choisir sur le champ par
+     lequel on trie mentalement cette table : l'installateur pour des notes, le
+     partenaire pour des dossiers. `undefined` = pas de filtre proposé d'office.
+     Les VALEURS ne sont pas listées ici : elles sont déduites des lignes lues
+     (`facetValues`), donc un nouvel installateur apparaît sans toucher au code. */
+  defaultFacet?: string;
 };
 
 /* Catalogue déclaratif — le « descripteur de source ». Il ne contient JAMAIS de nom
@@ -1192,6 +1678,9 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     label: "Abonnés — BDD Abonné",
     icon: "Bell",
     connected: true,
+    // La pop-up de détail proposera « Ouvrir la fiche complète » : cette source EST la
+    // table des dossiers abonnés, donc son record id est bien celui qu'attend la fiche.
+    detailPage: PAGES.abonne,
     fields: {
       nom: { label: "Nom", kind: "text" },
       prenom: { label: "Prénom", kind: "text" },
@@ -1234,13 +1723,36 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
         },
       },
       creeLe: { label: "Créé le", kind: "date" },
+      /* Champs de la FICHE DÉTAILLÉE (2026-08-06). L'ORDRE DE DÉCLARATION EST L'ORDRE
+         D'AFFICHAGE dans la pop-up : identité, puis dossier, puis argent, puis dates,
+         puis contrats. Réordonner ici réordonne la fiche — c'est le seul réglage. */
+      ref: { label: "Référence dossier", kind: "text" },
+      statutAbonne: { label: "Statut de l'abonné", kind: "badge",
+                      options: ["Annulé", "Repris", "Refusé"],
+                      variants: { "Annulé": "neutral", "Repris": "info", "Refusé": "danger" } },
+      capex: { label: "CAPEX HT (€)", kind: "number" },
+      aboMoyen: { label: "Abonnement mensuel (€)", kind: "number" },
+      kwc: { label: "Puissance (kWc)", kind: "number" },
+      etatFacture2: { label: "État facture 2", kind: "badge" },
+      dateSignature: { label: "Signé le", kind: "date" },
+      dateEdition: { label: "Contrat édité le", kind: "date" },
+      // ⚠️ `bool` sur des PIÈCES JOINTES : `FieldValue` traite un tableau non vide comme
+      // vrai (`hasFile`), donc la coche dit bien « le PDF est là ».
+      contratSigne: { label: "Contrat signé (PDF)", kind: "bool" },
+      contratNonSigne: { label: "Contrat en attente (PDF)", kind: "bool" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
     defaultMap: { title: "nom", sub: "partenaire", date: "creeLe", badge: "statut" },
+    defaultFacet: "partenaire",   // filtre à cases proposé d'office : par installateur
     /* Modèles prêts à poser — pur JSON. C'est ici qu'on ajoute une vue métier utile
        sans écrire de composant : elle apparaît aussitôt dans la galerie. */
     presets: [
-      { label: "Derniers dossiers Abonné", cfg: {} },
+      /* ⚠️ PLUS DE PRESET « Derniers dossiers Abonné » (retiré le 2026-08-06). C'était le
+         JUMEAU du widget dédié `notifs` : même liste, même tri, sans l'état de lecture —
+         donc deux widgets « dossiers abonné » posables sur le même accueil, dont un seul
+         savait dire ce qui avait été vu. Le widget dédié lit désormais « Notification
+         Center » et s'appelle « Nouveaux dossiers abonnés » (§9). Les presets qui restent
+         font tous quelque chose que lui ne fait pas. */
       { label: "Dossiers incomplets", icon: "ClipboardList",
         cfg: { title: "Dossiers incomplets",
                query: { filter: [{ field: "statut", op: "contains", value: "incomplet" }] } } },
@@ -1264,6 +1776,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     },
     defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
+    defaultFacet: "nom",          // filtre à cases : par installateur
     presets: [{ label: "Dernières notes — Installateurs", cfg: { title: "Dernières notes — Installateurs", unit: "note" } }],
     /* ⚠️ PAS DE `create`, retiré le 2026-08-04 en ouvrant la lecture en direct. Le
        formulaire fonctionnait techniquement (les trois champs sont dans la whitelist),
@@ -1286,6 +1799,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     },
     defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
+    defaultFacet: "nom",          // filtre à cases : par prospect
     presets: [{ label: "Dernières notes — Prospects", cfg: { title: "Dernières notes — Prospects", unit: "note" } }],
     // Pas de `create` — même raison que pour les notes installateurs : le rattachement
     // au prospect passe par un champ LIEN (`Propects`). `date` est de surcroît un
@@ -1304,6 +1818,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     },
     defaultSort: { by: "fin", dir: "asc" },
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
+    defaultFacet: "associe",      // filtre à cases : par partenaire
     presets: [
       { label: "Tâches partenaires à faire", cfg: { title: "Tâches partenaires", unit: "tâche",
         query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
@@ -1336,6 +1851,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     },
     defaultSort: { by: "fin", dir: "asc" },
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
+    defaultFacet: "associe",      // filtre à cases : par prospect
     presets: [
       { label: "Tâches prospects à faire", cfg: { title: "Tâches prospects", unit: "tâche",
         query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
@@ -1345,28 +1861,36 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     // Pas de création — même raison que pour les tâches partenaires (whitelist réduite
     // à `fait`, et « Prospect associé » est un lien).
   },
-  /* ── NOTIFICATION CENTER ── L'état de lecture des dossiers abonnés. Source
-     TECHNIQUE : elle n'a pas de preset, donc elle n'apparaît PAS dans la galerie —
-     personne n'a besoin de poser « une liste de notifications ». Elle existe pour que
-     le widget « Derniers dossiers Abonné » sache ce qui a été vu, et l'écrive.
+  /* ── NOTIFICATION CENTER ── Les nouveaux dossiers abonnés, ET leur état de lecture.
+     Depuis le 2026-08-06 c'est la SEULE source du widget « Nouveaux dossiers abonnés »
+     (§9), qui y lit ses lignes et y écrit « Vu ».
+     Source TECHNIQUE : pas de preset, donc absente de la galerie. Non par manque
+     d'intérêt, mais parce que la table demande deux traitements qu'un widget générique
+     ne sait pas faire (écarter les lignes sans propriétaire, regrouper les jumelles) :
+     une « liste de notifications » posée à la main afficherait tout en double.
      ⚠️ Sens de la case inversé : voir SELECT_NOTIF_C. */
   notifC: {
     key: "notifC",
-    label: "État de lecture — Notification Center",
+    label: "Nouveaux dossiers — Notification Center",
     icon: "Inbox",
     connected: true,    // connectée à CE bloc le 2026-08-05 (id dans DS.notifC)
     technical: true,
     fields: {
       liens: { label: "Abonné lié", kind: "text" },
+      texte: { label: "Notification", kind: "text" },
+      nom: { label: "Nom de l'abonné", kind: "text" },
+      partenaire: { label: "Installateur", kind: "text" },
+      statut: { label: "Statut du dossier", kind: "badge" },
+      proprio: { label: "Propriétaire (SunLib)", kind: "text" },
       aLire: { label: "À lire (case cochée = non lue)", kind: "bool" },
       etat: { label: "Statut de la notification", kind: "badge",
               options: ["Lue", "Non lue"], variants: { "Non lue": "warn", "Lue": "neutral" } },
       creeLe: { label: "Créée le", kind: "date" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
-    defaultMap: { title: "liens", sub: "etat", date: "creeLe" },
+    defaultMap: { title: "nom", sub: "texte", date: "creeLe", badge: "statut" },
     // Pas de `presets` : source technique, absente de la galerie (voir presetsOf).
-    // Pas d'`actions` : le marquage vit dans le widget abonné, pas en action de ligne.
+    // Pas d'`actions` : le marquage vit dans le widget dédié, pas en action de ligne.
   },
   /* ── PERFORMANCE COMMERCIALE ── La table « Abonnés » relue sur TOUT LE PARC, en 5
      champs, pour le podium CAPEX (§9-septies). Source TECHNIQUE : elle n'a pas de
@@ -1539,6 +2063,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     },
     defaultSort: { by: "debut", dir: "desc" },
     defaultMap: { title: "client", sub: "installateur", date: "debut", badge: "statut" },
+    defaultFacet: "installateur", // filtre à cases : par installateur initial
     presets: [
       { label: "Dossiers SAV récents", cfg: { title: "Dossiers SAV", unit: "dossier" } },
       // Seuil 7 et non 8 : `gt` est STRICT, donc « > 7 » = « ≥ 8 », le seuil de
@@ -1813,9 +2338,10 @@ function SavSource({ children }: { children: SourceChildren }) {
    2026-08-05 (id propre à CE bloc : onglet Chat, jamais celui d'un autre bloc — cf. la
    note du SAV).
 
-   ⚠️ La table fait 2 142 lignes et n'est pas paginée ici : `orderBy` desc sur la date
-   décide donc QUELLES lignes sont lues. Un abonné dont la notification serait sortie de
-   la fenêtre lue apparaîtra simplement sans état — c'est prévu (voir `matchNotifC`). */
+   ⚠️ La table fait 2 142 lignes : `orderBy` desc sur la date décide quelles lignes sont
+   lues d'abord, et son SEUL consommateur passe `drain` pour vider la pagination (cf.
+   `NotifsCard`) — indispensable depuis que le widget filtre et regroupe ces lignes au
+   lieu de simplement y chercher un état. `partial` remonte si le drainage a été coupé. */
 function NotifCSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
   const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
   const { partial } = useDrainPages(res, COM_MAX_PAGES, !!drain);
@@ -2029,7 +2555,17 @@ type WidgetOptions = {
   title: string;
   /** Clé de teinte de CETTE instance ("" = aucune). Cf. `WIDGET_TINTS`. */
   tint: string;
-  onSave: (next: { title: string; tint: string; cfg: any }) => void;
+  /** Encombrement de CETTE instance, réglable depuis le ⋮ depuis le 2026-08-06 (les
+   *  poignées de bord font la même chose à la souris, cf. §11). */
+  wide: boolean;
+  size: WidgetSize;
+  onSave: (next: { title: string; tint: string; cfg: any; wide: boolean; size: WidgetSize }) => void;
+  /** Retire le widget de l'accueil, HORS mode Personnaliser (2026-08-06 : le bouton
+   *  « Personnaliser » ne servait plus qu'à ça pour la plupart des gestes).
+   *  ⚠️ Écriture IMMÉDIATE, sans brouillon — contrairement au retrait du mode
+   *  Personnaliser, qui reste annulable jusqu'au « Enregistrer ». D'où la confirmation
+   *  en deux temps dans la modale : ici, un clic de trop retire vraiment le widget. */
+  onRemove?: () => void;
 };
 const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
 
@@ -2197,72 +2733,223 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
 /* --- Menu ⋮ du mode normal : ouvre le formulaire d'options du widget. Édition
       LOCALE (brouillon) jusqu'à « Enregistrer » — même règle que la grille : on
       n'écrit jamais en base à chaque frappe. Fermeture Échap / clic extérieur. --- */
+/* --- Réglages d'un widget : une MODALE, plus un panneau de 292 px ---------------
+   Avant le 2026-08-06, ces réglages vivaient dans un panneau flottant de 292 px
+   accroché sous le bouton ⋮. Ça tenait pour un titre et une couleur ; ça ne tient
+   plus depuis que le widget générique a une source, une vue, des colonnes, des
+   filtres, des actions et une barre d'outils à régler — tout arrivait en une seule
+   colonne étroite avec un ascenseur, et on perdait de vue ce qu'on modifiait.
+
+   Désormais : une modale centrée, en DEUX COLONNES sur écran large.
+   · « Apparence » (titre, couleur) — commun à TOUS les types, y compris ceux qui
+     n'ont pas de formulaire ;
+   · « Contenu » — le formulaire du type (`opts.Form`), qui a enfin la largeur de
+     ses `<select>` et de ses lignes de filtres.
+   Sur écran étroit, les deux colonnes se replient l'une sous l'autre (`flexWrap`),
+   sans média query — il n'y en a pas dans ce bloc (cf. la contrainte §1).
+
+   Ce qui NE change pas, et ne doit pas changer : l'édition reste un BROUILLON.
+   Rien n'est appliqué avant « Enregistrer », et « Annuler » jette tout — même
+   règle que le mode Personnaliser. C'est ce qui rend l'exploration des réglages
+   sans risque.
+
+   ⚠️ Fermeture par clic sur le VOILE (`e.target === e.currentTarget`) et par Échap,
+   et non par `useDismissOnOutside` : ce formulaire est plein de `<select>`, dont la
+   liste déroulante est rendue par l'OS HORS du document. Le hook a des gardes pour
+   ça, mais le voile n'a même pas le problème — un clic sur une option ne l'atteint
+   jamais. Moins de code, et un piège en moins.
+   ⚠️ En-tête et pied NE DÉFILENT PAS (`flex: none`) : le bouton « Enregistrer » doit
+   rester atteignable quel que soit le nombre de réglages du type. --- */
 function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions; title: string; defaultTitle: string }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<any>(opts.cfg);
   const [draftTitle, setDraftTitle] = useState(opts.title);
   const [draftTint, setDraftTint] = useState(opts.tint);
-  const ref = useDismissOnOutside(open, setOpen);
-  // Brouillons toujours frais à l'ouverture (cfg, titre ET teinte).
-  const start = () => { setDraft(opts.cfg); setDraftTitle(opts.title); setDraftTint(opts.tint); setOpen(true); };
-  const save = () => { opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft }); setOpen(false); };
-  const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
-  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
-  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  /* Confirmation du RETRAIT, en deux temps. Contrairement au reste de cette modale, la
+     suppression n'est pas un brouillon : elle écrit tout de suite. Un « Supprimer » à un
+     seul clic, juste à côté de « Enregistrer », finirait par partir tout seul. */
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [draftWide, setDraftWide] = useState(opts.wide);
+  const [draftSize, setDraftSize] = useState<WidgetSize>(opts.size);
+  // Brouillons toujours frais à l'ouverture (cfg, titre, teinte, encombrement ET
+  // confirmation remise à zéro).
+  const start = () => {
+    setDraft(opts.cfg); setDraftTitle(opts.title); setDraftTint(opts.tint);
+    setDraftWide(opts.wide); setDraftSize(opts.size); setConfirmRemove(false); setOpen(true);
+  };
+  const save = () => {
+    opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft, wide: draftWide, size: draftSize });
+    setOpen(false);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 14px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 5px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  /* Une SECTION : titre discret + encadré clair. C'est ce qui remplace la pile de
+     séparateurs du panneau d'avant — on voit d'un coup d'œil où commence quoi. */
+  /* Largeurs VOLONTAIREMENT inégales : « Apparence » a deux réglages courts, « Contenu »
+     porte des `<select>`, des lignes de filtres et des listes de colonnes. Les mettre à
+     égalité rendrait la colonne de droite aussi étroite que l'ancien panneau — c'est
+     précisément ce qu'on corrige ici. */
+  const section: CSSProperties = { minWidth: 0, padding: "13px 14px", borderRadius: T.rLg, border: `1px solid ${T.line}`, background: T.surface2 };
+  const secApparence: CSSProperties = { ...section, flex: "0 1 250px" };
+  const secContenu: CSSProperties = { ...section, flex: "1 1 400px" };
+  // Segments (largeur / hauteur) — mêmes métriques que ceux du mode Personnaliser.
+  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" });
+  const secTitle: CSSProperties = { display: "flex", alignItems: "center", gap: "7px", fontSize: "12.5px", fontWeight: 700, color: T.ink, marginBottom: "10px" };
   const Form = opts.Form;
+
   return (
-    <div ref={ref} style={{ position: "relative", flex: "none" }}>
+    <div style={{ flex: "none" }}>
       <button className="slb-nbtn" style={NBTN_SM} aria-haspopup="dialog" aria-expanded={open}
-        onClick={() => (open ? setOpen(false) : start())} aria-label={`Options — ${title}`} title="Options">
+        onClick={() => (open ? setOpen(false) : start())} aria-label={`Réglages — ${title}`} title="Réglages du widget">
         <MoreVertical aria-hidden style={{ width: 15, height: 15 }} />
       </button>
       {open && (
-        <div role="dialog" aria-label={`Options — ${title}`}
-          style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, width: 292, maxHeight: "min(70vh, 460px)", overflowY: "auto", padding: "12px", backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" }}>
-          {/* TITRE — en premier, et présent pour TOUS les types (c'est le seul réglage
-              de ceux qui n'ont pas de formulaire). Le `placeholder` montre le titre par
-              défaut : vider le champ le rétablit, sans bouton « réinitialiser ». */}
-          <label style={lbl} htmlFor="slb-w-title">Titre du widget</label>
-          <input id="slb-w-title" style={field} value={draftTitle} placeholder={defaultTitle}
-            maxLength={WIDGET_TITLE_MAX} aria-describedby="slb-w-title-hint"
-            onChange={(e) => setDraftTitle(e.target.value)} />
-          <div id="slb-w-title-hint" style={{ margin: "4px 0 2px", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
-            Laisser vide pour garder « {defaultTitle} ».
-          </div>
+        <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center",
+            padding: "20px", background: "rgba(16,26,40,.30)", backdropFilter: "blur(7px)",
+            WebkitBackdropFilter: "blur(7px)", animation: "slb-fade .16s ease both",
+          }}>
+          <div role="dialog" aria-modal="true" aria-label={`Réglages — ${title}`}
+            style={{
+              /* La largeur suit le CONTENU : un widget sans formulaire (pense-bête,
+                 horloge) n'a qu'un titre et une couleur à régler — l'étaler sur 760 px
+                 donnerait une grande boîte vide. */
+              width: Form ? "min(780px, 100%)" : "min(430px, 100%)",
+              maxHeight: "88%", display: "flex", flexDirection: "column",
+              background: T.surface, borderRadius: T.rXl, boxShadow: T.shMd, border: `1px solid ${T.line}`,
+              overflow: "hidden", animation: "slb-fade .18s ease both",
+            }}>
+            {/* En-tête : ce qu'on règle, et sur quel widget. Le nom du widget est répété
+                ici parce qu'un accueil peut porter deux widgets du même type. */}
+            <div style={{ display: "flex", alignItems: "center", gap: "11px", padding: "15px 18px", borderBottom: `1px solid ${T.line}`, flex: "none" }}>
+              <span style={icoPillSm(false)}><SlidersHorizontal aria-hidden style={{ width: 15, height: 15 }} /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "15px", fontWeight: 700, letterSpacing: "-.01em", color: T.ink }}>Réglages du widget</div>
+                <div style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+              </div>
+              <button className="slb-nbtn" style={NBTN_SM} onClick={() => setOpen(false)} aria-label="Fermer les réglages" title="Fermer">
+                <X aria-hidden style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
 
-          {/* TEINTE — palette fermée (cf. WIDGET_TINTS), commune à tous les widgets.
-              Chaque pastille est un vrai bouton : le choix doit être atteignable au
-              clavier, et son `aria-label` NOMME la couleur — un utilisateur qui ne
-              distingue pas deux pastels doit pouvoir choisir quand même. */}
-          <span style={{ ...lbl, marginTop: "10px" }}>Couleur de l'en-tête</span>
-          <div role="group" aria-label="Couleur du widget" style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-            {WIDGET_TINTS.map((t) => {
-              const actif = draftTint === t.key;
-              return (
-                <button key={t.key || "none"} onClick={() => setDraftTint(t.key)}
-                  aria-label={t.label} aria-pressed={actif} title={t.label}
-                  style={{
-                    width: 26, height: 26, borderRadius: 999, cursor: "pointer", padding: 0,
-                    // Le contour teal marque la sélection ; la coche la double, pour ne
-                    // pas faire reposer l'information sur la seule couleur.
-                    border: actif ? `2px solid ${T.brand}` : `1px solid ${T.line2}`,
-                    background: t.head || T.surface,
-                    display: "grid", placeItems: "center",
-                  }}>
-                  {actif
-                    ? <Check aria-hidden style={{ width: 13, height: 13, color: t.ink }} />
-                    : !t.key ? <span aria-hidden style={{ width: 12, height: 1, background: T.ink4, transform: "rotate(-45deg)" }} /> : null}
-                </button>
-              );
-            })}
-          </div>
+            <div style={{ overflowY: "auto", padding: "16px 18px", scrollbarWidth: "thin" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "14px", alignItems: "flex-start" }}>
+                {/* ── APPARENCE ───────────────────────────────────────────────── */}
+                <div style={secApparence}>
+                  <div style={secTitle}><Pencil aria-hidden style={{ width: 14, height: 14, color: T.ink3 }} />Apparence</div>
+                  {/* TITRE — présent pour TOUS les types (le seul réglage de ceux qui n'ont
+                      pas de formulaire). Le `placeholder` montre le titre par défaut :
+                      vider le champ le rétablit, sans bouton « réinitialiser ». */}
+                  <label style={lbl} htmlFor="slb-w-title">Titre</label>
+                  <input id="slb-w-title" style={field} value={draftTitle} placeholder={defaultTitle}
+                    maxLength={WIDGET_TITLE_MAX} aria-describedby="slb-w-title-hint"
+                    onChange={(e) => setDraftTitle(e.target.value)} />
+                  <div id="slb-w-title-hint" style={{ margin: "5px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
+                    Laisser vide pour garder « {defaultTitle} ».
+                  </div>
 
-          {Form && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.line}` }}><Form cfg={draft} onChange={setDraft} /></div>}
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "12px", paddingTop: "10px", borderTop: `1px solid ${T.line}` }}>
-            <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
-            <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
-              <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
-            </button>
+                  {/* TEINTE — palette fermée (cf. WIDGET_TINTS). Chaque pastille est un vrai
+                      bouton : le choix doit être atteignable au clavier, et son `aria-label`
+                      NOMME la couleur — qui ne distingue pas deux pastels doit pouvoir
+                      choisir quand même. Le libellé sous la rangée dit lequel est retenu. */}
+                  <span style={{ ...lbl, marginTop: "13px" }}>Couleur de l'en-tête</span>
+                  <div role="group" aria-label="Couleur du widget" style={{ display: "flex", flexWrap: "wrap", gap: "7px" }}>
+                    {WIDGET_TINTS.map((t) => {
+                      const actif = draftTint === t.key;
+                      return (
+                        <button key={t.key || "none"} onClick={() => setDraftTint(t.key)}
+                          aria-label={t.label} aria-pressed={actif} title={t.label}
+                          style={{
+                            width: 30, height: 30, borderRadius: 999, cursor: "pointer", padding: 0,
+                            // Le contour teal marque la sélection ; la coche la double, pour
+                            // ne pas faire reposer l'information sur la seule couleur.
+                            border: actif ? `2px solid ${T.brand}` : `1px solid ${T.line2}`,
+                            background: t.head || T.surface,
+                            display: "grid", placeItems: "center",
+                          }}>
+                          {actif
+                            ? <Check aria-hidden style={{ width: 14, height: 14, color: t.ink }} />
+                            : !t.key ? <span aria-hidden style={{ width: 13, height: 1, background: T.ink4, transform: "rotate(-45deg)" }} /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ margin: "6px 0 0", fontSize: "10.5px", fontWeight: 600, color: T.ink4 }}>
+                    {tintOf(draftTint).label}
+                  </div>
+
+                  {/* ── ENCOMBREMENT ── remonté ici depuis le mode Personnaliser
+                      (2026-08-06). Les poignées de bord font exactement la même chose à
+                      la souris ; ces segments sont le chemin CLAVIER et TACTILE — un
+                      glisser-déposer HTML5 ne fonctionne pas au doigt, et une poignée de
+                      14 px ne se vise pas sans souris. */}
+                  <span style={{ ...lbl, marginTop: "13px" }}>Largeur</span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button style={seg(!draftWide)} onClick={() => setDraftWide(false)} aria-pressed={!draftWide}>Moitié</button>
+                    <button style={seg(draftWide)} onClick={() => setDraftWide(true)} aria-pressed={draftWide}>Pleine</button>
+                  </div>
+                  <span style={{ ...lbl, marginTop: "10px" }}>Hauteur</span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    {(["sm", "md", "lg"] as const).map((s) => (
+                      <button key={s} style={seg(draftSize === s)} onClick={() => setDraftSize(s)} aria-pressed={draftSize === s}>
+                        {s === "sm" ? "Petit" : s === "md" ? "Moyen" : "Grand"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── CONTENU (formulaire du type) ────────────────────────────── */}
+                {Form && (
+                  <div style={secContenu}>
+                    <div style={secTitle}><SlidersHorizontal aria-hidden style={{ width: 14, height: 14, color: T.ink3 }} />Contenu</div>
+                    <Form cfg={draft} onChange={setDraft} />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Pied fixe : le geste d'engagement reste toujours visible.
+                À GAUCHE le retrait, à DROITE l'enregistrement — jamais côte à côte : ce
+                sont les deux gestes qu'il ne faut pas confondre du bout de la souris. */}
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "12px 18px", borderTop: `1px solid ${T.line}`, flex: "none" }}>
+              {opts.onRemove && (
+                confirmRemove ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", flex: "1 1 auto", minWidth: 0 }}>
+                    {/* Le libellé de confirmation dit ce qui est PERDU. « Êtes-vous sûr ? »
+                        n'aide personne à décider ; « les réglages sont perdus » si. */}
+                    <span style={{ fontSize: "11.5px", fontWeight: 600, color: T.dangerInk }}>Retirer ce widget ? Ses réglages seront perdus.</span>
+                    <button style={{ ...btn, border: `1px solid ${T.danger}`, background: T.danger, color: "#fff" }}
+                      onClick={() => { opts.onRemove?.(); setOpen(false); }}>
+                      <Trash2 aria-hidden style={{ width: 14, height: 14 }} />Retirer
+                    </button>
+                    <button className="slb-btng" style={btn} onClick={() => setConfirmRemove(false)}>Non</button>
+                  </span>
+                ) : (
+                  <button className="slb-btng" style={{ ...btn, color: T.dangerInk, flex: "none" }}
+                    onClick={() => setConfirmRemove(true)} aria-label={`Retirer le widget — ${title}`}>
+                    <Trash2 aria-hidden style={{ width: 14, height: 14 }} />Retirer
+                  </button>
+                )
+              )}
+              {!confirmRemove && (
+                <span style={{ flex: 1, minWidth: 0, fontSize: "11px", fontWeight: 500, color: T.ink4 }}>
+                  Rien n'est appliqué avant « Enregistrer ».
+                </span>
+              )}
+              <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
+              <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
+                <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2798,66 +3485,110 @@ function OutilsTab() {
    9. Tableau de bord — widgets indépendants et compacts
    ============================================================================ */
 
-/* --- Widget « Derniers dossiers Abonné » --------------------------------------
-   ⚠️⚠️ PLUS DE « LU / NON LU », ET C'EST UNE DÉCISION (2026-08-03). Il y avait un
-   masquage local : cocher une ligne la faisait disparaître, mais rien n'était
-   enregistré — elle revenait au rechargement. La table « Abonnés » n'a pas de champ
-   « Lu », donc cette notion ne reposait sur rien. Un état de lecture qui ne survit
-   pas au rechargement ne vaut pas mieux que pas d'état de lecture du tout : il fait
-   juste croire qu'on a traité quelque chose.
-   Ce widget est donc ce qu'il a toujours vraiment été : la LISTE DES DERNIERS
-   DOSSIERS, avec un récapitulatif par ligne et un accès à la fiche.
-   Le jour où un vrai champ « Lu » existera (ou la table « Notification Center » et sa
-   case native `Statut de lecture`), c'est une action déclarative de plus dans le
-   descripteur — pas un état local à réinventer.
+/* --- Widget « Nouveaux dossiers abonnés » -------------------------------------
+   ⚠️⚠️ REFONTE DU 2026-08-06 — UNE SEULE TABLE, « NOTIFICATION CENTER ».
+   Avant, ce widget lisait « Abonnés » pour la liste et venait chercher ici, par une
+   JOINTURE sur le record id, l'état lu / non lu. Deux tables pour une liste, et un
+   deuxième widget « Derniers dossiers Abonné » posable depuis la galerie (le preset
+   générique de la source `abonnes`) affichait exactement la même chose sans l'état de
+   lecture : deux widgets jumeaux sur l'accueil. Le preset a été retiré (§6-bis) et
+   celui-ci lit la table des notifications, et rien d'autre.
+
+   Ce que ça change, et pourquoi c'est mieux :
+   · plus de jointure, donc plus de « État incomplet » — l'état de lecture est porté
+     par la ligne affichée elle-même, il ne peut plus manquer ;
+   · une notification EST l'événement (« Nouveau abonné créé pour : … », « Nouveau
+     contrat signé pour l'abonné : … »), là où « Abonnés » ne donnait qu'un dossier ;
+   · le titre suit : « Nouveaux dossiers abonnés » et non plus « Derniers dossiers ».
+
+   TROIS PASSES de sélection (`selectNotifs`, pure et testée), dont deux corrigent des
+   défauts qui sont côté base (cf. SELECT_NOTIF_C) et deviendraient visibles dès qu'on
+   liste la table :
+   · PROPRIÉTAIRE RENSEIGNÉ — une ligne dont `Proprietaire (from Installateur )` est
+     vide n'est pas affichée. Cela écarte les ~380 lignes orphelines (aucun lien vers un
+     abonné → tous les lookups vides, texte compris : « Nouveau abonné créé pour :  »).
+   · MES DOSSIERS (2026-08-06, `cfg.mesDossiers`, ACTIF par défaut) — le propriétaire
+     doit désigner l'UTILISATEUR CONNECTÉ. Le rapprochement se fait sur les mots du nom
+     et non sur l'e-mail, parce que la table ne porte aucun e-mail : voir `ownerIsUser`
+     (§5) pour la règle et ce qu'elle refuse délibérément.
+   · DÉDOUBLONNAGE — chaque événement crée DEUX lignes (une « Lue », une « Non lue »).
+     Sans regroupement, la liste montrerait tout en double. On garde, par dossier et
+     par texte, la ligne encore « à lire » en priorité : c'est celle sur laquelle
+     « Vu » a un effet.
 
    `cfg` : quelles informations montrer, combien de lignes, bouton « Détail » ou non.
    Le registre ci-dessous est la seule chose à toucher pour en proposer une de plus. */
 
-type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean };
+type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean; mesDossiers: boolean };
 
-/* --- JOINTURE avec « Notification Center » ------------------------------------
-   Le widget lit DEUX sources : les dossiers (« Abonnés ») pour la liste, et l'état de
-   lecture (« Notification Center ») pour savoir ce qui a été vu. Deux `SourceFeed`
-   imbriqués — le même procédé que le widget des tâches, que le dispatch statique
-   autorise sans rien assouplir.
+/** Clé de regroupement des lignes jumelles : le dossier lié et le texte de
+ *  l'événement. Pas la date — les deux jumelles naissent à quelques secondes d'écart,
+ *  et rien ne garantit qu'elles portent la même. Une ligne orpheline (`abonneId` vide)
+ *  ne serait pas distinguée d'une autre orpheline ; ce n'est pas un problème, le filtre
+ *  du propriétaire les a déjà toutes écartées. */
+const notifKey = (n: Notif): string => `${n.abonneId}|${n.texte}`;
 
-   La clé de jointure est le RECORD ID de l'abonné, porté par le champ lien
-   « Liens BDD ». `linkIds` accepte les trois formes qu'une valeur de lien peut
-   prendre selon la couche traversée : tableau d'objets `{id, name}` (Airtable), tableau
-   de chaînes, ou chaîne unique.
-
-   ⚠️ POINT À VÉRIFIER LE JOUR DU BRANCHEMENT : rien ne garantit que Softr expose les
-   IDS d'un champ lien plutôt que les libellés du champ primaire. Si ce sont des
-   libellés, la jointure ne trouvera rien — et c'est pourquoi elle DÉGRADE PROPREMENT :
-   sans notification appariée, la ligne s'affiche sans état ni bouton, au lieu de
-   casser ou d'afficher « vu » à tort. */
-const linkIds = (v: unknown): string[] => {
-  if (Array.isArray(v)) {
-    return v.map((x) => (x && typeof x === "object" ? asText((x as Record<string, unknown>).id) : asText(x))).filter(Boolean);
-  }
-  const s = asText(v);
-  return s ? [s] : [];
+/** Ce que le widget garde, et ce qu'il a écarté FAUTE DE PROPRIÉTAIRE ou parce que le
+ *  propriétaire est quelqu'un d'autre. Ces deux compteurs servent l'état vide : quand la
+ *  liste est vide, il faut pouvoir dire sur combien de notifications le nom a été
+ *  cherché — sinon un widget vide ne se distingue pas d'une source en panne.
+ *  ⚠️ Les jumelles regroupées ne sont PAS comptées : le décompte affiché en pied a été
+ *  retiré le 2026-08-06 (il n'aidait pas à travailler), donc un compteur de doublons ne
+ *  serait plus lu par personne. Le regroupement lui-même, lui, reste indispensable. */
+type NotifTri = {
+  items: Notif[]; sansProprio: number; autres: number;
+  /** Écartées parce que DÉJÀ TRAITÉES (marquées « Vu »). Sert l'état vide : « tout est
+   *  traité » et « aucune notification » demandent deux messages différents. */
+  lues: number;
 };
 
-/** Notification la plus récente rattachée à cet abonné, ou `null`.
- *  ⚠️ La table crée DEUX lignes par événement (défaut connu) : on prend celle qui est
- *  encore « à lire » en priorité, sinon la première trouvée. Sans cette règle, marquer
- *  comme vu pourrait porter sur le jumeau déjà lu et sembler ne rien faire. */
-function matchNotifC(rows: Row[], abonneId: string): Row | null {
-  const liees = rows.filter((n) => linkIds(n.liens).includes(abonneId));
-  if (!liees.length) return null;
-  return liees.find((n) => isTruthy(n.aLire)) ?? liees[0];
+/** Sélection des lignes affichables, en trois passes dans cet ordre :
+ *    1. propriétaire RENSEIGNÉ (écarte les ~380 lignes orphelines) ;
+ *    2. propriétaire = UTILISATEUR CONNECTÉ, si `mesDossiers` (cf. `ownerIsUser`) ;
+ *    3. une seule ligne par événement, la jumelle « à lire » d'abord.
+ *  PURE — l'ordre d'entrée (le plus récent d'abord, tri serveur) est conservé.
+ *  ⚠️ La passe 2 est SAUTÉE quand la session n'est pas identifiable (`ident.known`
+ *  faux) : sans nom ni e-mail, elle écarterait TOUT et le widget serait vide sans que
+ *  personne puisse comprendre pourquoi. Le widget annonce alors que le filtre est
+ *  inactif — un filtre silencieusement désactivé serait pire que pas de filtre. */
+function selectNotifs(rows: Notif[], ident: UserIdent, mesDossiers: boolean, nonLuesSeulement: boolean): NotifTri {
+  const parEvenement = new Map<string, Notif>();
+  let sansProprio = 0, autres = 0;
+  const filtreActif = mesDossiers && ident.known;
+  for (const n of rows) {
+    if (!n.proprio.trim()) { sansProprio++; continue; }
+    if (filtreActif && !ownerIsUser(n.proprio, ident)) { autres++; continue; }
+    const k = notifKey(n);
+    const deja = parEvenement.get(k);
+    // Première rencontrée, ou remplacée par sa jumelle encore « à lire » : c'est sur
+    // celle-là que « Vu » écrit quelque chose.
+    if (!deja || (!deja.nonLu && n.nonLu)) parEvenement.set(k, n);
+  }
+  const groupees = [...parEvenement.values()];
+  /* PASSE 4 — la FILE D'ATTENTE. Ne restent que les notifications pas encore traitées.
+     ⚠️ Le filtre est posé APRÈS le regroupement, et l'ordre compte : le regroupement a
+     déjà choisi, entre deux jumelles, celle qui est encore « à lire ». Filtrer avant
+     aurait donné le même résultat ici, mais l'aurait fait dépendre de l'ordre de lecture
+     — un événement dont la jumelle lue arrive en premier serait passé à la trappe.
+     ⚠️ RAPPEL de l'inversion de la table : `nonLu` vient de « Statut de lecture »
+     COCHÉE. Ce qui reste affiché est donc ce qui est COCHÉ en base, et le geste « Vu »
+     DÉCOCHE — voir SELECT_NOTIF_C avant de toucher à cette ligne. */
+  const items = nonLuesSeulement ? groupees.filter((n) => n.nonLu) : groupees;
+  return { items, sansProprio, autres, lues: groupees.length - items.length };
 }
 
 const NOTIF_FIELDS: { key: string; label: string }[] = [
+  { key: "texte", label: "Texte de la notification" },
   { key: "statut", label: "Statut du dossier" },
-  { key: "offre", label: "Type d'installation" },
   { key: "partenaire", label: "Installateur" },
+  { key: "proprio", label: "Propriétaire (SunLib)" },
   { key: "creeLe", label: "Date de création" },
 ];
 const NOTIF_LIMITS = [5, 10, 20, 50];
-const NOTIF_SHOW_DEFAULT = ["statut", "offre", "partenaire", "creeLe"];
+/* ⚠️ « offre » (Type d'installation) a disparu avec la refonte : « Notification Center »
+   ne porte pas ce champ. Une cfg déjà enregistrée qui le contient perd simplement cette
+   clé à la lecture (`coerceNotifsCfg` écarte les clés inconnues) — aucune migration. */
+const NOTIF_SHOW_DEFAULT = ["texte", "statut", "partenaire", "creeLe"];
 
 const coerceNotifsCfg = (raw: unknown): NotifsCfg => {
   const o = asObj(raw);
@@ -2871,6 +3602,12 @@ const coerceNotifsCfg = (raw: unknown): NotifsCfg => {
     limite: NOTIF_LIMITS.includes(n) ? n : RECENT,
     detail: o.detail !== false,        // présent par défaut : c'est l'action utile
     marquage: o.marquage !== false,    // pastille « Non lu » + bouton « Vu »
+    /* ⚠️ ACTIF PAR DÉFAUT (2026-08-06, demandé) : chacun ne voit que les dossiers dont
+       il est propriétaire. `!== false` et non `=== true` : une cfg enregistrée AVANT
+       cette option n'a pas la clé, et elle doit hériter du nouveau défaut plutôt que de
+       rester sur l'ancien comportement — sinon le filtre n'arriverait jamais chez les
+       utilisateurs qui ont déjà personnalisé leur accueil. */
+    mesDossiers: o.mesDossiers !== false,
   };
 };
 
@@ -2898,9 +3635,20 @@ function NotifsOptions({ cfg, onChange }: { cfg: NotifsCfg; onChange: (next: Not
         <input type="checkbox" style={box} checked={cfg.detail} onChange={(e) => onChange({ ...cfg, detail: e.target.checked })} />
         <span>Bouton « Détail » vers la fiche</span>
       </label>
+      {/* Cette case commande DEUX choses, et c'est voulu : l'état « Non lu » + le bouton
+          « Vu », et le fait que la liste soit une FILE (seulement ce qui reste à traiter,
+          cf. `selectNotifs`). Décochée, le widget redevient un historique complet. */}
       <label style={line}>
         <input type="checkbox" style={box} checked={cfg.marquage} onChange={(e) => onChange({ ...cfg, marquage: e.target.checked })} />
-        <span>État « Non lu » et bouton « Vu »</span>
+        <span>File à traiter : masquer ce qui est marqué « Vu »</span>
+      </label>
+      {/* Le filtre par propriétaire est RÉGLABLE, et il doit l'être : le rapprochement
+          nom ↔ session est approximatif par nature (cf. `ownerIsUser`), donc il faut
+          pouvoir l'ouvrir quand on ne se retrouve pas dedans — un manager qui suit
+          plusieurs portefeuilles, ou un propriétaire écrit autrement dans la base. */}
+      <label style={line}>
+        <input type="checkbox" style={box} checked={cfg.mesDossiers} onChange={(e) => onChange({ ...cfg, mesDossiers: e.target.checked })} />
+        <span>Seulement les dossiers dont je suis propriétaire</span>
       </label>
       <span style={lbl}>Nombre de lignes</span>
       <div style={{ display: "flex", gap: "6px" }}>
@@ -2912,17 +3660,32 @@ function NotifsOptions({ cfg, onChange }: { cfg: NotifsCfg; onChange: (next: Not
   );
 }
 
-function NotifRow({ n, cfg, nonLu, onVu }: { n: Notif; cfg: NotifsCfg; nonLu: boolean; onVu?: () => void }) {
-  const title = n.nom || n.societe || DASH;
+function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: () => void; onOpen?: () => void }) {
+  /* Titre : le nom de l'abonné ; à défaut le texte de l'événement, qui le contient
+     souvent (« Nouveau abonné créé pour : Prénom Nom »). Les deux peuvent manquer sur
+     une ligne mal rattachée — d'où le tiret cadratin plutôt qu'un vide. */
+  const title = n.nom || n.texte || DASH;
+  const nonLu = n.nonLu;
   const on = (k: string) => cfg.champs.includes(k);
+  // Même geste que dans les widgets génériques (`GenericRow`) : la ligne ouvre la fiche.
+  const clicProps = onOpen
+    ? {
+        role: "button" as const, tabIndex: 0,
+        "aria-label": `Détail — ${title}`,
+        onClick: onOpen,
+        onKeyDown: (e: ReactKeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
+        },
+      }
+    : {};
   return (
-    <div className="slb-row" style={{ display: "flex", alignItems: "center", gap: "11px", padding: "11px 16px",
+    <div className="slb-row" {...clicProps}
+      style={{ display: "flex", alignItems: "center", gap: "11px", padding: "11px 16px",
+      cursor: onOpen ? "pointer" : undefined,
       // Fond très légèrement teinté pour un dossier non vu — la pastille porte le sens,
       // ceci n'est qu'un repère de balayage (la couleur ne dit jamais seule, charte).
       background: cfg.marquage && nonLu ? T.brand050 : undefined }}>
-      <span aria-hidden style={{ width: 32, height: 32, borderRadius: "9px", flex: "none", display: "grid", placeItems: "center", color: "#fff", fontSize: "11.5px", fontWeight: 700, letterSpacing: ".03em", background: avatarBg(title) }}>
-        {initials(title)}
-      </span>
+      <Monogram name={title} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
           <span style={{ flex: "0 1 auto", minWidth: 0, fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
@@ -2930,16 +3693,23 @@ function NotifRow({ n, cfg, nonLu, onVu }: { n: Notif; cfg: NotifsCfg; nonLu: bo
         </div>
         {/* Les badges d'abord (ils portent l'état), le texte gris ensuite. Chaque
             information ne s'affiche que si elle est retenue dans la cfg. */}
-        {(on("statut") || on("offre")) && (
+        {/* Le TEXTE de l'événement, sur deux lignes au plus : c'est lui qui dit ce qui
+            vient de se passer (création de dossier ou contrat signé). Il n'est pas
+            répété quand il sert déjà de titre, faute de nom d'abonné. */}
+        {on("texte") && n.texte && n.texte !== title && (
+          <div style={{ ...CLAMP2, marginTop: "3px", fontSize: "12px", fontWeight: 500, color: T.ink2 }}>{n.texte}</div>
+        )}
+        {on("statut") && (
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "5px" }}>
-            {on("statut") && <StatusBadge value={n.statut} />}
-            {on("offre") && n.offre && <Badge variant="brand" dot>{n.offre}</Badge>}
+            <StatusBadge value={n.statut} />
           </div>
         )}
-        {(on("partenaire") || on("creeLe")) && (
+        {(on("partenaire") || on("creeLe") || on("proprio")) && (
           <div style={{ marginTop: "5px", fontSize: "11.5px", fontWeight: 500, color: T.ink4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
             title={on("creeLe") ? `Créé le ${fmtDate(n.creeLe)}` : undefined}>
-            {[on("creeLe") ? fmtRel(n.creeLe) : "", on("partenaire") && n.partenaire ? `via ${n.partenaire}` : ""]
+            {[on("creeLe") ? fmtRel(n.creeLe) : "",
+              on("partenaire") && n.partenaire ? `via ${n.partenaire}` : "",
+              on("proprio") && n.proprio ? n.proprio : ""]
               .filter(Boolean).join(" · ")}
           </div>
         )}
@@ -2947,17 +3717,25 @@ function NotifRow({ n, cfg, nonLu, onVu }: { n: Notif; cfg: NotifsCfg; nonLu: bo
       {/* « Vu » n'apparaît QUE s'il peut réellement agir : marquage activé, dossier non
           lu, ET une notification appariée avec une écriture possible. Un bouton présent
           mais inopérant vaut moins qu'un bouton absent. */}
+      {/* ⚠️ `stopPropagation` : la ligne entière ouvre la fiche, donc marquer « Vu » ne
+          doit pas l'ouvrir par-dessus le geste qu'on vient de faire. */}
       {cfg.marquage && nonLu && onVu && (
-        <button className="slb-nbtn slb-nbtn-ok" style={NBTN_SM} onClick={onVu}
+        <button className="slb-nbtn slb-nbtn-ok" style={NBTN_SM}
+          onClick={(e) => { e.stopPropagation(); onVu(); }}
           aria-label={`Marquer comme vu — ${title}`} title="Marquer comme vu">
           <Check aria-hidden style={{ width: 15, height: 15 }} />
         </button>
       )}
-      {cfg.detail && (
+      {/* ⚠️ `abonneId` et NON `n.id` : depuis la refonte, `n.id` est l'id de la ligne de
+          notification, qui n'ouvrirait aucune fiche. Le bouton disparaît quand le lien
+          est absent (ligne orpheline) ou quand ce n'est pas un record id — un « Détail »
+          qui mène à une fiche vide vaut moins qu'un « Détail » absent. */}
+      {cfg.detail && /^rec[A-Za-z0-9]{14}$/.test(n.abonneId) && (
         /* Lien et NON bouton : c'est une navigation. `target="_top"` parce que le bloc
            vit dans une iframe — sans lui, la fiche s'ouvrirait DANS le widget. */
-        <a href={pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: n.id })} target="_top"
-          className="slb-btng" aria-label={`Détail — ${title}`} title="Ouvrir la fiche abonné"
+        <a href={pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: n.abonneId })} target="_top"
+          onClick={(e) => e.stopPropagation()}
+          className="slb-btng" aria-label={`Fiche complète — ${title}`} title="Ouvrir la fiche abonné"
           style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12px", fontWeight: 600, textDecoration: "none" }}>
           Détail<ChevronRight aria-hidden style={{ width: 13, height: 13 }} />
         </a>
@@ -2966,44 +3744,151 @@ function NotifRow({ n, cfg, nonLu, onVu }: { n: Notif; cfg: NotifsCfg; nonLu: bo
   );
 }
 
-function NotifWidget({ items, cfg, notifs }: { items: Notif[]; cfg: NotifsCfg; notifs: SourceApi }) {
+function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
+  tri: NotifTri; cfg: NotifsCfg; notifs: SourceApi; ident: UserIdent;
+  /** Bascule « voir toutes les notifications » proposée dans l'état vide. Absente si
+   *  le widget ne peut pas écrire sa propre cfg (mode Personnaliser). */
+  onVoirTout?: () => void;
+}) {
   /* Marquer comme vu = ÉCRIRE false sur « Statut de lecture ». Oui, false : dans cette
      table la case cochée signifie « à lire » (voir SELECT_NOTIF_C). C'est le seul
-     endroit du fichier où cette inversion se traduit en écriture. */
-  const marquerVu = (notifId: string) => { void notifs.write?.update(notifId, { aLire: false }); };
-  const nonLus = cfg.marquage
-    ? items.filter((n) => isTruthy(matchNotifC(notifs.rows, n.id)?.aLire)).length
-    : 0;
+     endroit du fichier où cette inversion se traduit en écriture.
+
+     DISPARITION IMMÉDIATE (2026-08-06). La ligne quitte la liste dès le clic, sans
+     attendre que la source soit relue : `vus` masque localement ce qui vient d'être
+     traité.
+     ⚠️ CE N'EST PAS le masquage local retiré le 2026-08-03. Celui-là n'écrivait RIEN et
+     la ligne revenait au rechargement — il faisait croire à un travail fait. Ici
+     l'écriture est réelle ; le masquage ne fait qu'anticiper le rafraîchissement, et il
+     est ANNULÉ si l'écriture échoue, avec un message. Ne jamais retirer ce rollback :
+     sans lui, un échec réseau ferait disparaître une notification jamais traitée. */
+  const [vus, setVus] = useState<string[]>([]);
+  const [echec, setEchec] = useState<string | null>(null);
+  const marquerVu = async (notifId: string) => {
+    if (!notifs.write) return;
+    setVus((v) => [...v, notifId]);
+    setEchec(null);
+    try {
+      await notifs.write.update(notifId, { aLire: false });
+    } catch {
+      setVus((v) => v.filter((x) => x !== notifId));
+      setEchec("Cette notification n'a pas pu être marquée comme vue. Réessayez.");
+    }
+  };
+  /* « Lire plus » — DÉROULEMENT EN PLACE, pas une pagination. Chaque clic ajoute un
+     palier de `cfg.limite` lignes SOUS les précédentes, dans le même corps scrollable :
+     on ne remplace jamais ce qui est déjà lu, et il n'y a pas de « page 2 » où l'on
+     pourrait se perdre. État LOCAL et non `cfg` : c'est de l'affichage éphémère, ça n'a
+     rien à faire dans les préférences enregistrées de l'utilisateur.
+     ⚠️ Le palier suit `cfg.limite` (le réglage « Nombre de lignes » du ⋮) : celui qui a
+     choisi 5 lignes en veut 5 de plus, pas 20. */
+  const [enPlus, setEnPlus] = useState(0);
+  // `vus` retire les lignes traitées à l'instant, avant que la source ne soit relue.
+  const restantes = tri.items.filter((n) => !vus.includes(n.id));
+  const items = restantes.slice(0, cfg.limite + enPlus);
+  const reste = restantes.length - items.length;
+  /* Le filtre est-il RÉELLEMENT appliqué ? Demandé (`cfg`) ne suffit pas : sans session
+     identifiable il est sauté (cf. `selectNotifs`), et le sous-titre ne doit pas
+     annoncer « mes dossiers » quand ce sont ceux de tout le monde. */
+  const filtreActif = cfg.mesDossiers && ident.known;
+  const nom = ident.name.length ? asText(ident.name.join(" ")) : ident.mail.join(" ");
+  /* Fiche détaillée de la notification cliquée. Le descripteur `notifC` porte les 9
+     alias lus, donc la fiche se construit toute seule (`RecordDialog`) — pas de fiche
+     sur-mesure à maintenir ici. */
+  const [fiche, setFiche] = useState<Notif | null>(null);
   return (
-    <Widget icon={Bell} title="Derniers dossiers Abonné"
-      sub={!items.length ? "Aucun dossier"
-        : cfg.marquage && nonLus ? `${nonLus} non lu${nonLus > 1 ? "s" : ""} sur ${items.length}`
-        : `${items.length} dossier${items.length > 1 ? "s" : ""} récent${items.length > 1 ? "s" : ""}`}>
+    <>
+    {/* Sous-titre : la liste ne contient QUE des notifications à traiter (cf. `cfg.marquage`
+        et `selectNotifs`), donc « N non lus sur M » n'aurait plus de sens — tout est non lu.
+        On annonce ce qui reste à faire, et sur quel périmètre. */}
+    <Widget icon={Bell} title="Nouveaux dossiers abonnés"
+      sub={!restantes.length ? (filtreActif ? "Rien à votre nom" : "Rien à traiter")
+        : `${restantes.length} à traiter${filtreActif ? " · mes dossiers" : ""}`}>
+      {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en silence
+          la liste de tout le monde sous un titre qui laisserait croire le contraire. */}
+      {cfg.mesDossiers && !ident.known && (
+        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Badge variant="warn" dot>Filtre inactif</Badge>
+          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+            Session non identifiée : toutes les notifications sont affichées.
+          </span>
+        </div>
+      )}
+      {/* Un échec d'écriture se DIT. La ligne est déjà revenue dans la liste (rollback de
+          `marquerVu`) : sans ce message, elle réapparaîtrait sans explication et on
+          croirait à un bug d'affichage. */}
+      {echec && (
+        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Badge variant="danger" dot>Échec</Badge>
+          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>{echec}</span>
+        </div>
+      )}
       {items.length === 0 ? (
-        <EmptyState dense icon={Inbox} title="Aucun dossier récent" hint="Les dossiers abonnés créés par vos partenaires apparaîtront ici." />
+        /* TROIS états vides distincts, parce qu'ils demandent trois gestes différents :
+           « tout est traité » (bonne nouvelle — la file est vide, rien à faire),
+           « rien à mon nom » (le filtre propriétaire a tout écarté → proposer de
+           l'ouvrir), « rien du tout » (la table n'a rien à montrer). Le deuxième NOMME
+           l'identité cherchée : c'est la seule façon de comprendre un rapprochement qui a
+           échoué parce que la base écrit le propriétaire autrement. */
+        tri.lues > 0 ? (
+          <EmptyState dense icon={CheckCircle} title="Tout est traité"
+            hint={`${tri.lues} notification${tri.lues > 1 ? "s" : ""} déjà vue${tri.lues > 1 ? "s" : ""}. Les nouveaux dossiers apparaîtront ici.`} />
+        ) : filtreActif ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "26px 16px 30px", textAlign: "center" }}>
+            <EmptyState dense icon={Inbox} title="Aucune notification à votre nom"
+              hint={`Recherché : « ${nom} » parmi ${tri.autres + tri.sansProprio + tri.items.length} notifications. Si la base écrit votre nom autrement, ouvrez la liste.`} />
+            {onVoirTout && (
+              <button className="slb-btng" onClick={onVoirTout}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
+                <Eye aria-hidden style={{ width: 14, height: 14 }} />Voir toutes les notifications
+              </button>
+            )}
+          </div>
+        ) : (
+          <EmptyState dense icon={Inbox} title="Aucune notification récente" hint="Les dossiers abonnés créés par vos partenaires apparaîtront ici." />
+        )
       ) : (
         <ScrollBody>
-          {items.map((n) => {
-            const notif = cfg.marquage ? matchNotifC(notifs.rows, n.id) : null;
-            return (
-              <NotifRow key={n.id} n={n} cfg={cfg} nonLu={isTruthy(notif?.aLire)}
-                onVu={notif && notifs.write ? () => marquerVu(notif.id) : undefined} />
-            );
-          })}
-          {/* L'état de lecture vient d'une JOINTURE : si sa table n'a pas été lue en
-              entier, un dossier sans correspondance retombe sur « lu ». On le dit, parce
-              qu'ici le doute doit aller à l'utilisateur et non au silence. */}
-          {cfg.marquage && notifs.partial && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px 13px" }}>
-              <Badge variant="warn" dot>État incomplet</Badge>
-              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
-                « Notification Center » n'a pas été lue en entier : un dossier sans correspondance apparaît comme lu.
-              </span>
-            </div>
+          {items.map((n) => (
+            <NotifRow key={n.id} n={n} cfg={cfg} onOpen={() => setFiche(n)}
+              onVu={notifs.write ? () => void marquerVu(n.id) : undefined} />
+          ))}
+          {/* À LA PLACE de l'ancien pied de widget (2026-08-06). Deux choses ont été
+              retirées d'ici, et volontairement :
+              · le décompte des lignes écartées (« N sans propriétaire · N doublons ») —
+                l'information n'aide pas à travailler, la liste juste suffit ;
+              · l'avertissement « Lecture incomplète » sur `notifs.partial`. Sans risque
+                aujourd'hui : le plafond de drainage (`COM_MAX_PAGES`, ≈ 4 000 lignes)
+                est très au-dessus des 2 154 lignes de la table, donc `partial` ne peut
+                pas se produire. ⚠️ Si la table franchissait ce plafond, la liste
+                deviendrait silencieusement partielle : c'est `COM_MAX_PAGES` qu'il
+                faudrait relever, pas cet avertissement qu'il faudrait remettre.
+              Reste UN seul élément de pied : le déroulement de la suite. */}
+          {reste > 0 && (
+            <button className="slb-row" onClick={() => setEnPlus((n) => n + cfg.limite)}
+              aria-label={`Afficher plus de notifications (${reste} restantes)`}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, color: T.brand700 }}>
+              <ChevronDown aria-hidden style={{ width: 15, height: 15 }} strokeWidth={2} />
+              Lire plus
+            </button>
           )}
         </ScrollBody>
       )}
     </Widget>
+    {/* Frère du widget, jamais dans son corps — mêmes deux raisons que pour les widgets
+        génériques (corps inerte en mode Personnaliser, et `position: fixed` qui
+        s'accrocherait à un ancêtre transformé par le FLIP). Voir `DataView`.
+        ⚠️ `ficheHref` est passé explicitement : le record id d'une ligne de
+        « Notification Center » n'est PAS celui de l'abonné — le lien se construit depuis
+        `abonneId`, et seulement s'il a bien la forme d'un record id. */}
+    {fiche && (
+      <RecordDialog row={fiche.raw} desc={CATALOG.notifC} map={CATALOG.notifC.defaultMap ?? {}}
+        ficheHref={/^rec[A-Za-z0-9]{14}$/.test(fiche.abonneId)
+          ? pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: fiche.abonneId })
+          : ""}
+        onClose={() => setFiche(null)} />
+    )}
+    </>
   );
 }
 
@@ -3134,6 +4019,16 @@ type InstanceCfg = {
   view: ViewCfg;
   actions?: { use: string[] };                    // ids d'actions du descripteur, activées ici
   create?: boolean;                               // bouton « + » (formulaire du descripteur)
+  /* --- BARRE D'OUTILS de consultation (2026-08-06) ------------------------------
+     `search` : champ de recherche plein-texte au-dessus de la liste.
+     `facet`  : ALIAS d'un champ dont les valeurs deviennent un filtre à cases, en
+                multi-sélection (les installateurs, par exemple). "" = pas de filtre.
+     ⚠️ Ce que l'utilisateur TAPE ou COCHE n'est PAS stocké ici : ces deux clés disent
+     seulement si l'outil est OFFERT. Le terme et les cases vivent en état local
+     (`LocalRefine`) — une recherche enregistrée se rappellerait au chargement suivant
+     et donnerait un widget qui paraît vide sans raison visible. */
+  search?: boolean;
+  facet?: string;
 };
 
 const LIST_LIMIT_MAX = 50;
@@ -3257,12 +4152,23 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
   const use = (Array.isArray(o.actions?.use) ? o.actions.use : [])
     .filter((id: unknown): id is string => typeof id === "string" && declared.has(id));
 
+  /* --- barre d'outils : offerte par DÉFAUT en liste et en tableau (jamais en KPI, qui
+     n'affiche aucune ligne). `search !== false` et non `=== true` : les cfg déjà
+     enregistrées n'ont pas la clé et doivent hériter du nouveau défaut, sinon la
+     recherche n'arriverait jamais chez ceux qui ont personnalisé leur accueil.
+     La facette retombe sur `defaultFacet` du descripteur ; un alias inconnu (source
+     changée, champ retiré) est écarté plutôt que gardé — un filtre sur un champ absent
+     ne renverrait jamais rien, sans rien dire. */
+  const facet = kind === "kpi" ? "" : (known("facet" in o ? o.facet : desc.defaultFacet) ?? "");
+
   return {
     title: asText(o.title ?? base.title),
     unit: asText(o.unit || base.unit) || "élément",
     source,
     query: { filter, sort: { by: sortBy, dir: sortDir }, limit },
     view,
+    search: kind === "kpi" ? false : o.search !== false,
+    ...(facet ? { facet } : {}),
     ...(use.length ? { actions: { use } } : {}),
     ...(o.create && desc.create ? { create: true } : {}),
   };
@@ -3314,15 +4220,69 @@ function selectRows(rows: Row[], cfg: InstanceCfg): Row[] {
   return fs.length ? rows.filter((r) => fs.every((f) => matchFilter(r[f.field], f))) : rows;
 }
 
-/** Filtres + tri + limite : ce qu'une vue liste ou tableau affiche. PURE. */
-function applyQuery(rows: Row[], cfg: InstanceCfg): Row[] {
+/** Minuscules sans accents — la forme sous laquelle on compare du texte saisi à la
+ *  main. Personne ne tape « à signer » avec l'accent dans un champ de recherche, et un
+ *  filtre qui échoue sur un accent ne se voit pas. */
+const foldText = (s: unknown): string =>
+  asText(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Tout le texte lisible d'une ligne, pour la recherche plein-texte. On balaie les
+ *  champs DÉCLARÉS par le descripteur et pas `Object.values(row)` : ainsi on ne cherche
+ *  jamais dans un record id ni dans un champ technique qu'on n'affiche pas. */
+const rowText = (row: Row, desc: SourceDesc): string =>
+  foldText(Object.keys(desc.fields).map((a) => asText(row[a])).join(" "));
+
+/** Réglages LOCAUX d'une vue : ils ne sont pas persistés dans la cfg (ce sont des
+ *  gestes de consultation, pas des préférences), mais ils doivent s'appliquer AVANT la
+ *  limite — sinon on chercherait, filtrerait et trierait dans les 12 premières lignes
+ *  au lieu de la table. C'est toute la raison de ce paramètre. */
+type LocalRefine = {
+  q?: string;                                  // recherche plein-texte
+  facetField?: string;                         // alias du filtre à valeurs
+  facetValues?: string[];                      // valeurs cochées ([] = aucune restriction)
+  sort?: { by: string; dir: "asc" | "desc" };  // tri par clic (surcharge celui de la cfg)
+};
+
+/** Filtres + recherche + facette + tri + limite : ce qu'une vue liste ou tableau
+ *  affiche. PURE. L'ordre des passes n'est pas négociable — la limite EN DERNIER. */
+function applyQuery(rows: Row[], cfg: InstanceCfg, local?: LocalRefine): Row[] {
+  const desc = CATALOG[cfg.source];
   let out = selectRows(rows, cfg);
-  const alias = cfg.query.sort.by;
-  if (alias) {
-    const kind = CATALOG[cfg.source].fields[alias]?.kind;
-    out = [...out].sort((a, b) => compareRows(a, b, alias, kind, cfg.query.sort.dir));
+
+  // Recherche : chaque MOT saisi doit être présent (ET), dans n'importe quel champ.
+  // « mc ener » trouve donc « MC ENERGY », et l'ordre des mots n'a pas d'importance.
+  const mots = foldText(local?.q).trim().split(/\s+/).filter(Boolean);
+  if (mots.length) out = out.filter((r) => { const t = rowText(r, desc); return mots.every((m) => t.includes(m)); });
+
+  // Facette : OU entre les valeurs cochées. Aucune coche = aucune restriction (et non
+  // « rien » : un filtre vide qui viderait la liste serait un piège à clics).
+  const vals = local?.facetValues ?? [];
+  if (local?.facetField && vals.length) {
+    const set = new Set(vals.map(foldText));
+    out = out.filter((r) => set.has(foldText(r[local.facetField!])));
+  }
+
+  const tri = local?.sort ?? cfg.query.sort;
+  if (tri.by) {
+    const kind = desc.fields[tri.by]?.kind;
+    out = [...out].sort((a, b) => compareRows(a, b, tri.by, kind, tri.dir));
   }
   return out.slice(0, Math.max(1, Math.min(LIST_LIMIT_MAX, cfg.query.limit)));
+}
+
+/** Valeurs distinctes d'un champ dans les lignes lues, les plus fréquentes d'abord.
+ *  PURE. Alimente le filtre à cases : les valeurs viennent des DONNÉES et non d'une
+ *  liste écrite à la main, donc un nouvel installateur apparaît tout seul. */
+function facetValues(rows: Row[], alias: string, max = 60): { value: string; count: number }[] {
+  const compte = new Map<string, { value: string; count: number }>();
+  for (const r of rows) {
+    const v = asText(r[alias]).trim();
+    if (!v) continue;
+    const k = foldText(v);
+    const e = compte.get(k);
+    if (e) e.count++; else compte.set(k, { value: v, count: 1 });
+  }
+  return [...compte.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "fr")).slice(0, max);
 }
 
 /** Agrégat d'un KPI + écart avec la fenêtre précédente (`null` si non calculable).
@@ -3365,7 +4325,11 @@ function FieldValue({ row, alias, desc }: { row: Row; alias: string; desc: Sourc
   const text = asText(raw);
   if (!f) return <>{text || DASH}</>;
   if (f.kind === "bool") {
-    const on = raw === true || text.toLowerCase() === "true";
+    /* ⚠️ `hasFile` en plus des deux formes booléennes : plusieurs champs déclarés `bool`
+       sont en réalité des PIÈCES JOINTES (« Contrat abonnement signe »). Sur un tableau
+       d'objets, `asText` rend le nom de fichier — donc le test textuel seul répondait
+       « non » alors qu'un contrat était bien joint. Faux négatif silencieux. */
+    const on = raw === true || text.toLowerCase() === "true" || hasFile(raw);
     return on
       ? <Check aria-label="oui" style={{ width: 15, height: 15, color: T.okInk }} />
       : <span style={{ color: T.ink4 }}>{DASH}</span>;
@@ -3374,14 +4338,283 @@ function FieldValue({ row, alias, desc }: { row: Row; alias: string; desc: Sourc
   if (f.kind === "badge") return <Badge variant={variantOf(desc, alias, text)}>{text}</Badge>;
   if (f.kind === "date") return <span title={fmtDate(text)}>{fmtSmart(text)}</span>;
   if (f.kind === "url") return <a href={text} target="_blank" rel="noopener noreferrer" style={{ color: T.brand700, fontWeight: 600 }}>Ouvrir</a>;
-  if (f.kind === "number") return <>{text}</>;
+  if (f.kind === "number") {
+    // Séparateurs de milliers : « 153 000 » plutôt que « 153000 ». Un CAPEX brut se
+    // relit mal, et l'ordre de grandeur est justement ce qu'on cherche d'un coup d'œil.
+    const n = Number(text);
+    return <>{Number.isFinite(n) ? n.toLocaleString("fr-FR") : text}</>;
+  }
   return <>{text}</>;
+}
+
+/* ---------------------------------------------------------------------------
+   FICHE DÉTAILLÉE D'UNE LIGNE (pop-up) — générique, pilotée par le descripteur
+   ---------------------------------------------------------------------------
+   Cliquer une ligne d'un widget liste ou tableau ouvre CETTE modale, qui affiche
+   TOUS les champs que le descripteur déclare (§6-bis) — pas seulement les trois
+   ou quatre que la ligne avait la place de montrer. Aucun code par source : le
+   catalogue donne le libellé, la nature (donc le rendu, via `FieldValue`) et
+   l'ordre ; ajouter un alias au descripteur l'ajoute à la fiche.
+
+   Les champs VIDES sont affichés, avec un tiret : sur un dossier abonné,
+   « Date de signature — » est une information (le dossier n'est pas signé), et
+   masquer les creux ferait croire à une fiche complète. C'est le même principe
+   que les tuiles de couverture du registre des exceptions.
+
+   ⚠️ `position: fixed` dans l'iframe du bloc : la modale se centre sur le
+   viewport de l'IFRAME, pas sur celui du navigateur. C'est exactement ce que
+   fait déjà la galerie d'ajout de widgets (§11), donc le comportement est celui
+   qui a été validé à l'écran — ne pas « corriger » vers `absolute`, la modale
+   suivrait alors le défilement de la page.
+   ⚠️ Tout est en style INLINE (la feuille de §2 peut ne pas s'appliquer) : seul
+   `slb-fade` est cosmétique, et son absence ne fait perdre que le fondu. --- */
+function RecordDialog({ row, desc, map, onClose, ficheHref }: {
+  row: Row; desc: SourceDesc; map: FieldRoleMap; onClose: () => void;
+  /** URL de fiche IMPOSÉE, quand le record id de la ligne n'est pas celui de la fiche.
+   *  Cas réel : une ligne de « Notification Center » porte l'id de la NOTIFICATION,
+   *  alors que la fiche attend celui de l'ABONNÉ (`Liens BDD`). Le descripteur ne peut
+   *  pas décrire ce détour, l'appelant le sait — d'où cette porte de sortie. */
+  ficheHref?: string;
+}) {
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    closeRef.current?.focus();                      // le clavier entre DANS la modale
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const aliases = Object.keys(desc.fields);
+  /* Titre : le champ de rôle `title` s'il existe, sinon le premier champ texte non vide.
+     Une fiche sans titre lisible serait une fiche qu'on ne sait pas rattacher. */
+  const titre = asText(map.title ? row[map.title] : "")
+    || asText(row[aliases.find((a) => desc.fields[a].kind === "text" && asText(row[a])) ?? ""])
+    || DASH;
+  const badge = map.badge ? asText(row[map.badge]) : "";
+  /* Lien vers la FICHE COMPLÈTE de l'espace Softr, si le descripteur en déclare une.
+     `target="_top"` : le bloc vit dans une iframe, sans lui la page s'ouvrirait dedans.
+     ⚠️ Le record id de la ligne n'est un id de fiche que si la source EST la table de
+     cette fiche — d'où `detailPage` porté par le descripteur et non déduit ici. */
+  const fiche = ficheHref ?? (desc.detailPage ? pageUrl(desc.detailPage, { [PAGE_RECORD_PARAM]: row.id }) : "");
+
+  const lbl: CSSProperties = { fontSize: "11px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em" };
+  const val: CSSProperties = { fontSize: "13px", fontWeight: 500, color: T.ink, minWidth: 0, overflowWrap: "anywhere" };
+
+  return (
+    <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "20px", background: "rgba(16,26,40,.30)", backdropFilter: "blur(7px)",
+        WebkitBackdropFilter: "blur(7px)", animation: "slb-fade .16s ease both",
+      }}>
+      <div role="dialog" aria-modal="true" aria-label={`Détail — ${titre}`}
+        style={{
+          width: "min(680px, 100%)", maxHeight: "86%", display: "flex", flexDirection: "column",
+          background: T.surface, borderRadius: T.rXl, boxShadow: T.shMd, border: `1px solid ${T.line}`,
+          overflow: "hidden", animation: "slb-fade .18s ease both",
+        }}>
+        {/* En-tête fixe : qui, quel statut, d'où ça vient, et la sortie. */}
+        <div style={{ display: "flex", alignItems: "center", gap: "11px", padding: "15px 18px", borderBottom: `1px solid ${T.line}`, flex: "none" }}>
+          <Monogram name={titre} size={38} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: "15px", fontWeight: 700, letterSpacing: "-.01em", color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{titre}</div>
+            <div style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>{desc.label}</div>
+          </div>
+          {badge && <span style={{ flex: "none" }}><StatusBadge value={badge} variant={variantOf(desc, map.badge, badge)} /></span>}
+          <button ref={closeRef} className="slb-nbtn" style={NBTN_SM} onClick={onClose} aria-label="Fermer la fiche" title="Fermer">
+            <X aria-hidden style={{ width: 16, height: 16 }} />
+          </button>
+        </div>
+
+        {/* Corps : tous les champs du descripteur. Les `longtext` passent en pleine
+            largeur (une note de trois lignes dans une colonne de 34 % est illisible). */}
+        <div style={{ overflowY: "auto", padding: "6px 18px 16px", scrollbarWidth: "thin" }}>
+          {aliases.map((a) => {
+            const f = desc.fields[a];
+            const long = f.kind === "longtext";
+            return (
+              <div key={a}
+                style={long
+                  ? { padding: "11px 0", borderTop: `1px solid ${T.line}` }
+                  : { display: "grid", gridTemplateColumns: "minmax(110px, 34%) 1fr", gap: "12px", alignItems: "baseline", padding: "11px 0", borderTop: `1px solid ${T.line}` }}>
+                <span style={lbl}>{f.label}</span>
+                <span style={long ? { ...val, display: "block", marginTop: "5px", lineHeight: 1.5 } : val}>
+                  <FieldValue row={row} alias={a} desc={desc} />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {fiche && (
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 18px", borderTop: `1px solid ${T.line}`, flex: "none" }}>
+            <a href={fiche} target="_top" className="slb-btng"
+              style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 13px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
+              Ouvrir la fiche complète<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   BARRE D'OUTILS DE CONSULTATION — recherche, filtre à cases, tri
+   ---------------------------------------------------------------------------
+   Trois outils au-dessus de la liste, tous LOCAUX (rien n'est enregistré, cf.
+   `LocalRefine`) et tous génériques : ils ne connaissent que le descripteur de
+   la source, donc ils marchent pour les notes comme pour les dossiers SAV.
+
+   · RECHERCHE — plein-texte sur les champs déclarés, mot par mot (ET).
+   · FILTRE À CASES — les valeurs DISTINCTES d'un champ (`cfg.facet`), listées
+     par fréquence décroissante, en multi-sélection. Les valeurs viennent des
+     données : un nouvel installateur apparaît sans toucher au code.
+   · TRI — proposé ici pour la vue LISTE, qui n'a pas d'en-têtes de colonnes où
+     cliquer. En vue tableau, c'est l'en-tête qui trie (cf. `GenericTable`), et
+     ce bouton n'est donc pas rendu.
+
+   ⚠️ La barre est HORS du corps scrollable : elle doit rester visible pendant
+   qu'on défile la liste, sinon on perd le champ de recherche dès la 5e ligne.
+   Elle rend le widget un peu plus haut que sa taille nominale — le tassement de
+   la grille mesure la hauteur réelle (§11), donc rien à corriger.
+   --------------------------------------------------------------------------- */
+function ListToolbar({ rows, cfg, desc, local, setLocal, triable }: {
+  rows: Row[]; cfg: InstanceCfg; desc: SourceDesc;
+  local: LocalRefine; setLocal: (next: LocalRefine) => void;
+  /** Vue LISTE : le bouton de tri est offert. Vue tableau : il ne l'est pas (les
+   *  en-têtes de colonnes s'en chargent, et deux commandes de tri concurrentes
+   *  finiraient par se contredire à l'écran). */
+  triable: boolean;
+}) {
+  const [openFacet, setOpenFacet] = useState(false);
+  const [openSort, setOpenSort] = useState(false);
+  const refFacet = useDismissOnOutside(openFacet, setOpenFacet);
+  const refSort = useDismissOnOutside(openSort, setOpenSort);
+
+  const cochees = local.facetValues ?? [];
+  const valeurs = cfg.facet ? facetValues(rows, cfg.facet) : [];
+  const toggle = (v: string) => {
+    const set = new Set(cochees);
+    if (set.has(v)) set.delete(v); else set.add(v);
+    setLocal({ ...local, facetField: cfg.facet, facetValues: [...set] });
+  };
+
+  /* Champs TRIABLES : tout sauf les textes longs (trier des notes de trois lignes par
+     ordre alphabétique n'a aucun sens) et les booléens seuls. */
+  const triables = Object.keys(desc.fields).filter((a) => desc.fields[a].kind !== "longtext");
+  const triCourant = local.sort ?? cfg.query.sort;
+  const nomTri = triCourant.by ? desc.fields[triCourant.by]?.label ?? triCourant.by : "";
+
+  const btn: CSSProperties = {
+    display: "inline-flex", alignItems: "center", gap: "5px", flex: "none",
+    padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
+    background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12px",
+    fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+  };
+  const btnActif: CSSProperties = { ...btn, border: `1px solid ${T.brand100}`, background: T.brand050, color: T.brand700 };
+  const item: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 8px", borderRadius: T.rSm, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink2, textAlign: "left" };
+  const panneau: CSSProperties = { position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, width: 252, maxHeight: 300, overflowY: "auto", padding: "6px", background: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+      {cfg.search !== false && (
+        <label style={{ flex: "1 1 150px", minWidth: 0, display: "flex", alignItems: "center", gap: "7px", padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface2 }}>
+          <Search aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} />
+          <input value={local.q ?? ""} onChange={(e) => setLocal({ ...local, q: e.target.value })}
+            placeholder="Rechercher…" aria-label={`Rechercher dans ${cfg.title || desc.label}`}
+            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink }} />
+          {/* Effacer d'un geste : sans ce bouton, un terme oublié dans le champ donne un
+              widget qui paraît vide et personne ne pense à regarder la recherche. */}
+          {(local.q ?? "") !== "" && (
+            <button onClick={() => setLocal({ ...local, q: "" })} aria-label="Effacer la recherche"
+              style={{ display: "grid", placeItems: "center", flex: "none", width: 18, height: 18, borderRadius: 999, border: "none", background: "none", cursor: "pointer", color: T.ink4 }}>
+              <X aria-hidden style={{ width: 13, height: 13 }} />
+            </button>
+          )}
+        </label>
+      )}
+
+      {cfg.facet && valeurs.length > 1 && (
+        <div ref={refFacet} style={{ position: "relative", flex: "none" }}>
+          <button style={cochees.length ? btnActif : btn} onClick={() => setOpenFacet((o) => !o)}
+            aria-haspopup="dialog" aria-expanded={openFacet}>
+            <FilterIcon aria-hidden style={{ width: 13, height: 13 }} />
+            {desc.fields[cfg.facet]?.label ?? cfg.facet}
+            {cochees.length > 0 && ` · ${cochees.length}`}
+            <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />
+          </button>
+          {openFacet && (
+            <div role="dialog" aria-label={`Filtrer par ${desc.fields[cfg.facet]?.label ?? cfg.facet}`} style={panneau}>
+              {/* « Tout effacer » plutôt qu'un « Tout cocher » : aucune coche signifie déjà
+                  « toutes les valeurs » (cf. `applyQuery`), donc cocher tout serait un
+                  synonyme inutile — et laisserait croire à un filtre là où il n'y en a pas. */}
+              <button onClick={() => setLocal({ ...local, facetField: cfg.facet, facetValues: [] })}
+                style={{ ...item, fontWeight: 700, color: cochees.length ? T.brand700 : T.ink4, cursor: cochees.length ? "pointer" : "default" }}
+                disabled={!cochees.length}>
+                <RotateCcw aria-hidden style={{ width: 13, height: 13 }} />Tout effacer
+              </button>
+              <div style={{ height: 1, background: T.line, margin: "4px 6px" }} />
+              {valeurs.map(({ value, count }) => {
+                const on = cochees.includes(value);
+                return (
+                  <label key={value} style={{ ...item, cursor: "pointer" }}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(value)}
+                      style={{ width: 14, height: 14, accentColor: T.brand, flex: "none", cursor: "pointer" }} />
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
+                    <span style={{ flex: "none", fontSize: "11px", fontWeight: 600, color: T.ink4 }}>{count}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {triable && triables.length > 0 && (
+        <div ref={refSort} style={{ position: "relative", flex: "none" }}>
+          <button style={local.sort ? btnActif : btn} onClick={() => setOpenSort((o) => !o)}
+            aria-haspopup="menu" aria-expanded={openSort} title={nomTri ? `Trié par ${nomTri}` : "Trier"}>
+            {triCourant.dir === "asc"
+              ? <ChevronUp aria-hidden style={{ width: 13, height: 13 }} />
+              : <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />}
+            Trier
+          </button>
+          {openSort && (
+            <div role="menu" style={panneau}>
+              {triables.map((a) => {
+                const actif = triCourant.by === a;
+                return (
+                  <button key={a} role="menuitem" className="slb-menu-item" style={{ ...item, color: actif ? T.brand700 : T.ink2, fontWeight: actif ? 700 : 500 }}
+                    onClick={() => {
+                      // Recliquer le champ actif INVERSE le sens : un seul geste pour
+                      // « de A à Z » puis « de Z à A », comme un en-tête de tableau.
+                      const dir: "asc" | "desc" = actif && triCourant.dir === "asc" ? "desc" : "asc";
+                      setLocal({ ...local, sort: { by: a, dir } });
+                      setOpenSort(false);
+                    }}>
+                    <span style={{ flex: 1, minWidth: 0 }}>{desc.fields[a].label}</span>
+                    {actif && (triCourant.dir === "asc"
+                      ? <ChevronUp aria-hidden style={{ width: 13, height: 13 }} />
+                      : <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* Ligne de liste — gabarit historique `NoteRow` : pastille d'initiales, titre et
    date alignés, détail clampé sur 2 lignes, badge coloré par le descripteur. */
-function GenericRow({ row, map, desc, actions, api }: {
+function GenericRow({ row, map, desc, actions, api, onOpen }: {
   row: Row; map: FieldRoleMap; desc: SourceDesc; actions: ActionDesc[]; api: SourceApi;
+  /** Ouvre la fiche détaillée. Absent = ligne non cliquable (aucune régression pour un
+   *  usage qui n'en voudrait pas). */
+  onOpen?: () => void;
 }) {
   const title = map.title ? asText(row[map.title]) : "";
   const sub = map.sub ? asText(row[map.sub]) : "";
@@ -3389,11 +4622,28 @@ function GenericRow({ row, map, desc, actions, api }: {
   const badge = map.badge ? asText(row[map.badge]) : "";
   const dateIsDate = map.date ? desc.fields[map.date]?.kind === "date" : false;
   const label = title || DASH;
+  /* LIGNE CLIQUABLE = fiche détaillée. `role="button"` + `tabIndex` + Entrée/Espace :
+     c'est un `<div>` et non un `<button>`, parce qu'un bouton ne peut pas contenir les
+     boutons d'action de la ligne (HTML l'interdit, et le rendu casse). On reproduit donc
+     à la main ce qu'un bouton donnerait gratuitement — sans quoi la fiche serait
+     inaccessible au clavier.
+     ⚠️ `stopPropagation` sur le conteneur des actions : cocher « Fait » ou cliquer
+     « Détail » ne doit PAS ouvrir la fiche par-dessus. */
+  const clic: CSSProperties | undefined = onOpen ? { cursor: "pointer" } : undefined;
+  const clicProps = onOpen
+    ? {
+        role: "button" as const, tabIndex: 0,
+        "aria-label": `Détail — ${label}`,
+        onClick: onOpen,
+        onKeyDown: (e: ReactKeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
+        },
+      }
+    : {};
   return (
-    <div className="slb-row" style={{ display: "flex", alignItems: "flex-start", gap: "11px", padding: "10px 16px" }}>
-      <span aria-hidden style={{ width: 30, height: 30, borderRadius: "8px", flex: "none", display: "grid", placeItems: "center", color: "#fff", fontSize: "11px", fontWeight: 700, background: avatarBg(label) }}>
-        {initials(label)}
-      </span>
+    <div className="slb-row" {...clicProps}
+      style={{ display: "flex", alignItems: "flex-start", gap: "11px", padding: "10px 16px", ...clic }}>
+      <Monogram name={label} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
           <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
@@ -3410,7 +4660,14 @@ function GenericRow({ row, map, desc, actions, api }: {
           </div>
         )}
       </div>
-      {actions.length > 0 && <RowActions actions={actions} row={row} api={api} />}
+      {/* Les actions vivent DANS une ligne cliquable : leur clic ne doit pas remonter,
+          sinon cocher « Fait » ouvrirait la fiche par-dessus. Le `<span>` intercepte au
+          niveau du groupe, une fois, plutôt que dans chaque bouton de `RowActions`. */}
+      {actions.length > 0 && (
+        <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()} style={{ flex: "none", display: "inline-flex" }}>
+          <RowActions actions={actions} row={row} api={api} />
+        </span>
+      )}
     </div>
   );
 }
@@ -3434,7 +4691,19 @@ function ListSkeleton() {
 
 const ViewError = () => <EmptyState dense icon={XCircle} title="Données indisponibles" hint="La source n'a pas répondu. Réessayez plus tard." />;
 
-function GenericList({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; desc: SourceDesc; api: SourceApi }) {
+/* Les trois vues partagent la MÊME signature (`DataView` les choisit dans une
+   variable) : `onOpen` est donc déclaré sur les trois, même si l'indicateur l'ignore —
+   une signature divergente casserait ce choix dynamique. */
+type ViewProps = {
+  rows: Row[]; cfg: InstanceCfg; desc: SourceDesc; api: SourceApi;
+  onOpen?: (row: Row) => void;
+  /** Tri courant (cfg ou surcharge locale) + demande de tri depuis un en-tête de
+   *  colonne. `onSort` absent = en-têtes non cliquables. */
+  tri?: { by: string; dir: "asc" | "desc" };
+  onSort?: (s: { by: string; dir: "asc" | "desc" }) => void;
+};
+
+function GenericList({ rows, cfg, desc, api, onOpen }: ViewProps) {
   if (api.error) return <ViewError />;
   if (api.loading) return <ListSkeleton />;
   if (!rows.length) return <EmptyState dense icon={Inbox} title={`Aucun ${cfg.unit}`} hint="Aucune ligne ne correspond à ce réglage." />;
@@ -3442,14 +4711,17 @@ function GenericList({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; 
   const actions = activeActions(cfg, desc);
   return (
     <ScrollBody>
-      {rows.map((r) => <GenericRow key={r.id} row={r} map={map} desc={desc} actions={actions} api={api} />)}
+      {rows.map((r) => (
+        <GenericRow key={r.id} row={r} map={map} desc={desc} actions={actions} api={api}
+          onOpen={onOpen ? () => onOpen(r) : undefined} />
+      ))}
     </ScrollBody>
   );
 }
 
 /* Tableau — colonnes déclarées dans la cfg. Mise en page en `table` HTML avec
    styles inline ; l'en-tête reste visible (`position: sticky`). */
-function GenericTable({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; desc: SourceDesc; api: SourceApi }) {
+function GenericTable({ rows, cfg, desc, api, onOpen, tri = cfg.query.sort, onSort }: ViewProps) {
   const maxHeight = useContext(WidgetHeightCtx);   // AVANT tout return : règles des hooks
   if (api.error) return <ViewError />;
   if (api.loading) return <ListSkeleton />;
@@ -3462,17 +4734,62 @@ function GenericTable({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg;
     <div className="slb-scrolly" style={{ overflow: "auto", maxHeight, scrollbarWidth: "thin" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
+          {/* EN-TÊTES CLIQUABLES = TRI (2026-08-06). Un clic trie de A à Z (ou du plus
+              ancien au plus récent) ; recliquer la même colonne inverse le sens. Le tri
+              est TYPÉ par la nature du champ (`compareRows`) : les dates se comparent en
+              temps et les nombres en nombres, pas en chaînes — « 9 » ne passe donc pas
+              après « 10 », et 02/2026 pas avant 12/2025.
+              ⚠️ Le tri s'applique AVANT la limite (`applyQuery`), donc il porte sur toute
+              la table lue et non sur les lignes déjà affichées. Trier après la limite
+              n'aurait réordonné qu'un échantillon, en donnant l'illusion du contraire.
+              `aria-sort` est posé : sans lui, un lecteur d'écran annonce une colonne
+              cliquable sans jamais dire dans quel sens elle est triée. */}
           <tr>
-            {cols.map((a) => <th key={a} style={th}>{desc.fields[a]?.label ?? a}</th>)}
+            {cols.map((a) => {
+              const actif = tri.by === a;
+              const dirSuivante: "asc" | "desc" = actif && tri.dir === "asc" ? "desc" : "asc";
+              return (
+                <th key={a} style={onSort ? { ...th, cursor: "pointer", color: actif ? T.brand700 : T.ink3 } : th}
+                  aria-sort={actif ? (tri.dir === "asc" ? "ascending" : "descending") : "none"}
+                  {...(onSort ? {
+                    role: "button" as const, tabIndex: 0,
+                    title: `Trier par ${desc.fields[a]?.label ?? a}`,
+                    onClick: () => onSort({ by: a, dir: dirSuivante }),
+                    onKeyDown: (e: ReactKeyboardEvent) => {
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSort({ by: a, dir: dirSuivante }); }
+                    },
+                  } : {})}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                    {desc.fields[a]?.label ?? a}
+                    {actif && (tri.dir === "asc"
+                      ? <ChevronUp aria-hidden style={{ width: 12, height: 12 }} />
+                      : <ChevronDown aria-hidden style={{ width: 12, height: 12 }} />)}
+                  </span>
+                </th>
+              );
+            })}
             {actions.length > 0 && <th style={{ ...th, textAlign: "right" }} aria-label="Actions" />}
           </tr>
         </thead>
         <tbody>
+          {/* Même geste qu'en vue liste : la LIGNE ouvre la fiche détaillée. Un `<tr>`
+              ne peut pas être un `<button>` (le tableau ne se rendrait plus), d'où le
+              `role="button"` et la gestion clavier à la main. La cellule d'actions
+              arrête la propagation, sinon cocher une case ouvrirait la fiche. */}
           {rows.map((r) => (
-            <tr key={r.id} className="slb-row">
+            <tr key={r.id} className="slb-row"
+              {...(onOpen ? {
+                role: "button" as const, tabIndex: 0,
+                onClick: () => onOpen(r),
+                onKeyDown: (e: ReactKeyboardEvent) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(r); }
+                },
+                style: { cursor: "pointer" },
+              } : {})}>
               {cols.map((a) => <td key={a} style={td}><FieldValue row={r} alias={a} desc={desc} /></td>)}
               {actions.length > 0 && (
-                <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+                <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}
+                  onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
                   <RowActions actions={actions} row={r} api={api} />
                 </td>
               )}
@@ -3485,7 +4802,10 @@ function GenericTable({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg;
 }
 
 /* Indicateur — gros chiffre, écart avec la période précédente, jauge d'objectif. */
-function GenericKpi({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; desc: SourceDesc; api: SourceApi }) {
+/* ⚠️ `onOpen` est ignoré ici, et volontairement : un indicateur n'affiche AUCUNE ligne
+   (il agrège), donc il n'y a rien à ouvrir. Il est dans la signature commune pour que
+   `DataView` puisse choisir la vue dans une variable. */
+function GenericKpi({ rows, cfg, desc, api }: ViewProps) {
   const v = cfg.view.kind === "kpi" ? cfg.view : null;
   const { value, delta } = kpiCompute(rows, cfg);
   const legend = v?.agg === "sum" ? `Somme · ${desc.fields[v.field ?? ""]?.label ?? ""}`
@@ -3531,6 +4851,18 @@ function GenericKpi({ rows, cfg, desc, api }: { rows: Row[]; cfg: InstanceCfg; d
 function DataView({ cfg }: { cfg: InstanceCfg }) {
   const desc = CATALOG[cfg.source];
   const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+  /* Ligne ouverte dans la pop-up de détail. L'état vit ICI et non dans les vues : une
+     seule modale rendue, et elle survit au re-rendu de la liste (un rafraîchissement de
+     la source ne referme donc pas la fiche qu'on est en train de lire).
+     ⚠️ On garde la LIGNE et pas seulement son id : les lignes viennent d'une lecture
+     déjà en mémoire, et rechercher l'id après coup ferait disparaître la fiche dès que
+     la ligne sort du filtre (marquer « Fait » la retire de la liste, par exemple). */
+  const [fiche, setFiche] = useState<Row | null>(null);
+  /* Recherche, cases cochées et tri : ÉTAT LOCAL, jamais persisté (cf. `LocalRefine`).
+     Une recherche enregistrée reviendrait au chargement suivant et donnerait un widget
+     qui paraît vide sans raison visible — c'est le piège classique des filtres
+     « collants ». Ici, recharger la page remet la liste à plat. */
+  const [local, setLocal] = useState<LocalRefine>({});
   /* `drain` UNIQUEMENT en vue KPI. Une vue `list` ou `table` applique `applyQuery` puis
      une limite : elle décrit ce qu'elle montre, donc une page suffit. Une vue `kpi`
      compte / somme / moyenne sur TOUTES les lignes lues (cf. `rows` ci-dessous) : sans
@@ -3540,16 +4872,50 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
     <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
-        const rows = isKpi ? api.rows : applyQuery(api.rows, cfg);
+        /* Les réglages locaux (recherche, cases, tri) passent DANS `applyQuery`, donc
+           avant la limite : on cherche et on trie sur toute la table lue. */
+        const rows = isKpi ? api.rows : applyQuery(api.rows, cfg, local);
+        /* Sous-titre : quand un outil restreint la liste, on annonce « N sur M ». Sans
+           ce « sur M », une recherche qui ne rend rien ressemble à une source vide. */
+        const total = isKpi ? 0 : applyQuery(api.rows, cfg).length;
+        const restreint = !isKpi && ((local.q ?? "") !== "" || (local.facetValues ?? []).length > 0);
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
+          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}`
           : plural(rows.length, cfg.unit);
         const V = cfg.view.kind === "table" ? GenericTable : isKpi ? GenericKpi : GenericList;
+        /* Le mappage des rôles sert le TITRE et le badge de la fiche. En vue tableau il
+           n'y en a pas (les colonnes sont libres) : on prend celui du descripteur. */
+        const map: FieldRoleMap = cfg.view.kind === "list" ? cfg.view.map : desc.defaultMap ?? {};
+        // La barre n'a de sens que sur une liste de lignes, et seulement si un outil est
+        // offert. En KPI (aucune ligne affichée), jamais.
+        const outils = !isKpi && (cfg.search !== false || !!cfg.facet);
         return (
-          <Widget icon={iconOf(desc.icon)} title={cfg.title || desc.label} sub={sub}
-            headActions={cfg.create && desc.create ? <QuickCreate desc={desc} api={api} /> : undefined}>
-            <V rows={rows} cfg={cfg} desc={desc} api={api} />
-          </Widget>
+          <>
+            <Widget icon={iconOf(desc.icon)} title={cfg.title || desc.label} sub={sub}
+              headActions={cfg.create && desc.create ? <QuickCreate desc={desc} api={api} /> : undefined}>
+              {outils && !api.loading && !api.error && (
+                <ListToolbar rows={api.rows} cfg={cfg} desc={desc} local={local} setLocal={setLocal}
+                  triable={cfg.view.kind !== "table"} />
+              )}
+              <V rows={rows} cfg={cfg} desc={desc} api={api} onOpen={setFiche}
+                tri={local.sort ?? cfg.query.sort}
+                onSort={(s) => setLocal({ ...local, sort: s })} />
+            </Widget>
+            {/* ⚠️ LA MODALE EST FRÈRE DU WIDGET, PAS DANS SON CORPS. Deux raisons, et
+                les deux ont mordu ailleurs dans ce fichier :
+                · en mode Personnaliser, le corps d'un widget est rendu INERTE
+                  (`pointerEvents: none`, cf. `Widget`) — une modale posée dedans serait
+                  visible mais impossible à fermer ;
+                · `position: fixed` se rattache au premier ancêtre TRANSFORMÉ. Le corps
+                  reçoit un `transform` pendant les animations FLIP et les
+                  redimensionnements (§11), donc la modale s'y accrocherait.
+                ⚠️ On ne peut PAS faire mieux (un portail vers `document.body`) : seuls
+                `react`, `lucide-react` et les trois modules Softr sont importables — pas
+                `react-dom`. Rester frère du widget est donc le meilleur emplacement
+                atteignable ; ne pas le « remonter » dans le corps. */}
+            {fiche && <RecordDialog row={fiche} desc={desc} map={map} onClose={() => setFiche(null)} />}
+          </>
         );
       }}
     </SourceFeed>
@@ -3611,8 +4977,11 @@ function RowActions({ actions, row, api }: { actions: ActionDesc[]; row: Row; ap
   };
 
   const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "5px", padding: "4px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "11.5px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" };
+  // `opacity:0` EN LIGNE et non dans la feuille (§2) : sinon, feuille absente dans le
+  // bloc Softr, les actions de ligne resteraient visibles en permanence. C'est HoverFX
+  // (§2-bis) qui les révèle au survol et à la tabulation.
   return (
-    <span className="slb-hact" style={{ display: "inline-flex", alignItems: "center", gap: "6px", flex: "none" }}>
+    <span className="slb-hact" style={{ display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", opacity: 0 }}>
       {failed && <span style={{ fontSize: "11px", fontWeight: 600, color: T.dangerInk }} title={failed}>Échec</span>}
       {actions.map((a) => {
         if (a.kind === "link") {
@@ -3798,13 +5167,18 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
         </p>
       )}
 
-      <div style={lbl}>Affichage</div>
-      <div style={{ display: "flex", gap: "6px" }}>
-        <button style={seg(cfg.view.kind === "list")} onClick={() => setView({ kind: "list" })} aria-pressed={cfg.view.kind === "list"}>Liste</button>
-        <button style={seg(cfg.view.kind === "table")} onClick={() => setView({ kind: "table" })} aria-pressed={cfg.view.kind === "table"}>Tableau</button>
-        <button style={seg(cfg.view.kind === "kpi")} onClick={() => setView({ kind: "kpi" })} aria-pressed={cfg.view.kind === "kpi"}>Indicateur</button>
-      </div>
-
+      {/* ⚠️ PLUS DE CHOIX « Liste / Tableau / Indicateur » (retiré le 2026-08-06, demandé).
+          La FORME d'un widget est décidée à la POSE, par le modèle choisi dans la galerie
+          (« Tableau des dossiers », « Dossiers du mois (indicateur) »…), et elle ne bouge
+          plus ensuite : un indicateur reste un indicateur, une liste reste une liste.
+          Raison de fond : la vue n'est pas un réglage de confort, c'est ce QU'EST le
+          widget. La basculer changeait tout son sens — un indicateur devenu liste perdait
+          son agrégat et son écart de période, une liste devenue indicateur affichait un
+          chiffre que personne n'avait demandé. Pour une autre forme, on pose un autre
+          widget depuis la galerie ; c'est un geste, et il est réversible.
+          ⚠️ `coerceCfg` continue de LIRE `view.kind` depuis la cfg enregistrée : c'est
+          indispensable pour les instances déjà posées. Seule l'entrée par l'UI disparaît.
+          Le bloc ci-dessous ne montre donc plus que les réglages de la vue COURANTE. */}
       {cfg.view.kind === "list" && (
         <>
           <div style={lbl}>Champs affichés</div>
@@ -3920,6 +5294,27 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
         </>
       )}
 
+      {/* --- Barre d'outils de consultation. Absente en vue KPI : un indicateur
+          n'affiche aucune ligne, donc il n'y a rien à chercher ni à filtrer. --- */}
+      {cfg.view.kind !== "kpi" && (
+        <>
+          <div style={lbl}>Consultation</div>
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "5px", fontSize: "12.5px", fontWeight: 500, color: T.ink2 }}>
+            <input type="checkbox" checked={cfg.search !== false} onChange={(e) => set({ search: e.target.checked })} />
+            Barre de recherche
+          </label>
+          <span style={lbl}>Filtre rapide (cases à cocher)</span>
+          {/* Les valeurs du filtre viennent des DONNÉES, pas d'ici : on ne choisit que le
+              CHAMP. Les longs textes sont exclus — filtrer par note entière n'a aucun sens. */}
+          <select style={field} value={cfg.facet ?? ""} onChange={(e) => set({ facet: e.target.value })}>
+            <option value="">— aucun —</option>
+            {Object.keys(desc.fields)
+              .filter((a) => desc.fields[a].kind !== "longtext")
+              .map((a) => <option key={a} value={a}>{desc.fields[a].label}</option>)}
+          </select>
+        </>
+      )}
+
       {(desc.actions?.length || desc.create) && <div style={lbl}>Actions</div>}
       {(desc.actions ?? []).map((a) => {
         const on = (cfg.actions?.use ?? []).includes(a.id);
@@ -3971,30 +5366,45 @@ const RECENT = 12;
    connectée sert son mock (aperçu) ou une liste vide (live) — l'état vide guidant
    du présentiel s'affiche alors. Les mappers sont les mêmes dans les deux cas,
    puisque les lignes ont la même forme (alias du SELECT_*). --- */
-/* Deux sources imbriquées : les dossiers, et leur état de lecture. Tant que
-   « Notification Center » n'est pas connectée, `SourceFeed` sert son mock (§6-bis) : le
-   marquage est donc testable en aperçu — l'écriture y est simulée et tracée en console,
-   plutôt que muette. */
-/* `abonnes` N'EST PAS drainée : ce widget montre « les `cfg.limite` plus récents », une
-   page suffit et rien ici ne prétend un total.
+/* UNE SEULE SOURCE depuis la refonte du 2026-08-06 : « Notification Center ». Tant
+   qu'une source n'est pas connectée, `SourceFeed` sert son mock (§6-bis) : le marquage
+   reste testable en aperçu — l'écriture y est simulée et tracée en console.
 
-   `notifC`, elle, EST drainée — non pas pour agréger mais pour JOINDRE. `matchNotifC`
-   cherche la notification de chaque abonné affiché dans les lignes lues : si elle est
-   hors fenêtre, la ligne retombe sur `nonLu = false` et s'affiche comme LUE, sans bouton
-   « Vu ». Un dossier non traité passerait donc pour traité — un faux négatif silencieux,
-   la pire forme d'erreur pour un état de lecture. Deux raisons de ne pas parier sur la
-   première page : la table fait 2 142 lignes, et 385 d'entre elles n'ont aucun lien vers
-   un abonné (elles occupent la fenêtre sans jamais pouvoir matcher).
-   ⚠️ Pas de filtrage serveur possible sur « les ids de ces 12 abonnés » avec cette API :
-   drainer est le seul moyen de rendre la jointure fiable. */
+   `notifC` EST drainée, et ce n'est pas pour agréger : le FILTRE (propriétaire non
+   vide) et le REGROUPEMENT des jumelles doivent porter sur toute la table, pas sur sa
+   première page. Sur 2 142 lignes dont ~385 sans lien vers un abonné, une seule page
+   pourrait ne contenir presque que des lignes écartées — le widget paraîtrait vide
+   alors que la table est pleine. `partial` dit ce qui manque si la pagination casse.
+   ⚠️ Les filtres restent CÔTÉ CODE et non côté requête : l'API ne sait filtrer ni sur
+   « lookup non vide » ni sur « ce lookup ressemble au nom de la session ». Un filtre
+   serveur approximatif serait pire qu'un filtre explicite ici, où l'on peut aussi
+   COMPTER ce qu'il écarte et le dire à l'écran.
+
+   ⚠️ `useCurrentUser()` est appelé ICI et non dans `NotifWidget` : le hook doit vivre
+   au-dessus du `SourceFeed`, dont l'enfant est une FONCTION de rendu — un hook appelé
+   dedans dépendrait de l'adapter monté (mock ou live), donc de l'ordre des hooks.
+   C'est la même précaution que celle prise dans les adapters écrivables (§6-bis). */
 function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
+  const ident = identOf(useCurrentUser());
+  /* Le widget écrit sa PROPRE cfg pour la bascule « voir toutes les notifications » —
+     canal prévu pour ça (`WidgetCfgCtx`, §8), absent en mode Personnaliser où le
+     brouillon fait autorité. D'où l'`onVoirTout` optionnel plutôt qu'un état local :
+     le choix est PERSISTÉ, sinon le filtre reviendrait au rechargement et l'utilisateur
+     rejouerait le même geste chaque matin. */
+  const writer = useContext(WidgetCfgCtx);
   return (
-    <SourceFeed source="abonnes">
-      {(ab) => (
-        <SourceFeed source="notifC" drain>
-          {(nc) => <NotifWidget items={ab.rows.slice(0, cfg.limite).map(mapNotif)} cfg={cfg} notifs={nc} />}
-        </SourceFeed>
-      )}
+    <SourceFeed source="notifC" drain>
+      {(nc) => {
+        /* 4e argument : « seulement ce qui n'est pas encore traité ». Il suit `marquage` —
+           l'option qui active l'état « Non lu » et le bouton « Vu ». Cohérent dans les
+           deux sens : qui gère une file veut voir ce qui reste à faire ; qui décoche
+           l'option ne gère plus de file, et revoit alors tout l'historique. */
+        const tri = selectNotifs(nc.rows.map(mapNotifC), ident, cfg.mesDossiers, cfg.marquage);
+        return (
+          <NotifWidget cfg={cfg} notifs={nc} tri={tri} ident={ident}
+            onVoirTout={writer ? () => writer.save({ ...cfg, mesDossiers: false }) : undefined} />
+        );
+      }}
     </SourceFeed>
   );
 }
@@ -4641,6 +6051,42 @@ function setPlatformState(next: PlatformState) {
   platformListeners.forEach((l) => l());
 }
 
+const ELFSIGHT_SEL = 'script[src*="elfsightcdn.com/platform"], script[src*="elfsight.com/platform"]';
+
+function injectPlatform() {
+  const s = document.createElement("script");
+  s.src = ELFSIGHT_PLATFORM;
+  s.async = true;
+  // Une CSP qui refuse le script ET un bloqueur de contenu déclenchent tous deux
+  // `error` sur l'élément : d'où « n'a pas pu être chargé », sans départager les
+  // deux — c'est la console du navigateur qui le dira.
+  s.onload = () => setPlatformState("ready");
+  s.onerror = () => setPlatformState("failed");
+  setPlatformState("loading");
+  document.body.appendChild(s);
+}
+
+/* SECONDE CHANCE, une seule fois pour toute la page.
+   Hypothèse que ce mécanisme couvre : `platform.js` monte les `.elfsight-app-…`
+   présents QUAND IL S'EXÉCUTE. Or les widgets de ce bloc sont rendus par React APRÈS
+   la lecture des préférences de layout (§11) — donc potentiellement après le scan. La
+   garde « un seul script » interdisait alors toute nouvelle chance : le conteneur
+   restait vide définitivement, sans erreur.
+   Retirer le script puis le réinjecter force une nouvelle exécution, donc un nouveau
+   scan, avec les conteneurs désormais en place.
+   ⚠️ Honnêteté sur les limites : si `platform.js` se protège contre une double
+   exécution par un drapeau global, cette relance ne changera rien. C'est une
+   tentative bornée, pas une garantie — et bornée à UNE fois, parce qu'une boucle de
+   réinjection sur une page qui ne montera jamais rien serait pire que le cadre vide. */
+let platformRetried = false;
+function retryElfsightPlatform(): boolean {
+  if (platformRetried) return false;
+  platformRetried = true;
+  document.querySelectorAll(ELFSIGHT_SEL).forEach((el) => el.remove());
+  injectPlatform();
+  return true;
+}
+
 function useElfsightPlatform(): PlatformState {
   const [, bump] = useState(0);
   useEffect(() => {
@@ -4653,25 +6099,14 @@ function useElfsightPlatform(): PlatformState {
     // ⚠️ Si le script est déjà là sans venir de nous (remontage, injection Softr),
     // on ne peut pas savoir s'il a abouti : l'état reste "unknown" et le message
     // de diagnostic redevient prudent au lieu d'accuser une cause au hasard.
-    if (document.querySelector('script[src*="elfsightcdn.com/platform"], script[src*="elfsight.com/platform"]')) return;
-    const s = document.createElement("script");
-    s.src = ELFSIGHT_PLATFORM;
-    s.async = true;
-    // Une CSP qui refuse le script ET un bloqueur de contenu déclenchent tous deux
-    // `error` sur l'élément : d'où « n'a pas pu être chargé », sans départager les
-    // deux — c'est la console du navigateur qui le dira.
-    s.onload = () => setPlatformState("ready");
-    s.onerror = () => setPlatformState("failed");
-    setPlatformState("loading");
-    document.body.appendChild(s);
+    if (document.querySelector(ELFSIGHT_SEL)) return;
+    injectPlatform();
   }, []);
   return platformState;
 }
 
 /* --- Embed Elfsight avec DIAGNOSTIC. Dans le bloc Softr, l'embed restait vide et
-   silencieux ; trois corrections successives :
-   · plus de `data-elfsight-app-lazy` : le montage différé s'appuie sur la
-     visibilité, ce qui est fragile dans une iframe — l'embed monte immédiatement ;
+   silencieux ; corrections successives :
    · si rien n'est monté au bout de quelques secondes, on affiche un état guidant
      au lieu d'un cadre vide ;
    · le message NOMME la cause au lieu d'en lister trois, en s'appuyant sur l'état
@@ -4731,23 +6166,59 @@ function useElfsightPlatform(): PlatformState {
 const pageHost = (): string => (typeof window === "undefined" ? "" : window.location.hostname);
 const isLocalHost = (h: string): boolean => h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "";
 
+/* --- DIAGNOSTIC AUTO-PORTANT. Ces faits ne sont PAS lisibles depuis la console de la
+   page : le bloc vit dans son iframe, donc `document.querySelector('.elfsight-app-…')`
+   tapé au niveau « top » renvoie null et l'on conclut à tort que rien n'est rendu. Le
+   bloc les rapporte donc lui-même, dans son état d'échec.
+   ⚠️ Le motif de recherche des globales est `/elfsight|eapps/i` et SURTOUT PAS
+   `/elf|eapp/i` : ce dernier matche `self` (s-elf), une propriété standard de window,
+   et fait croire à la présence d'un runtime qui n'est pas là. --- */
+function elfsightFacts(host: HTMLElement | null): string {
+  if (typeof window === "undefined") return "";
+  const frame = window.parent !== window ? "iframe" : "page";
+  const globals = Object.keys(window).filter((k) => /elfsight|eapps/i.test(k));
+  const nodes = document.querySelectorAll('[class*="elfsight-app-"]').length;
+  const scripts = document.querySelectorAll(ELFSIGHT_SEL).length;
+  return [
+    `contexte : ${frame} (${window.location.hostname})`,
+    `conteneurs dans ce document : ${nodes}`,
+    `enfants du conteneur : ${host ? host.childElementCount : "?"}`,
+    `balises script du runtime : ${scripts}`,
+    `globales Elfsight : ${globals.length ? globals.join(", ") : "aucune"}`,
+  ].join(" · ");
+}
+
 function ElfsightEmbed({ appClass, label }: { appClass: string; label: string }) {
   const platform = useElfsightPlatform();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [stalled, setStalled] = useState(false);
+  /* Deux temps avant de déclarer l'échec : on constate, on retente UNE fois (nouveau
+     scan du runtime, cf. retryElfsightPlatform), on reconstate. Annoncer une panne sans
+     avoir retenté ferait porter au widget un diagnostic qui n'est pas encore établi. */
   useEffect(() => {
-    const t = window.setTimeout(() => {
-      const host = hostRef.current;
-      // platform.js injecte ses propres nœuds dans le conteneur : s'il est encore
-      // vide, l'embed n'a pas démarré.
-      if (host && host.childElementCount === 0) setStalled(true);
-    }, 6000);
-    return () => window.clearTimeout(t);
+    let t2 = 0;
+    const vide = () => !!hostRef.current && hostRef.current.childElementCount === 0;
+    const t1 = window.setTimeout(() => {
+      if (!vide()) return;
+      const retente = retryElfsightPlatform();
+      // Sans seconde chance disponible (déjà consommée par un autre widget), inutile
+      // d'attendre davantage : on conclut tout de suite.
+      if (!retente) { setStalled(true); return; }
+      t2 = window.setTimeout(() => { if (vide()) setStalled(true); }, 6000);
+    }, 5000);
+    return () => { window.clearTimeout(t1); if (t2) window.clearTimeout(t2); };
   }, []);
   const host = pageHost();
   const local = isLocalHost(host);
   return (
     <div style={{ padding: "10px 16px 16px" }}>
+      {/* PAS de `data-elfsight-app-lazy`, et l'aller-retour du 2026-08-05 vaut d'être
+          consigné : il a été remis pour coller au snippet « Custom Code » vérifié, puis
+          RETIRÉ de nouveau — le remettre n'a rien débloqué et il ajoute une dépendance à
+          la VISIBILITÉ. Or ces widgets vivent dans une grille scrollable : hors écran, le
+          montage différé n'est jamais déclenché, et notre détecteur conclut à l'échec
+          alors que le widget attend simplement d'être vu. Dans un Custom Code posé en
+          pleine page, ce piège ne se voit pas — d'où le snippet trompeur. */}
       <div ref={hostRef} className={appClass} />
       {stalled && (
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
@@ -4766,15 +6237,23 @@ function ElfsightEmbed({ appClass, label }: { appClass: string; label: string })
                   Le même snippet fonctionne dans un bloc « Custom Code », qui s'exécute hors de cette iframe.
                   À confirmer par une erreur CSP nommant <code>elfsight</code> dans la console.</>
               ) : platform === "ready" ? (
-                <>Le runtime Elfsight s'est bien chargé mais n'a monté aucun widget : ce n'est donc <strong>ni la CSP ni un bloqueur</strong>.
-                  Vérifiez qu'<code>{host || "cet hôte"}</code> figure bien dans les domaines autorisés du compte Elfsight — l'aperçu
-                  (<code>*.preview.softr.app</code>) et l'app publiée sont deux domaines distincts — et que l'identifiant de widget existe toujours.</>
+                <>Le runtime Elfsight s'est chargé mais n'a monté aucun widget : ce n'est donc <strong>ni la CSP ni un bloqueur</strong>.
+                  Le domaine <code>{host || "cet hôte"}</code> et le compte Elfsight sont hors de cause — le même runtime y sert
+                  d'autres widgets depuis un bloc « Custom Code ». Restent deux pistes : l'<strong>identifiant de ce widget</strong>
+                  (les autres blocs en utilisent d'autres, valides), et le fait que ce conteneur soit rendu par React
+                  <strong> dans l'iframe du bloc</strong>, où le runtime ne le voit peut-être pas.</>
               ) : (
                 <>L'embed n'a pas démarré sur <code>{host || "cet hôte"}</code> et l'état du runtime est indéterminé
                   (<code>platform.js</code> était déjà présent, chargé par autre chose que ce bloc).
                   La console du navigateur tranche : script refusé ⇒ CSP ou bloqueur ; script servi ⇒ domaine non autorisé côté Elfsight.</>
               )}
               {local && <> Cet échec en local n'est pas attendu : les widgets montent normalement sous <code>npm run dev</code>.</>}
+            </div>
+            {/* Les faits, mesurés DANS le bon document. Ils répondent d'un coup d'œil aux
+                questions qui font perdre le plus de temps : sommes-nous dans l'iframe, le
+                conteneur existe-t-il, le runtime s'est-il vraiment exécuté. */}
+            <div style={{ marginTop: 6, fontSize: "11px", fontWeight: 500, color: T.ink4, fontFamily: "ui-monospace, monospace" }}>
+              {elfsightFacts(hostRef.current)}
             </div>
           </div>
         </div>
@@ -5191,11 +6670,12 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
           <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "26px", flexWrap: "wrap", padding: "16px 16px 0" }}>
             {marches.map((c, i) => c ? (
               <div key={c.nom} className="slb-pod" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px" }}>
-                {/* Pastille d'initiales : même teinte stable par nom que les listes du
-                    bloc (`avatarBg`), donc la même personne garde sa couleur partout. */}
-                <span aria-hidden className="slb-pod-av" style={{ width: i === 1 ? 56 : 42, height: i === 1 ? 56 : 42, flex: "none", borderRadius: T.rSm, display: "grid", placeItems: "center", background: avatarBg(c.nom), color: "#fff", fontSize: i === 1 ? "17px" : "13px", fontWeight: 700, letterSpacing: "-.02em" }}>
-                  {initials(c.nom)}
-                </span>
+                {/* Monogramme : même paire de couleurs stable par nom que les listes du
+                    bloc (`monogramOf`), donc la même personne garde sa couleur partout.
+                    ⚠️ La classe `slb-pod-av` est CONSERVÉE : c'est elle que le survol du
+                    podium fait grossir (HoverFX, §2-bis). La perdre en passant au
+                    composant aurait supprimé l'animation sans rien signaler. */}
+                <Monogram name={c.nom} size={i === 1 ? 56 : 42} className="slb-pod-av" />
                 <div style={{ textAlign: "center" }}>
                   <div style={{ fontSize: i === 1 ? "13.5px" : "12.5px", fontWeight: 600, color: T.ink2 }}>{c.nom}</div>
                   <div style={{ fontSize: i === 1 ? "26px" : "19px", fontWeight: 700, color: T.ink, letterSpacing: "-.03em", fontVariantNumeric: "tabular-nums" }}>
@@ -5415,9 +6895,7 @@ function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: Classemen
                         </td>
                         <td style={TD}>
                           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <span aria-hidden style={{ width: 32, height: 32, flex: "none", borderRadius: T.rSm, display: "grid", placeItems: "center", background: avatarBg(c.nom), color: "#fff", fontSize: "11.5px", fontWeight: 700 }}>
-                              {initials(c.nom)}
-                            </span>
+                            <Monogram name={c.nom} size={32} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>{c.nom}</div>
                               <div style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3, whiteSpace: "nowrap" }}>
@@ -6228,8 +7706,10 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
               <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: it.fait ? T.ink4 : T.ink2, textDecoration: it.fait ? "line-through" : undefined, overflowWrap: "anywhere" }}>
                 {it.texte}
               </span>
+              {/* `opacity:0` en ligne — cf. RowActions : la feuille de §2 ne peut pas en
+                  répondre dans le bloc Softr, HoverFX (§2-bis) le révèle. */}
               {writer && (
-                <button className="slb-nbtn slb-hact" style={NBTN_SM} aria-label={`Retirer — ${it.texte}`} title="Retirer"
+                <button className="slb-nbtn slb-hact" style={{ ...NBTN_SM, opacity: 0 }} aria-label={`Retirer — ${it.texte}`} title="Retirer"
                   onClick={() => write(cfg.items.filter((x) => x.id !== it.id))}>
                   <X aria-hidden style={{ width: 14, height: 14 }} />
                 </button>
@@ -6302,7 +7782,10 @@ const dataType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTyp
 });
 
 const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
-  notifs: { title: "Derniers dossiers Abonné", icon: Bell, Render: NotifsCard,
+  /* ⚠️ La CLÉ reste `notifs` : c'est un contrat de persistance (les layouts déjà
+     enregistrés la portent). Seul le titre change — « Nouveaux dossiers abonnés »
+     depuis la refonte du 2026-08-06 (§9). */
+  notifs: { title: "Nouveaux dossiers abonnés", icon: Bell, Render: NotifsCard,
             defaults: () => coerceNotifsCfg({}), coerce: coerceNotifsCfg, Options: NotifsOptions },
   taches: { title: "Journal des tâches", icon: CalendarClock, Render: TachesCard },
   notesInstallateurs: dataType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
@@ -6586,7 +8069,7 @@ const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
 /* Types sur-mesure proposés dans la galerie, avec leur hauteur de départ (une barre
    d'annonces n'a pas besoin d'un widget de 340 px) et leur groupe de galerie. */
 const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string; shape: ShapeKind; desc: string }[] = [
-  { type: "notifs", group: "abonnes", shape: "list", desc: "Les derniers dossiers créés, avec leur statut et un accès à la fiche." },
+  { type: "notifs", group: "abonnes", shape: "list", desc: "Les nouveaux dossiers abonnés notifiés, leur statut, l'état lu / non lu et un accès à la fiche." },
   { type: "taches", group: "taches", shape: "list", desc: "Vos tâches prospects et partenaires, avec leur échéance et la case « Fait »." },
   { type: "linkedin", group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
   { type: "linkedinBanner", h: "sm", group: "comm", shape: "embed", desc: "La bannière « À la une » : webinaires et annonces." },
@@ -6707,7 +8190,7 @@ function WidgetGallery({ posed, onAdd, onClose }: {
   /* Recherche sur le libellé ET la description : « pipeline » doit trouver les
      indicateurs commerciaux, même si le mot n'est pas dans leur titre. Insensible aux
      accents — personne ne tape « à signer » avec l'accent dans un champ de recherche. */
-  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const terme = norm(q.trim());
   const visibles = PRESETS.filter((p) => {
     if (groupe && (GROUP_KEYS.has(p.group) ? p.group : "autres") !== groupe) return false;
@@ -7312,7 +8795,15 @@ function Dashboard() {
 
   const loading = status === "loading" && !applied;   // squelettes tant que rien à afficher
   const current = applied ?? cloneDefault();
-  const shown = editing ? draft : current;
+  /* APERÇU d'un redimensionnement fait HORS mode Personnaliser (2026-08-06). Les poignées
+     de bord sont désormais actives dans les deux modes ; hors édition il n'y a pas de
+     brouillon, donc le geste a besoin d'un layout temporaire pour que la carte suive la
+     souris.
+     ⚠️ On n'écrit PAS en base à chaque cran : un glissement franchit plusieurs seuils, ce
+     qui ferait autant d'écritures concurrentes sur le même document. L'écriture a lieu une
+     seule fois, au relâchement (cf. `onResizeUp` / `onSizeUp`). */
+  const [livePreview, setLivePreview] = useState<Layout | null>(null);
+  const shown = editing ? draft : livePreview ?? current;
   const resetDrag = () => { setDragIndex(null); setOverIndex(null); };
 
   // Toast succès : disparition auto ; échec : reste jusqu'à Réessayer / fermeture.
@@ -7435,10 +8926,24 @@ function Dashboard() {
   /** Enregistre TITRE, TEINTE et cfg en UNE écriture : le panneau ⋮ les édite ensemble,
    *  et deux `runSave` successifs se marcheraient dessus (le second partirait de
    *  `current`, encore inchangé, et perdrait le premier). */
-  const persistOptions = (id: string, title: string, tint: string, cfg: unknown) => {
+  const persistOptions = (id: string, title: string, tint: string, cfg: unknown, wide: boolean, size: WidgetSize) => {
     const withCfg = { ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) };
-    void runSave(setInstanceLook(withCfg, id, title, tint));
+    /* Une SEULE écriture pour les cinq réglages du panneau. Les fonctions pures se
+       composent sur le layout intermédiaire : chaîner des `runSave` repartirait chaque
+       fois de `current`, encore inchangé, et ne garderait que le dernier. */
+    const withLook = setInstanceLook(withCfg, id, title, tint);
+    void runSave(setWidgetSize(setWidgetWide(withLook, id, wide), id, size));
   };
+
+  /** Retire une instance HORS mode Personnaliser, depuis son ⋮ (2026-08-06). Écriture
+   *  immédiate, comme l'ajout depuis la galerie hors édition : il n'y a pas de brouillon
+   *  dans ce régime, donc rien à « Enregistrer » ensuite.
+   *  ⚠️ `true` en 2e argument de `runSave` : le retrait est CONFIRMÉ par un toast, alors
+   *  qu'un simple réglage reste silencieux. Un widget qui disparaît sans un mot laisse
+   *  penser à un bug d'affichage — et c'est le seul geste de ce panneau qui détruise
+   *  quelque chose (la cfg de l'instance est perdue ; le widget se repose depuis la
+   *  galerie, mais avec les réglages par défaut). */
+  const persistRemove = (id: string) => void runSave(removeInstance(current, id), true);
 
   // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD. `id` = id d'INSTANCE.
   const onMoveUp = (id: string) => setDraft((d) => moveWidget(d, id, -1));
@@ -7517,22 +9022,67 @@ function Dashboard() {
     resizeRef.current = { id, startX: e.clientX, side };
     freezeHeight();
   };
+  /* `applyLive` : en mode Personnaliser le changement va dans le BROUILLON (« Annuler »
+     le jette) ; hors mode il va dans l'APERÇU local, écrit en base au relâchement. Un
+     seul chemin pour les deux régimes, donc pas de geste qui marche d'un côté et pas de
+     l'autre.
+
+     ⚠️⚠️ L'APERÇU EST DOUBLÉ D'UNE REF, et ce n'est pas une redondance — c'est la
+     correction d'un GEL D'ONGLET (2026-08-06). La première version lisait l'aperçu dans
+     l'updater de `setState` et y appelait l'écriture :
+
+         setLivePreview((p) => { if (p) void runSave(p, true); return null; });   // ❌
+
+     Un updater de `useState` doit être PUR. Celui-ci déclenchait d'autres `setState`
+     (layout appliqué, toast) PENDANT la phase de rendu, donc un nouveau rendu, donc un
+     nouvel updater : boucle infinie. Symptômes exacts rapportés — le curseur reste bloqué
+     en « redimensionner », la page ne répond plus, et l'onglet ne peut même plus être
+     rechargé (le thread principal ne rend jamais la main).
+     La ref porte donc la valeur COURANTE, lisible et écrivable hors de tout updater ;
+     `setLivePreview` ne fait plus que déclencher le rendu. Ne jamais revenir en arrière :
+     tout ce qui écrit ou persiste doit rester DEHORS des updaters. */
+  const liveRef = useRef<Layout | null>(null);
+  const applyLive = (fn: (l: Layout) => Layout) => {
+    if (editing) { setDraft(fn); return; }
+    const next = fn(liveRef.current ?? current);
+    liveRef.current = next;
+    setLivePreview(next);
+  };
+  /** Fin d'un geste hors édition : UNE écriture, silencieuse si elle réussit. Un
+   *  redimensionnement est un geste direct et répété — un toast à chaque poignée
+   *  relâchée serait du bruit. L'échec, lui, reste toujours annoncé (`runSave`). */
+  const commitLive = () => {
+    const p = liveRef.current;
+    liveRef.current = null;
+    setLivePreview(null);
+    if (p) void runSave(p, true);
+  };
   const onResizeMove = (e: ReactPointerEvent<HTMLElement>) => {
     const r = resizeRef.current; if (!r) return;
+    /* ⚠️ AUCUN BOUTON ENFONCÉ = le geste est fini, même si on n'a jamais reçu le
+       `pointerup` (relâchement hors de l'iframe, événement avalé…). C'est LA garde qui
+       empêche un widget de suivre la souris indéfiniment : sans elle, un seul événement
+       perdu laissait le geste armé jusqu'au rechargement de la page. */
+    if (e.buttons === 0) { onResizeUp(e); return; }
     const outward = (e.clientX - r.startX) * r.side; // >0 = tiré vers l'extérieur (élargir)
     if (outward > RESIZE_STEP) {
       r.startX += RESIZE_STEP * r.side;              // recalage → hystérésis
-      setDraft((d) => setWidgetWide(d, r.id, true));
+      applyLive((d) => setWidgetWide(d, r.id, true));
     } else if (outward < -RESIZE_STEP) {
       r.startX -= RESIZE_STEP * r.side;
-      setDraft((d) => setWidgetWide(d, r.id, false));
+      applyLive((d) => setWidgetWide(d, r.id, false));
     }
   };
   const onResizeUp = (e: ReactPointerEvent<HTMLElement>) => {
     if (!resizeRef.current) return;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    const el = e.currentTarget as HTMLElement;
+    // `hasPointerCapture` avant de relâcher : relâcher une capture qu'on n'a pas lève une
+    // exception dans certains navigateurs, et elle interromprait la fin du geste — donc
+    // `resizeRef` resterait armé et le widget suivrait la souris SANS bouton enfoncé.
+    if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
     resizeRef.current = null;
     setLockH(null);
+    if (!editing) commitLive();
   };
 
   /* Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
@@ -7548,12 +9098,16 @@ function Dashboard() {
   const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    const h = draft.items[idxOf(draft.items, id)]?.h ?? "md";
+    /* ⚠️ La hauteur de départ se lit dans le layout AFFICHÉ (`shown`) et non dans
+       `draft` : hors mode Personnaliser, `draft` n'est pas à jour et le geste partirait
+       du mauvais cran — la première poussée aurait sauté une taille. */
+    const h = shown.items[idxOf(shown.items, id)]?.h ?? "md";
     sizeRef.current = { id, startY: e.clientY, idx: SIZE_STEPS.indexOf(h) };
     freezeHeight();
   };
   const onSizeMove = (e: ReactPointerEvent<HTMLElement>) => {
     const r = sizeRef.current; if (!r) return;
+    if (e.buttons === 0) { onSizeUp(e); return; }   // même garde que pour la largeur
     const dy = e.clientY - r.startY;
     if (Math.abs(dy) < SIZE_STEP) return;
     const dir = dy > 0 ? 1 : -1;
@@ -7561,14 +9115,55 @@ function Dashboard() {
     r.startY += SIZE_STEP * dir;                     // recalage → hystérésis
     if (idx === r.idx) return;                       // déjà au bout : rien à changer
     r.idx = idx;
-    setDraft((d) => setWidgetSize(d, r.id, SIZE_STEPS[idx]));
+    applyLive((d) => setWidgetSize(d, r.id, SIZE_STEPS[idx]));
   };
   const onSizeUp = (e: ReactPointerEvent<HTMLElement>) => {
     if (!sizeRef.current) return;
-    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    const el = e.currentTarget as HTMLElement;
+    if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
     sizeRef.current = null;
     setLockH(null);
+    if (!editing) commitLive();
   };
+
+  /* --- FILET DE SÉCURITÉ : aucun geste ne doit pouvoir rester ARMÉ -----------------
+     Les deux gestes ci-dessus se terminent sur le `pointerup` de leur poignée. Ça
+     suffit… tant que cet événement arrive. Trois cas où il n'arrive pas, et le bloc vit
+     dans une IFRAME, ce qui les rend tous plausibles :
+       · la souris est relâchée HORS de l'iframe (la capture devrait l'éviter, mais elle
+         est perdue si le nœud est démonté entre-temps) ;
+       · l'onglet perd le focus pendant le glissement (Alt-Tab, changement de fenêtre) ;
+       · le navigateur annule le pointeur sans `pointercancel` (cas tactiles).
+     Un geste resté armé, c'est précisément le symptôme rapporté : le widget suit la
+     souris alors qu'aucun bouton n'est enfoncé, et le curseur reste en « redimensionner ».
+     On écoute donc aussi la FENÊTRE pour clore le geste quoi qu'il arrive.
+
+     ⚠️⚠️ EN PHASE DE PROPAGATION (bubble), JAMAIS EN CAPTURE. En capture, ce filet
+     s'exécuterait AVANT le `onPointerUp` de la poignée : il viderait `resizeRef`, donc le
+     handler de la poignée sortirait par son `if (!resizeRef.current) return` — et ne
+     relâcherait JAMAIS la capture du pointeur. On recréerait exactement le blocage qu'on
+     cherche à supprimer. En bubble sur `window`, le filet passe en dernier et ne trouve
+     plus rien à faire quand le geste s'est terminé normalement.
+     Les écouteurs sont posés à chaque rendu (pas de tableau de dépendances) pour voir un
+     `editing` et un `commitLive` frais ; ils ne coûtent rien quand aucun geste n'est en
+     cours (`return` immédiat). */
+  useEffect(() => {
+    const finir = () => {
+      if (!resizeRef.current && !sizeRef.current) return;
+      resizeRef.current = null;
+      sizeRef.current = null;
+      setLockH(null);
+      if (!editing) commitLive();
+    };
+    window.addEventListener("pointerup", finir);
+    window.addEventListener("pointercancel", finir);
+    window.addEventListener("blur", finir);
+    return () => {
+      window.removeEventListener("pointerup", finir);
+      window.removeEventListener("pointercancel", finir);
+      window.removeEventListener("blur", finir);
+    };
+  });
 
   const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "8px", padding: "8px 13px", borderRadius: T.rMd, fontSize: "13px", fontWeight: 600, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${T.line}`, background: T.surface, color: T.ink2 };
   const btnPrimary: CSSProperties = { ...btn, border: "none", background: T.brand, color: "#fff" };
@@ -7671,7 +9266,11 @@ function Dashboard() {
                 onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (overIndex !== i) setOverIndex(i); }}
                 onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOverIndex((p) => (p === i ? null : p)); }}
                 onDrop={(e) => { e.preventDefault(); onDrop(i); }}
-                style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: editing ? "relative" : undefined, gridColumn: wide ? "1 / -1" : undefined,
+                /* ⚠️ `position: relative` dans LES DEUX MODES depuis le 2026-08-06 : les
+                   poignées de redimensionnement sont en `absolute` et existent aussi hors
+                   édition — sans repère de position sur le wrapper, elles se placeraient
+                   par rapport au premier ancêtre positionné, donc n'importe où. */
+                style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: "relative", gridColumn: wide ? "1 / -1" : undefined,
                   /* TASSEMENT : le widget occupe autant de lignes fines que sa hauteur
                      mesurée l'exige (repli `spanOf` avant la première mesure), et son
                      espacement bas est DANS le span — cf. la note sur DASH_GAP. */
@@ -7698,7 +9297,9 @@ function Dashboard() {
                         `undefined` et le panneau n'affiche que le champ Titre). */}
                     <WidgetOptionsCtx.Provider value={!editing
                       ? { cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
-                          onSave: ({ title, tint, cfg: c }) => persistOptions(id, title, tint, c) }
+                          wide, size,
+                          onSave: ({ title, tint, cfg: c, wide: w, size: s }) => persistOptions(id, title, tint, c, w, s),
+                          onRemove: () => persistRemove(id) }
                       : null}>
                       {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
                           hors édition seulement — pendant l'édition, `draft` fait
@@ -7722,29 +9323,53 @@ function Dashboard() {
                     </WidgetOptionsCtx.Provider>
                   </WidgetChromeCtx.Provider>
                 </div>
-                {editing && ([-1, 1] as const).map((side) => (
+                {/* ── POIGNÉES DE REDIMENSIONNEMENT — actives dans LES DEUX MODES depuis
+                    le 2026-08-06. Elles n'existaient qu'en mode Personnaliser, ce qui
+                    obligeait à y entrer pour agrandir une carte ; c'est ce qui rendait ce
+                    mode presque obligatoire.
+                    HORS ÉDITION elles sont DISCRÈTES : leur trait est à `opacity: 0` et
+                    n'apparaît qu'au survol de la carte (règle `.slb-dragwrap` de HoverFX,
+                    §2-bis). La zone de saisie reste là en permanence — révéler la zone
+                    ELLE-MÊME au survol créerait une cible qui se dérobe.
+                    ⚠️ `touchAction: "none"` est indispensable : sans lui, le navigateur
+                    interprète le glissement vertical comme un défilement de page et la
+                    poignée ne reçoit plus rien au doigt. */}
+                {/* ⚠️ POSITION DIFFÉRENTE SELON LE MODE, et ce n'est pas cosmétique.
+                    En ÉDITION, la poignée vit DANS la carte : le corps y est inerte
+                    (`pointerEvents: none`) et sans barre de défilement, la bande de 14 px
+                    ne gêne personne.
+                    HORS ÉDITION, le contenu est INTERACTIF : une bande de 14 px posée sur
+                    le bord intérieur volerait les clics des lignes (qui ouvrent la fiche)
+                    et recouvrirait la barre de défilement du corps, à droite. Les poignées
+                    sont donc déportées dans la GOUTTIÈRE (`DASH_GAP`, 18 px d'espace vide
+                    entre les cartes) : elles ne recouvrent plus rien du tout. */}
+                {([-1, 1] as const).map((side) => (
                   <span key={side} className="slb-rzh" aria-hidden
                     onPointerDown={onResizeDown(id, side)} onPointerMove={onResizeMove} onPointerUp={onResizeUp} onPointerCancel={onResizeUp}
                     title={wide ? "Réduire la largeur" : "Élargir sur toute la largeur"}
-                    /* `bottom` inclut DASH_GAP : le wrapper porte l'espacement bas du
-                       tassement, la poignée doit s'arrêter au bas de la CARTE.
-                       Position latérale à 0 et non -3 : la poignée reste DANS la carte,
-                       donc elle ne déborde ni sur le gap, ni sur la barre de défilement
-                       de la page pour la colonne de droite. Le corps ne montre plus de
-                       barre en édition (cf. ScrollBody), la place est libre. */
-                    style={{ position: "absolute", top: 46, bottom: 10 + DASH_GAP, [side === 1 ? "right" : "left"]: 0, width: 14, display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5 }}>
-                    <span style={{ width: 4, height: 34, borderRadius: 999, background: T.line2 }} />
+                    /* ⚠️ Hors édition la bande est ENTIÈREMENT hors de la carte (−13 sur
+                       13 px de large, dans une gouttière de 18) : elle ne recouvre donc
+                       aucun pixel du contenu. Un décalage plus faible la faisait mordre
+                       sur les derniers pixels du corps — donc sur la BARRE DE DÉFILEMENT
+                       (6 px, à droite) et sur le bord des lignes cliquables. C'est le
+                       `cursor: ew-resize`, actif dès qu'on approche du bord, qui annonce
+                       le geste — pas le trait, qui n'apparaît qu'ensuite. */
+                    style={{ position: "absolute", top: 46, bottom: 10 + DASH_GAP,
+                      [side === 1 ? "right" : "left"]: editing ? 0 : -13,
+                      width: editing ? 14 : 13,
+                      display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5 }}>
+                    <span style={{ width: 4, height: 34, borderRadius: 999, background: T.line2, opacity: editing ? 1 : 0 }} />
                   </span>
                 ))}
-                {editing && (
-                  <span className="slb-rzv" aria-hidden
-                    onPointerDown={onSizeDown(id)} onPointerMove={onSizeMove} onPointerUp={onSizeUp} onPointerCancel={onSizeUp}
-                    title="Glisser pour régler la hauteur (petit / moyen / grand)"
-                    /* Idem : décalée de DASH_GAP pour rester au bas de la carte. */
-                    style={{ position: "absolute", left: 24, right: 24, bottom: DASH_GAP - 3, height: 14, display: "grid", placeItems: "center", cursor: "ns-resize", touchAction: "none", zIndex: 5 }}>
-                    <span style={{ height: 4, width: 34, borderRadius: 999, background: T.line2 }} />
-                  </span>
-                )}
+                <span className="slb-rzv" aria-hidden
+                  onPointerDown={onSizeDown(id)} onPointerMove={onSizeMove} onPointerUp={onSizeUp} onPointerCancel={onSizeUp}
+                  title="Glisser pour régler la hauteur (petit / moyen / grand)"
+                  /* Hors édition, `bottom: 2` place la poignée ENTIÈREMENT sous la carte,
+                     dans la gouttière : à `DASH_GAP - 3` elle empiétait de 11 px sur le bas
+                     du corps et interceptait le « Lire plus » des listes. */
+                  style={{ position: "absolute", left: 24, right: 24, bottom: editing ? DASH_GAP - 3 : 2, height: 14, display: "grid", placeItems: "center", cursor: "ns-resize", touchAction: "none", zIndex: 5 }}>
+                  <span style={{ height: 4, width: 34, borderRadius: 999, background: T.line2, opacity: editing ? 1 : 0 }} />
+                </span>
               </div>
             );
           })}
@@ -7807,8 +9432,14 @@ export default function Block() {
   const [tab, setTab] = useState<string>("accueil");
   const active = NAV_TABS.find((t) => t.id === tab) ?? NAV_TABS[0];
 
+  /* Survol et focus rendus EN JS sur ce conteneur (§2-bis). On passe par un ref et
+     non par `#slb` : dans le bloc Softr, rien ne garantit que l'attribut id survive
+     (c'est la même raison qui a fait sortir la mise en page de la feuille de style). */
+  const rootRef = useRef<HTMLDivElement>(null);
+  useHoverFX(rootRef);
+
   return (
-    <div id="slb" style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
+    <div id="slb" ref={rootRef} style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
       {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
           les marges latérales. 1440 (au lieu de 1240) pour rendre de la place aux
