@@ -632,8 +632,8 @@ Le geste reste **doublé** par le mode Personnaliser, seule voie accessible au c
   s'appliquait pas dans le bloc Softr** : les widgets s'étiraient sans jamais scroller. La classe
   `slb-scrolly` ne sert plus qu'à habiller la barre de défilement.
   Poignée du bas (pointer, **réglage continu** : la carte suit la souris, arrondi au pas de
-  4 px) + un **champ en pixels** dans le ⋮ et quatre repères cliquables (168 / 340 / 560 /
-  860). ⚠️ Depuis le 2026-08-07 la hauteur est un NOMBRE, plus un cran nommé : l'hystérésis
+  4 px) — et **elle seule** : le champ en pixels du ⋮ a été retiré le 2026-08-07, la hauteur
+  n'a donc plus qu'un chemin, à la souris. ⚠️ Depuis le 2026-08-07 la hauteur est un NOMBRE, plus un cran nommé : l'hystérésis
   qui évitait l'oscillation entre deux crans a disparu avec eux — une hauteur continue est
   une fonction monotone de la position du pointeur, rien ne peut osciller. Les anciennes clés
   restent lues (`LEGACY_HEIGHTS`) et ne sont jamais réécrites sous cette forme.

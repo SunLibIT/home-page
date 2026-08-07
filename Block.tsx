@@ -2623,11 +2623,11 @@ type WidgetHeight = number;
 const H_MIN = 120;        // en dessous, l'en-tête et le pied mangent tout le corps
 const H_MAX = 1600;       // au-delà, la carte dépasse tous les écrans du parc
 const H_DEFAULT = 340;    // ce que valait "md", le cran par défaut historique
-/** Repères proposés dans le ⋮ — des raccourcis, pas des paliers : la valeur reste libre. */
-const H_PRESETS: { label: string; px: number }[] = [
-  { label: "Petit", px: 168 }, { label: "Moyen", px: 340 },
-  { label: "Grand", px: 560 }, { label: "XL", px: 860 },
-];
+/* `H_PRESETS` (les repères Petit / Moyen / Grand / XL du ⋮) a été SUPPRIMÉ le 2026-08-07
+   avec le réglage de hauteur du panneau : la hauteur ne se règle plus qu'à la POIGNÉE, en
+   glissant sous la carte. Les quatre valeurs qu'il portait — 168, 340, 560, 860 — restent
+   vivantes ailleurs : `H_DEFAULT` pour la pose, et `LEGACY_HEIGHTS` pour traduire les
+   anciennes clés. */
 /** Anciennes clés de cran → pixels. Lecture seule, jamais réécrit sous cette forme. */
 const LEGACY_HEIGHTS: Record<string, number> = { sm: 168, md: 340, lg: 560, xl: 860 };
 /** Toute hauteur qui entre dans le layout passe par ici : bornée, arrondie, et tolérante
@@ -2814,11 +2814,14 @@ type WidgetOptions = {
   title: string;
   /** Clé de teinte de CETTE instance ("" = aucune). Cf. `WIDGET_TINTS`. */
   tint: string;
-  /** Encombrement de CETTE instance, réglable depuis le ⋮ depuis le 2026-08-06 (les
-   *  poignées de bord font la même chose à la souris, cf. §11). */
+  /** LARGEUR de CETTE instance, réglable depuis le ⋮ (les poignées latérales font la même
+   *  chose à la souris, cf. §11). Deux valeurs seulement, donc deux boutons suffisent.
+   *  ⚠️ LA HAUTEUR N'EST PLUS ICI (retirée le 2026-08-07, demandé) : elle ne se règle qu'en
+   *  GLISSANT la poignée sous la carte. Conséquence acceptée, la même que pour la position :
+   *  il n'y a donc plus de chemin de réglage de hauteur au clavier ni au doigt. Ne pas
+   *  remettre de champ ici sans revenir sur cet arbitrage. */
   wide: boolean;
-  height: WidgetHeight;
-  onSave: (next: { title: string; tint: string; cfg: any; wide: boolean; height: WidgetHeight }) => void;
+  onSave: (next: { title: string; tint: string; cfg: any; wide: boolean }) => void;
   /** Retire le widget de l'accueil. Écriture IMMÉDIATE, comme tout le reste depuis la
    *  suppression du mode « Personnaliser » — d'où la confirmation en deux temps dans la
    *  modale : ici, un clic de trop retire vraiment le widget. */
@@ -3029,15 +3032,14 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
      seul clic, juste à côté de « Enregistrer », finirait par partir tout seul. */
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [draftWide, setDraftWide] = useState(opts.wide);
-  const [draftHeight, setDraftHeight] = useState<WidgetHeight>(opts.height);
-  // Brouillons toujours frais à l'ouverture (cfg, titre, teinte, encombrement ET
-  // confirmation remise à zéro).
+  // Brouillons toujours frais à l'ouverture (cfg, titre, teinte, largeur ET confirmation
+  // remise à zéro).
   const start = () => {
     setDraft(opts.cfg); setDraftTitle(opts.title); setDraftTint(opts.tint);
-    setDraftWide(opts.wide); setDraftHeight(opts.height); setConfirmRemove(false); setOpen(true);
+    setDraftWide(opts.wide); setConfirmRemove(false); setOpen(true);
   };
   const save = () => {
-    opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft, wide: draftWide, height: draftHeight });
+    opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft, wide: draftWide });
     setOpen(false);
   };
   useEffect(() => {
@@ -3146,47 +3148,22 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                     {tintOf(draftTint).label}
                   </div>
 
-                  {/* ── ENCOMBREMENT ── remonté ici depuis l'ancien menu ⋮ d'édition
-                      (2026-08-06). Les poignées de bord font exactement la même chose à
-                      la souris ; ces segments sont le chemin CLAVIER et TACTILE — un
-                      glisser-déposer HTML5 ne fonctionne pas au doigt, et une poignée de
-                      14 px ne se vise pas sans souris. */}
+                  {/* ── LARGEUR ── deux valeurs, donc deux boutons : les poignées latérales
+                      font la même chose à la souris, et ces segments restent le chemin
+                      CLAVIER et TACTILE (une poignée de 13 px ne se vise pas sans souris).
+                      C'est le SEUL réglage d'encombrement qui subsiste ici. */}
                   <span style={{ ...lbl, marginTop: "13px" }}>Largeur</span>
                   <div style={{ display: "flex", gap: "6px" }}>
                     <button style={seg(!draftWide)} onClick={() => setDraftWide(false)} aria-pressed={!draftWide}>Moitié</button>
                     <button style={seg(draftWide)} onClick={() => setDraftWide(true)} aria-pressed={draftWide}>Pleine</button>
                   </div>
-                  {/* HAUTEUR EN PIXELS depuis le 2026-08-07 : le champ fait foi, les quatre
-                      boutons ne sont que des repères pour aller vite (ils POSENT une valeur,
-                      ils ne la contraignent pas). Le champ accepte donc n'importe quoi entre
-                      `H_MIN` et `H_MAX`, et la poignée du bas de la carte règle la même
-                      valeur à la souris.
-                      ⚠️ La saisie n'est PAS coercée à la frappe : taper « 8 » pour arriver à
-                      « 860 » deviendrait impossible si chaque touche ramenait le nombre dans
-                      les bornes. C'est `setWidgetHeight` qui borne, à l'écriture. */}
-                  <span style={{ ...lbl, marginTop: "10px" }} id="slb-w-h">Hauteur du corps</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-                    <input type="number" min={H_MIN} max={H_MAX} step={DASH_ROW} style={{ ...field, width: 92 }}
-                      value={draftHeight} aria-labelledby="slb-w-h"
-                      onChange={(e) => setDraftHeight(Number(e.target.value))} />
-                    <span style={{ fontSize: "12px", fontWeight: 600, color: T.ink4 }}>px</span>
-                  </div>
-                  <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
-                    {H_PRESETS.map((h) => (
-                      <button key={h.px} style={seg(draftHeight === h.px)} onClick={() => setDraftHeight(h.px)}
-                        aria-pressed={draftHeight === h.px} aria-label={`Hauteur ${h.label}, ${h.px} pixels`}>
-                        {h.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div style={{ margin: "5px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
-                    De {H_MIN} à {H_MAX} px. La poignée sous la carte règle la même valeur.
-                  </div>
 
-                  {/* ⚠️ PAS DE « POSITION » ICI (retirée le 2026-08-07, demandé) : on
-                      réordonne en glissant l'en-tête d'une carte. Voir la note de
-                      `WidgetOptions` (§8) pour ce que cet arbitrage coûte au clavier et au
-                      tactile, avant de la réintroduire. */}
+                  {/* ⚠️ NI HAUTEUR NI POSITION ICI — les deux ont été retirées le 2026-08-07,
+                      sur demande, parce que le GESTE suffit : la poignée sous la carte règle
+                      la hauteur, et l'en-tête se glisse pour réordonner. Contrepartie
+                      assumée et connue : ces deux réglages n'ont donc plus aucun chemin au
+                      clavier ni au doigt. Voir la note de `WidgetOptions` (§8) avant de
+                      remettre l'un ou l'autre. */}
                 </div>
 
                 {/* ── CONTENU (formulaire du type) ────────────────────────────── */}
@@ -9404,13 +9381,15 @@ function Dashboard() {
   /** Enregistre TITRE, TEINTE et cfg en UNE écriture : le panneau ⋮ les édite ensemble,
    *  et deux `runSave` successifs se marcheraient dessus (le second partirait de
    *  `current`, encore inchangé, et perdrait le premier). */
-  const persistOptions = (id: string, title: string, tint: string, cfg: unknown, wide: boolean, height: WidgetHeight) => {
+  const persistOptions = (id: string, title: string, tint: string, cfg: unknown, wide: boolean) => {
     const withCfg = { ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) };
-    /* Une SEULE écriture pour les cinq réglages du panneau. Les fonctions pures se
+    /* Une SEULE écriture pour les quatre réglages du panneau. Les fonctions pures se
        composent sur le layout intermédiaire : chaîner des `runSave` repartirait chaque
-       fois de `current`, encore inchangé, et ne garderait que le dernier. */
+       fois de `current`, encore inchangé, et ne garderait que le dernier.
+       ⚠️ La HAUTEUR n'en fait plus partie (2026-08-07) : elle n'a qu'un chemin, la poignée,
+       qui écrit par `applyLive` + `commitLive`. */
     const withLook = setInstanceLook(withCfg, id, title, tint);
-    void runSave(setWidgetHeight(setWidgetWide(withLook, id, wide), id, height));
+    void runSave(setWidgetWide(withLook, id, wide));
   };
 
   /** Retire une instance depuis son ⋮. Écriture immédiate, comme tout le reste.
@@ -9717,8 +9696,8 @@ function Dashboard() {
                       « Apparence »). */}
                   <WidgetOptionsCtx.Provider
                     value={{ cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
-                      wide, height: size,
-                      onSave: ({ title, tint, cfg: c, wide: w, height: h }) => persistOptions(id, title, tint, c, w, h),
+                      wide,
+                      onSave: ({ title, tint, cfg: c, wide: w }) => persistOptions(id, title, tint, c, w),
                       onRemove: () => persistRemove(id) }}>
                     {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
                         toujours ouverte — il n'y a plus qu'un seul écrivain. */}

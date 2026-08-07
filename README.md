@@ -106,20 +106,16 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      Softr).
    - **⋮ Réglages du widget** (2026-08-06) — une **modale** en deux colonnes (*Apparence* :
      titre, couleur ; *Contenu* : les réglages du type), et non plus un panneau de 292 px.
-     Elle porte aussi le **retrait du widget** (confirmation en deux temps) et son
-     **encombrement** (largeur moitié / pleine, et la **hauteur en pixels** : un champ
-     numérique — de 120 à 1600 — plus quatre repères cliquables Petit / Moyen / Grand / XL qui
-     posent 168 / 340 / 560 / 860. La poignée sous la carte règle la même valeur, en continu).
-     **Pas de
-     réglage de position** (2026-08-07) : on réordonne en glissant l'en-tête d'une carte,
-     et rien d'autre. ⚠️ Conséquence acceptée : il n'existe donc **aucun chemin de
-     réordonnancement au clavier ni au doigt**, le glisser-déposer HTML5 ne répondant pas
-     au tactile.
-     Les **poignées de bord** font la même chose à la souris : discrètes au repos, révélées
-     au survol de leur bord, et déportées dans la gouttière pour ne pas voler les clics des
-     lignes ni recouvrir la barre de défilement. Le geste s'écrit **une seule fois, au
-     relâchement** (pas à chaque cran). ⚠️ Le retrait est **écrit immédiatement** (pas de
-     brouillon), d'où sa confirmation et le toast. La mention « Rien n'est appliqué avant
+     Elle porte aussi le **retrait du widget** (confirmation en deux temps) et sa **largeur**
+     (moitié / pleine) — et c'est tout. ⚠️ **Ni hauteur ni position** : les deux ont été
+     retirées du panneau le 2026-08-07 parce que le **geste** suffit — la **poignée sous la
+     carte** règle la hauteur en continu (120 à 1600 px), l'**en-tête se glisse** pour
+     réordonner. Contrepartie assumée et connue : ces deux réglages n'ont donc plus **aucun
+     chemin au clavier ni au doigt**, le glisser-déposer HTML5 ne répondant pas au tactile.
+     Les **poignées** sont discrètes au repos, révélées au survol de leur bord, et déportées
+     dans la gouttière pour ne pas voler les clics des lignes ni recouvrir la barre de
+     défilement. Le geste s'écrit **une seule fois, au relâchement**. ⚠️ Le retrait est
+     **écrit immédiatement** (pas de brouillon), d'où sa confirmation et le toast. La mention « Rien n'est appliqué avant
      Enregistrer » a été retirée du pied : deux boutons nommés « Annuler » et
      « Enregistrer » le disent déjà. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
      est décidée à la pose par le modèle de la galerie et ne change plus — un indicateur
