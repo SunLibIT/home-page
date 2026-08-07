@@ -350,14 +350,12 @@ function StyleInjector() {
       .slb-row:hover .slb-hact, .slb-row:focus-within .slb-hact{ opacity:1; }
       .slb-nbtn-ok:hover{ background:${T.ok050} !important; color:${T.okInk} !important; }
 
-      /* Mode Personnaliser : bouton primaire, items de menu ⋮, poignée, wrapper DnD */
+      /* Réglage des widgets : bouton primaire, items de menu ⋮, wrapper DnD */
       .slb-btnp{ transition:background .15s ease; }
       .slb-btnp:hover{ background:${T.brand600}; }
       .slb-menu-item{ transition:background .12s ease; }
       .slb-menu-item:hover:not(:disabled){ background:${T.surface2}; }
       .slb-menu-item:disabled{ opacity:.45; cursor:not-allowed; }
-      .slb-grip{ cursor:grab; }
-      .slb-grip:active{ cursor:grabbing; }
       .slb-dragwrap{ transition:opacity .15s ease, outline-color .15s ease; }
       /* ⚠️ La GRILLE du dashboard n'est plus décrite ici : display:grid, gap et le
          nombre de colonnes sont posés EN LIGNE par Dashboard (§11), qui mesure la
@@ -365,13 +363,13 @@ function StyleInjector() {
          feuille de style peut ne pas s'appliquer (cf. §2) — et sans display:grid,
          les widgets se collent et « pleine largeur » n'a plus aucun effet. Tout ce
          qui est FONCTIONNEL doit donc rester en style inline. */
-      /* Poignées (mode Personnaliser) : .slb-rzh = largeur (bords G/D), .slb-rzv = hauteur (bas) */
+      /* Poignées de réglage : .slb-rzh = largeur (bords G/D), .slb-rzv = hauteur (bas) */
       .slb-rzh > span{ transition:background .15s ease, height .15s ease; }
       .slb-rzh:hover > span, .slb-rzh:active > span{ background:${T.brand}; height:48px; }
       .slb-rzv > span{ transition:background .15s ease, width .15s ease; }
       .slb-rzv:hover > span, .slb-rzv:active > span{ background:${T.brand}; width:48px; }
-      /* Le trait n'apparaît qu'au survol de SON bord (hors mode Personnaliser il est à
-         opacity:0 en ligne). Doublon volontaire de la règle HoverFX de §2-bis. */
+      /* Le trait n'apparaît qu'au survol de SON bord (au repos il est à opacity:0 en
+         ligne). Doublon volontaire de la règle HoverFX de §2-bis. */
       .slb-rzh > span, .slb-rzv > span{ transition:opacity .15s ease, background .15s ease, height .15s ease, width .15s ease; }
       .slb-rzh:hover > span, .slb-rzh:active > span, .slb-rzv:hover > span, .slb-rzv:active > span{ opacity:1; }
       @keyframes slb-skel{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
@@ -475,9 +473,8 @@ const HOVER_RULES: HoverRule[] = [
      C'est le comportement d'un bord de fenêtre : on ne montre pas les quatre côtés parce
      que le pointeur est entré dans la fenêtre. Le `cursor` de la bande (`ew-resize` /
      `ns-resize`) est ce qui annonce le geste AVANT même que le trait ne se montre.
-     ⚠️ Hors mode Personnaliser, le trait est à `opacity: 0` EN LIGNE (§11) : sans cette
-     règle il resterait invisible pour toujours. En édition il vaut déjà 1, la règle est
-     alors sans effet visible — et la restauration lui rend bien sa valeur d'origine. */
+     ⚠️ Au repos, le trait est à `opacity: 0` EN LIGNE (§11) : sans cette règle il
+     resterait invisible pour toujours. */
   { sel: ".slb-rzh", kids: [{ sel: ":scope > span", trans: "opacity .15s ease, background-color .15s ease, height .15s ease", on: { opacity: "1", "background-color": T.brand, height: "48px" } }] },
   { sel: ".slb-rzv", kids: [{ sel: ":scope > span", trans: "opacity .15s ease, background-color .15s ease, width .15s ease", on: { opacity: "1", "background-color": T.brand, width: "48px" } }] },
   // Podium CAPEX : la marche survolée se soulève, pastille et numéro grossissent. On
@@ -943,8 +940,16 @@ const DS = datasource.define({
   //    irrégulières compris) avant d'ouvrir la lecture en direct.
   notesIns: "122fbc71-06e9-40ce-8b4d-01544c1ac022", // Bdd Installateurs · « Suivi client »
   notesPro: "dbd7e501-deba-482d-86f9-7b3a47abfe4f", // BDD Propect · « Suivi propect »
-  tachesPa: "7198b954-7fdd-41a7-b92b-a114ff88009e", // Bdd Installateurs · « Taches »
-  tachesPr: "9414183e-2624-4e6e-8d7c-89470546251b", // « Taches prospect »
+  tachesPa: "7198b954-7fdd-41a7-b92b-a114ff88009e", // Bdd Installateurs Sunlib · « Taches » (tblebnLi0r90yuqry)
+  /* « Tâches » de BDD PROPECT Sunlib (appKrZfi0alQwq7HX · tblqcm9RYT1KgIe6K) — id CONFIRMÉ
+     par le propriétaire du bloc le 2026-08-07. La connexion Softr porte encore le nom de
+     l ancienne table (« Taches prospect », base Installateurs).
+     ⚠️ SI LE JOURNAL AFFICHAIT DES TÂCHES ÉTRANGÈRES AUX PROSPECTS, c est ici qu il faut
+     regarder : les deux tables portent les MÊMES noms de champs, donc une datasource restée
+     sur l ancienne lit SANS ERREUR — simplement les mauvaises lignes. Le signe distinctif :
+     dans « Tâches » (BDD Propect) « Prospect associé » est un LIEN, dans « Taches prospect »
+     c est du texte libre. */
+  tachesPr: "9414183e-2624-4e6e-8d7c-89470546251b",
   sav: "3f5f8f6c-c6af-4909-a8dc-46e2f123e9a6",      // SAV · « Tickets »
   // ✅ Connectées le 2026-08-05 — les deux périmètres du registre des exceptions.
   excAbo: "b8340293-183b-40c3-acfa-63b5cb237957",   // « Projet solaire »  (tblDiXeZn207S4hBE)
@@ -1010,32 +1015,62 @@ const SELECT_ABONNE = q.select({
   contratNonSigne: "Contrat d abonnement non signe",
 });
 
-// Notes installateurs ← « Suivi client » (base Installateurs)
+/* Notes installateurs ← « Suivi client » (base « Bdd Installateurs Sunlib »,
+   appvD32dWRPmogRgn · tblkP20xivQbSSLUj — relevé le 2026-08-07).
+   ⚠️ `proprio` est un LOOKUP (`multipleLookupValues`) qui remonte le propriétaire SunLib
+   depuis la fiche installateur liée. Il sert le filtre « mes installateurs »
+   (`ownerField` du descripteur, §6-bis) : sans lui, chacun voyait les notes de tout le
+   monde. Un lookup rend un TABLEAU côté Airtable — `asText` s'en charge (§3), comme pour
+   le propriétaire de « Notification Center ».
+   ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES DU BLOC pour la datasource `notesIns`. Un champ
+   absent de la sélection Softr fait échouer le bloc entier (« New data source does not
+   match / Remap the fields »), pas seulement ce widget. */
 const SELECT_NOTE_INS = q.select({
   nom: "Installateur", // champ primaire = nom de l'installateur
   note: "Notes",
   date: "Date ",       // ⚠️ espace final
+  proprio: "Proprietaire (from Installateurs)",
 });
-// Notes prospects ← « Suivi propect » (base Propect)
+/* Notes prospects ← « Suivi propect » (base « BDD Propect Sunlib », appKrZfi0alQwq7HX ·
+   tblaWCbZGGz7IUdNm).
+   ⚠️ `proprio` = LOOKUP « Propriétaire (from Propects) » (fldvdeSn4sQoJimR3), CRÉÉ LE
+   2026-08-07 pour ce filtre : la table ne portait aucun propriétaire, celui-ci vit sur
+   « Propects » et remonte ici par le lien `Propects`. Le champ source étant lui-même un
+   LIEN (`multipleRecordLinks` vers la table des collaborateurs), le lookup rend un tableau
+   de noms — `asText` (§3) le met à plat, comme pour les autres lookups du bloc.
+   ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES du bloc pour la datasource `notesPro`, sinon Softr
+   refuse toute la datasource (« does not match / Remap the fields »). */
 const SELECT_NOTE_PRO = q.select({
   nom: "Nom",
   note: "Notes",
   date: "date ",       // ⚠️ espace final (createdTime)
+  proprio: "Propriétaire (from Propects)",
 });
 
-// Tâches partenaires ← « Taches » (base Installateurs)
+/* Tâches partenaires ← « Taches » (base « Bdd Installateurs Sunlib » · tblebnLi0r90yuqry).
+   ⚠️ `assignee` sert le filtre « mes tâches » (2026-08-07) : sans lui, le journal montrait
+   les tâches de toute l'équipe. À COCHER DANS L'ONGLET SOURCES du bloc, sans quoi Softr
+   refuse la datasource entière. */
 const SELECT_TACHE_PA = q.select({
   desc: "Description",
   associe: "Partenaire associé",
   fin: "date de fin",  // ⚠️ minuscule
   fait: "Fait",        // pour n'afficher que les tâches en cours
+  assignee: "Assignee",
 });
-// Tâches prospects ← « Taches prospect » (base Installateurs)
+/* Tâches prospects ← « Tâches » de la base « BDD Propect Sunlib » (appKrZfi0alQwq7HX ·
+   tblqcm9RYT1KgIe6K), et NON « Taches prospect » de la base Installateurs. La datasource a
+   été confirmée le 2026-08-07 (cf. la note sur `DS.tachesPr`, §6).
+   ⚠️ Les quatre noms de champs ci-dessous existent dans les DEUX tables : une datasource qui
+   pointerait l'ancienne lirait sans erreur, simplement les mauvaises lignes. C'est le genre de
+   méprise qui ne se voit pas — ne pas « corriger » ces noms sans vérifier laquelle est lue.
+   ⚠️ `assignee` sert le filtre « mes tâches » (2026-08-07) ; à cocher côté Softr. */
 const SELECT_TACHE_PR = q.select({
   desc: "Description",
   associe: "Prospect associé",
   fin: "Date de fin",  // ⚠️ majuscule
   fait: "Fait",
+  assignee: "Assignee",
 });
 
 /* ── NOTIFICATION CENTER ← base « BDD Abonné » (appe55vTZRk6Ssd2w) · table
@@ -1378,33 +1413,49 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
       dateSignature: daysAgo(8), dateEdition: daysAgo(14), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
   ],
 
-  // ← SELECT_TACHE_PR / SELECT_TACHE_PA : desc / associe / fin / fait
-  tachesPr: [],
+  /* ← SELECT_TACHE_PR / SELECT_TACHE_PA : desc / associe / fin / fait / assignee.
+     ⚠️ `assignee` mélange l'utilisateur mock (« Frédéric Martin », src/lib/user.tsx) et
+     d'autres noms : le journal filtre sur « assigné à moi » (2026-08-07), donc sans ce
+     mélange l'aperçu ne montrerait qu'un seul des deux cas. Une tâche `fait: true` est là
+     pour vérifier qu'elle reste HORS du journal. */
+  tachesPr: [
+    { id: "p1", desc: "Rappeler JS Energies après l'envoi de la plaquette", associe: "JS Energies", fin: inDays(-1), fait: false, assignee: "Frédéric Martin" },
+    { id: "p2", desc: "Qualifier Aurora Energie (RGE à vérifier)", associe: "Aurora Energie", fin: inDays(3), fait: false, assignee: "Frédéric Martin" },
+    { id: "p3", desc: "Envoyer la simulation à Mon Poseur Energie", associe: "Mon Poseur Energie", fin: inDays(9), fait: false, assignee: "Audrey QUINTANA" },
+    { id: "p4", desc: "Relance salon MIX.E", associe: "Solaris Habitat", fin: inDays(4), fait: true, assignee: "Frédéric Martin" },
+  ],
   tachesPa: [
-    { id: "t1", desc: "Relancer pour les pièces du dossier RGE", associe: "MC ENERGY", fin: inDays(-2), fait: false },
-    { id: "t2", desc: "Envoyer la grille tarifaire 2026", associe: "FLG SOLAR", fin: inDays(1), fait: false },
-    { id: "t3", desc: "Point mensuel pipeline", associe: "Neosoleil", fin: inDays(6), fait: false },
-    { id: "t4", desc: "Préparer la formation financement", associe: "Mandat Energie", fin: inDays(21), fait: false },
+    { id: "t1", desc: "Relancer pour les pièces du dossier RGE", associe: "MC ENERGY", fin: inDays(-2), fait: false, assignee: "Frédéric Martin" },
+    { id: "t2", desc: "Envoyer la grille tarifaire 2026", associe: "FLG SOLAR", fin: inDays(1), fait: false, assignee: "Philippe GERY" },
+    { id: "t3", desc: "Point mensuel pipeline", associe: "Neosoleil", fin: inDays(6), fait: false, assignee: "Frédéric Martin" },
+    { id: "t4", desc: "Préparer la formation financement", associe: "Mandat Energie", fin: inDays(21), fait: false, assignee: "" },
   ],
 
-  // ← SELECT_NOTE_INS / SELECT_NOTE_PRO : nom / note / date
+  /* ← SELECT_NOTE_INS / SELECT_NOTE_PRO : nom / note / date (+ `proprio` pour les deux, cf. ci-dessous).
+     ⚠️ `proprio` MÉLANGE VOLONTAIREMENT trois cas, sans quoi le filtre « mes fiches »
+     (actif par défaut, cf. `ownerField`) ne serait pas observable en aperçu :
+       · au nom de l'utilisateur mock (« Frédéric Martin », src/lib/user.tsx) — ce qui
+         doit RESTER visible ;
+       · à d'autres propriétaires — ce qui doit disparaître ;
+       · vide — une note dont l'installateur n'est rattaché à personne, écartée aussi.
+     Même précaution que pour le mock de « Notification Center » ci-dessous. */
   notesIns: [
-    { id: "i1", nom: "WattElse Energies SAS", date: "2025-05-19", note: "Contact via LinkedIn, en attente de retour sur la présentation." },
-    { id: "i2", nom: "3J Environnement", date: "2025-11-25", note: "Dossier admin à jour, RGE renouvelé." },
-    { id: "i3", nom: "Louiseco", date: "2025-08-26", note: "26/08 → présentation faite, très intéressés par l'offre Duo." },
-    { id: "i4", nom: "KE Energies", date: "2024-09-16", note: "Introduit par Hanna, premier échange positif." },
-    { id: "i5", nom: "Aura Sun", date: "2025-11-17", note: "Vu Solar and Storage, à recontacter début décembre." },
-    { id: "i6", nom: "renov&sun VIP Montpellier", date: "2025-11-24", note: "RGE et décennale reçus, dossier complet." },
-    { id: "i7", nom: "Gaïa l'Énergie de Demain", date: "2025-05-16", note: "Nouvel email pour la mise en relation avec le pôle études." },
+    { id: "i1", nom: "WattElse Energies SAS", date: "2025-05-19", note: "Contact via LinkedIn, en attente de retour sur la présentation.", proprio: "Frédéric Martin" },
+    { id: "i2", nom: "3J Environnement", date: "2025-11-25", note: "Dossier admin à jour, RGE renouvelé.", proprio: "Philippe GERY" },
+    { id: "i3", nom: "Louiseco", date: "2025-08-26", note: "26/08 → présentation faite, très intéressés par l'offre Duo.", proprio: "Frédéric Martin" },
+    { id: "i4", nom: "KE Energies", date: "2024-09-16", note: "Introduit par Hanna, premier échange positif.", proprio: "Audrey QUINTANA" },
+    { id: "i5", nom: "Aura Sun", date: "2025-11-17", note: "Vu Solar and Storage, à recontacter début décembre.", proprio: "Frédéric Martin" },
+    { id: "i6", nom: "renov&sun VIP Montpellier", date: "2025-11-24", note: "RGE et décennale reçus, dossier complet.", proprio: "" },
+    { id: "i7", nom: "Gaïa l'Énergie de Demain", date: "2025-05-16", note: "Nouvel email pour la mise en relation avec le pôle études.", proprio: "Frédéric Martin" },
   ],
   notesPro: [
-    { id: "p1", nom: "JS Energies", date: "2026-03-25", note: "Tentative d'appel, laissé message, à relancer semaine prochaine." },
-    { id: "p2", nom: "Mon Poseur Energie", date: "2025-09-26", note: "Rappel ce jour d'un autre gérant, intéressé par le modèle abonnement." },
-    { id: "p3", nom: "Aurora Energie", date: "2025-07-08", note: "laurent@aurora-energie.fr — envoi de la plaquette et de la grille." },
-    { id: "p4", nom: "LM Energie — Perpignan", date: "2025-07-08", note: "Damien : présentation faite, relance faite." },
-    { id: "p5", nom: "ATEXE Group — Montpellier", date: "2025-06-11", note: "Prise de rdv pour le jeudi 19/06." },
-    { id: "p6", nom: "Voltissima", date: "2025-05-21", note: "OK contrat, va m'envoyer au mois de juin ses premières affaires." },
-    { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib." },
+    { id: "p1", nom: "JS Energies", date: "2026-03-25", note: "Tentative d'appel, laissé message, à relancer semaine prochaine.", proprio: "Frédéric Martin" },
+    { id: "p2", nom: "Mon Poseur Energie", date: "2025-09-26", note: "Rappel ce jour d'un autre gérant, intéressé par le modèle abonnement.", proprio: "Audrey QUINTANA" },
+    { id: "p3", nom: "Aurora Energie", date: "2025-07-08", note: "laurent@aurora-energie.fr — envoi de la plaquette et de la grille.", proprio: "Frédéric Martin" },
+    { id: "p4", nom: "LM Energie — Perpignan", date: "2025-07-08", note: "Damien : présentation faite, relance faite.", proprio: "Frédéric Martin" },
+    { id: "p5", nom: "ATEXE Group — Montpellier", date: "2025-06-11", note: "Prise de rdv pour le jeudi 19/06.", proprio: "Philippe GERY" },
+    { id: "p6", nom: "Voltissima", date: "2025-05-21", note: "OK contrat, va m'envoyer au mois de juin ses premières affaires.", proprio: "Frédéric Martin" },
+    { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib.", proprio: "" },
   ],
 
   /* ← SELECT_NOTIF_C. Depuis la refonte du 2026-08-06, ces lignes sont TOUT ce que lit
@@ -1664,6 +1715,18 @@ type SourceDesc = {
      Les VALEURS ne sont pas listées ici : elles sont déduites des lignes lues
      (`facetValues`), donc un nouvel installateur apparaît sans toucher au code. */
   defaultFacet?: string;
+  /* --- ALIAS DU CHAMP « PROPRIÉTAIRE SUNLIB » (2026-08-07) ----------------------
+     Renseigné, tout widget de cette source gagne le filtre « seulement les fiches dont
+     je suis propriétaire » (`cfg.mine`), ACTIF PAR DÉFAUT, et le rapprochement se fait
+     par `ownerIsUser` (§5) — le même que celui des notifications, avec les mêmes limites
+     assumées : on compare des MOTS DE NOM, parce que ces champs ne portent aucun e-mail.
+     Pourquoi c'est déclaré ici et pas devinable : « propriétaire » s'écrit différemment
+     dans chaque table (`Proprietaire (from Installateurs)`, `Propriétaire`…), et une
+     source SANS propriétaire ne doit pas offrir un filtre qui viderait la liste.
+     ⚠️ Le filtre est appliqué CÔTÉ CLIENT (`selectRows`), sur les lignes déjà lues : un
+     lookup ne se filtre pas de façon fiable côté serveur. Corollaire à connaître : il
+     réduit ce qui est AFFICHÉ, il n'allège pas la lecture. */
+  ownerField?: string;
 };
 
 /* Catalogue déclaratif — le « descripteur de source ». Il ne contient JAMAIS de nom
@@ -1773,10 +1836,16 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       nom: { label: "Installateur", kind: "text" },
       note: { label: "Note", kind: "longtext" },
       date: { label: "Date", kind: "date" },
+      proprio: { label: "Propriétaire (SunLib)", kind: "text" },
     },
     defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
     defaultFacet: "nom",          // filtre à cases : par installateur
+    /* Chacun ne voit QUE ses installateurs (2026-08-07, demandé). Le champ est le lookup
+       `Proprietaire (from Installateurs)` de « Suivi client » — cf. SELECT_NOTE_INS, et
+       n'oublier ni de le cocher côté Softr ni ce que `ownerField` implique (filtre
+       client, rapprochement par nom). */
+    ownerField: "proprio",
     presets: [{ label: "Dernières notes — Installateurs", cfg: { title: "Dernières notes — Installateurs", unit: "note" } }],
     /* ⚠️ PAS DE `create`, retiré le 2026-08-04 en ouvrant la lecture en direct. Le
        formulaire fonctionnait techniquement (les trois champs sont dans la whitelist),
@@ -1796,10 +1865,14 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       nom: { label: "Prospect", kind: "text" },
       note: { label: "Note", kind: "longtext" },
       date: { label: "Date", kind: "date" },
+      proprio: { label: "Propriétaire (SunLib)", kind: "text" },
     },
     defaultSort: { by: "date", dir: "desc" },
     defaultMap: { title: "nom", sub: "note", date: "date" },
     defaultFacet: "nom",          // filtre à cases : par prospect
+    /* Chacun ne voit QUE ses prospects (2026-08-07, demandé). Le champ est le lookup
+       « Propriétaire (from Propects) », créé ce jour-là — cf. SELECT_NOTE_PRO. */
+    ownerField: "proprio",
     presets: [{ label: "Dernières notes — Prospects", cfg: { title: "Dernières notes — Prospects", unit: "note" } }],
     // Pas de `create` — même raison que pour les notes installateurs : le rattachement
     // au prospect passe par un champ LIEN (`Propects`). `date` est de surcroît un
@@ -1807,7 +1880,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
   },
   tachesPa: {
     key: "tachesPa",
-    label: "Tâches partenaires — Taches",
+    label: "Tâches partenaires — Taches (Installateurs)",
     icon: "CalendarClock",
     connected: true,
     fields: {
@@ -1815,7 +1888,10 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       associe: { label: "Partenaire associé", kind: "text" },
       fin: { label: "Date de fin", kind: "date" },
       fait: { label: "Fait", kind: "bool" },
+      assignee: { label: "Assigné à", kind: "text" },
     },
+    // Chacun ne voit que SES tâches (2026-08-07). Cf. `ownerField` (§6-bis).
+    ownerField: "assignee",
     defaultSort: { by: "fin", dir: "asc" },
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
     defaultFacet: "associe",      // filtre à cases : par partenaire
@@ -1840,7 +1916,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
   },
   tachesPr: {
     key: "tachesPr",
-    label: "Tâches prospects — Taches prospect",
+    label: "Tâches prospects — Tâches (BDD Propect)",
     icon: "ClipboardList",
     connected: true,
     fields: {
@@ -1848,7 +1924,9 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       associe: { label: "Prospect associé", kind: "text" },
       fin: { label: "Date de fin", kind: "date" },
       fait: { label: "Fait", kind: "bool" },
+      assignee: { label: "Assigné à", kind: "text" },
     },
+    ownerField: "assignee",
     defaultSort: { by: "fin", dir: "asc" },
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
     defaultFacet: "associe",      // filtre à cases : par prospect
@@ -2524,7 +2602,7 @@ function EmptyState({ icon: Icon, title, hint, dense }: { icon: LucideIcon; titl
   );
 }
 
-/* Taille (hauteur) d'un widget, réglable en mode Personnaliser. Défaut "md". */
+/* Taille (hauteur) d'un widget, réglable par sa poignée du bas ou son ⋮. Défaut "md". */
 type WidgetSize = "sm" | "md" | "lg";
 const WIDGET_HEIGHTS: Record<WidgetSize, number> = { sm: 168, md: 340, lg: 560 };
 
@@ -2559,16 +2637,13 @@ const WidgetHeightCtx = createContext<number>(WIDGET_HEIGHTS.md);
 
 function ScrollBody({ children }: { children?: ReactNode }) {
   const maxHeight = useContext(WidgetHeightCtx);
-  /* PAS DE BARRE DE DÉFILEMENT EN MODE PERSONNALISER. Elle ne servait à rien — le
-     corps y est déjà inerte (`pointerEvents: "none"`, cf. `Widget`) — et elle
-     passait juste sous les poignées de largeur, qui longent le même bord droit : on
-     visait la poignée, on attrapait la barre, ou l'inverse. La retirer supprime le
-     conflit à la source plutôt que de déplacer les poignées loin du bord.
-     ⚠️ `WidgetChromeCtx` est déclaré plus bas dans le fichier : légal, parce que ce
-     composant ne le lit qu'au RENDU, longtemps après l'évaluation du module. */
-  const editing = useContext(WidgetChromeCtx) !== null;
+  /* Le corps défile TOUJOURS : il n'y a plus de mode où il serait inerte (le mode
+     « Personnaliser » a été supprimé le 2026-08-07 — tout se règle en direct).
+     ⚠️ La barre de défilement longe le même bord droit que la poignée de largeur : ce
+     conflit est réglé côté §11, où les poignées sont déportées DANS LA GOUTTIÈRE, hors
+     de la carte. Ne pas les ramener sur le bord intérieur. */
   return (
-    <div className="slb-scrolly" style={{ overflowY: editing ? "hidden" : "auto", maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
+    <div className="slb-scrolly" style={{ overflowY: "auto", maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
       {/* Le filet de séparation entre lignes était une règle injectée
           (`.slb-row + .slb-row`) : il est posé ici, en ligne, autour de chaque
           enfant — un seul endroit pour toutes les listes du bloc. */}
@@ -2579,27 +2654,18 @@ function ScrollBody({ children }: { children?: ReactNode }) {
   );
 }
 
-/* --- Contexte d'édition : le mode Personnaliser injecte, PAR widget, sa position
-      et ses actions (déplacer, largeur, taille, dupliquer, supprimer). `null` = usage normal →
-      aucune poignée, aucun menu d'édition, corps interactif. --- */
-type WidgetChrome = {
-  index: number;
-  total: number;
-  isWide: boolean;
-  size: WidgetSize;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  onSetWide: (value: boolean) => void;
-  onSetSize: (size: WidgetSize) => void;
-  onRemove: () => void;   // seul geste de retrait : il n'y a plus de « Masquer »
-};
-const WidgetChromeCtx = createContext<WidgetChrome | null>(null);
-
-/* --- Contexte d'OPTIONS (mode normal) : le Dashboard injecte, par instance, sa
-      configuration courante, le formulaire du type et le callback de sauvegarde.
+/* --- Contexte d'OPTIONS : le Dashboard injecte, par instance, sa configuration
+      courante, le formulaire du type et le callback de sauvegarde.
       `null` = ce widget n'est pas configurable → le bouton ⋮ reste inerte.
       `any` assumé : chaque type définit SA forme de cfg et son propre formulaire ;
-      le contexte est volontairement agnostique. --- */
+      le contexte est volontairement agnostique.
+
+      ⚠️ 2026-08-07 — LE MODE « PERSONNALISER » A ÉTÉ SUPPRIMÉ. Il n'y a plus qu'un
+      seul régime : tout geste (déplacer, redimensionner, régler, retirer) s'applique
+      et s'écrit EN DIRECT. Ce contexte est donc fourni en permanence, et c'est lui qui
+      porte désormais TOUT ce qui se réglait dans l'ancien menu ⋮ d'édition — position
+      comprise (`onMoveUp` / `onMoveDown`), qui reste le seul chemin CLAVIER et TACTILE
+      pour réordonner (le DnD HTML5 ne fonctionne pas au doigt). --- */
 type WidgetOptions = {
   cfg: any;
   /** Formulaire propre au TYPE. Absent = ce type n'a pas de réglages ; le panneau
@@ -2614,11 +2680,19 @@ type WidgetOptions = {
   wide: boolean;
   size: WidgetSize;
   onSave: (next: { title: string; tint: string; cfg: any; wide: boolean; size: WidgetSize }) => void;
-  /** Retire le widget de l'accueil, HORS mode Personnaliser (2026-08-06 : le bouton
-   *  « Personnaliser » ne servait plus qu'à ça pour la plupart des gestes).
-   *  ⚠️ Écriture IMMÉDIATE, sans brouillon — contrairement au retrait du mode
-   *  Personnaliser, qui reste annulable jusqu'au « Enregistrer ». D'où la confirmation
-   *  en deux temps dans la modale : ici, un clic de trop retire vraiment le widget. */
+  /** Position de CETTE instance dans la grille, et les deux gestes qui la changent.
+   *  ⚠️ APPLIQUÉS EN DIRECT, contrairement au reste du panneau (titre, couleur,
+   *  encombrement, contenu) qui reste un brouillon jusqu'à « Enregistrer ». Un
+   *  déplacement ne se prévisualise pas dans une modale : il n'a de sens qu'appliqué
+   *  à la grille, sous les yeux. Les bornes (`index`, `total`) désactivent le geste
+   *  impossible plutôt que de le laisser cliquable sans effet. */
+  index: number;
+  total: number;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  /** Retire le widget de l'accueil. Écriture IMMÉDIATE, comme tout le reste depuis la
+   *  suppression du mode « Personnaliser » — d'où la confirmation en deux temps dans la
+   *  modale : ici, un clic de trop retire vraiment le widget. */
   onRemove?: () => void;
 };
 const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
@@ -2678,9 +2752,10 @@ const WidgetTintCtx = createContext<string>("");
    widget dont l'état EST son contenu — un pense-bête, une liste à cocher — doit
    pouvoir enregistrer sans passer par un formulaire caché derrière un ⋮.
 
-   Fourni hors mode Personnaliser uniquement : pendant l'édition, le corps est inerte
-   et le brouillon `draft` fait autorité — deux chemins d'écriture concurrents sur la
-   même instance produiraient un écrasement silencieux.
+   Fourni EN PERMANENCE depuis la suppression du mode « Personnaliser » (2026-08-07) :
+   il n'existe plus de régime où le corps serait inerte, donc plus de raison de couper
+   ce canal. Il reste un seul écrivain par instance — le layout appliqué — donc pas
+   d'écrasement silencieux possible.
 
    L'écriture est SILENCIEUSE en cas de succès (pas de toast à chaque frappe) mais un
    échec reste annoncé, cf. `runSave`. Ce canal servira aussi au tri par clic sur les
@@ -2688,13 +2763,12 @@ const WidgetTintCtx = createContext<string>("");
 type WidgetCfgWriter = { save: (cfg: unknown) => void };
 const WidgetCfgCtx = createContext<WidgetCfgWriter | null>(null);
 
-/* --- PRÉHENSION D'UN WIDGET — fournie dans LES DEUX MODES ---------------------
-   Déplacer un widget ne demande plus d'entrer dans « Personnaliser » : l'EN-TÊTE de
-   chaque carte est saisissable en permanence. Doublon assumé avec le mode
-   Personnaliser, qui reste la voie complète (et la seule accessible au clavier et au
-   doigt, cf. `WidgetEditMenu`).
+/* --- PRÉHENSION D'UN WIDGET ----------------------------------------------------
+   L'EN-TÊTE de chaque carte est saisissable en permanence : c'est la seule façon de
+   réordonner à la souris. Au clavier et au doigt, où le DnD HTML5 ne fonctionne pas,
+   le chemin est « Monter / Descendre » dans le ⋮ (cf. `WidgetOptions`).
 
-   Pourquoi l'en-tête et pas la carte entière : hors édition le corps est INTERACTIF
+   Pourquoi l'en-tête et pas la carte entière : le corps est INTERACTIF
    (boutons, liens, défilement, sélection de texte). Rendre tout le wrapper
    `draggable` y aurait déclenché un glisser au moindre mouvement — c'est exactement
    le mécanisme qui annulait les clics du menu ⋮ (bug du 2026-08-03) — et aurait
@@ -2710,10 +2784,11 @@ type WidgetGrab = {
 const WidgetGrabCtx = createContext<WidgetGrab | null>(null);
 
 /* --- FERMETURE D'UN PANNEAU FLOTTANT (clic extérieur + Échap) -----------------
-   Hook PARTAGÉ par les deux menus ⋮. Il l'est devenu en corrigeant le bug du
+   Hook PARTAGÉ par tous les panneaux flottants du bloc (facettes et tri de la barre
+   d'outils des widgets de données). Il l'est devenu en corrigeant le bug du
    2026-08-03 — « le panneau se referme au clic, sans exécuter l'action » — parce
    que le code était dupliqué à l'identique et qu'un correctif appliqué à un seul
-   des deux menus aurait laissé l'autre cassé.
+   endroit aurait laissé les autres cassés.
 
    Deux des trois causes du bug se neutralisent ICI (la troisième, le DnD, est
    traitée dans `onDragStart` du Dashboard). Les deux gardes ci-dessous ne sont pas
@@ -2784,9 +2859,9 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
   return ref;
 }
 
-/* --- Menu ⋮ du mode normal : ouvre le formulaire d'options du widget. Édition
-      LOCALE (brouillon) jusqu'à « Enregistrer » — même règle que la grille : on
-      n'écrit jamais en base à chaque frappe. Fermeture Échap / clic extérieur. --- */
+/* --- Menu ⋮ d'un widget : ouvre le formulaire d'options. Édition LOCALE (brouillon)
+      jusqu'à « Enregistrer » — on n'écrit jamais en base à chaque frappe. Fermeture
+      Échap / clic sur le voile. --- */
 /* --- Réglages d'un widget : une MODALE, plus un panneau de 292 px ---------------
    Avant le 2026-08-06, ces réglages vivaient dans un panneau flottant de 292 px
    accroché sous le bouton ⋮. Ça tenait pour un titre et une couleur ; ça ne tient
@@ -2795,17 +2870,20 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
    colonne étroite avec un ascenseur, et on perdait de vue ce qu'on modifiait.
 
    Désormais : une modale centrée, en DEUX COLONNES sur écran large.
-   · « Apparence » (titre, couleur) — commun à TOUS les types, y compris ceux qui
-     n'ont pas de formulaire ;
+   · « Apparence » (titre, couleur, encombrement, position) — commun à TOUS les types,
+     y compris ceux qui n'ont pas de formulaire ;
    · « Contenu » — le formulaire du type (`opts.Form`), qui a enfin la largeur de
      ses `<select>` et de ses lignes de filtres.
    Sur écran étroit, les deux colonnes se replient l'une sous l'autre (`flexWrap`),
    sans média query — il n'y en a pas dans ce bloc (cf. la contrainte §1).
 
-   Ce qui NE change pas, et ne doit pas changer : l'édition reste un BROUILLON.
-   Rien n'est appliqué avant « Enregistrer », et « Annuler » jette tout — même
-   règle que le mode Personnaliser. C'est ce qui rend l'exploration des réglages
-   sans risque.
+   Ce qui NE change pas, et ne doit pas changer : les RÉGLAGES restent un BROUILLON.
+   Rien n'est appliqué avant « Enregistrer », et « Annuler » jette tout. C'est ce qui
+   rend l'exploration des réglages sans risque.
+   ⚠️ DEUX EXCEPTIONS, et elles sont assumées : « Monter / Descendre » et « Retirer »
+   agissent EN DIRECT. Un déplacement n'a de sens qu'appliqué à la grille (le prévoir
+   dans une modale ne montrerait rien), et un retrait doit être franc — d'où sa
+   confirmation en deux temps. Le libellé du pied le dit à l'écran.
 
    ⚠️ Fermeture par clic sur le VOILE (`e.target === e.currentTarget`) et par Échap,
    et non par `useDismissOnOutside` : ce formulaire est plein de `<select>`, dont la
@@ -2854,7 +2932,7 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
   const section: CSSProperties = { minWidth: 0, padding: "13px 14px", borderRadius: T.rLg, border: `1px solid ${T.line}`, background: T.surface2 };
   const secApparence: CSSProperties = { ...section, flex: "0 1 250px" };
   const secContenu: CSSProperties = { ...section, flex: "1 1 400px" };
-  // Segments (largeur / hauteur) — mêmes métriques que ceux du mode Personnaliser.
+  // Segments (largeur / hauteur) — un bouton par valeur possible.
   const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" });
   const secTitle: CSSProperties = { display: "flex", alignItems: "center", gap: "7px", fontSize: "12.5px", fontWeight: 700, color: T.ink, marginBottom: "10px" };
   const Form = opts.Form;
@@ -2941,7 +3019,7 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                     {tintOf(draftTint).label}
                   </div>
 
-                  {/* ── ENCOMBREMENT ── remonté ici depuis le mode Personnaliser
+                  {/* ── ENCOMBREMENT ── remonté ici depuis l'ancien menu ⋮ d'édition
                       (2026-08-06). Les poignées de bord font exactement la même chose à
                       la souris ; ces segments sont le chemin CLAVIER et TACTILE — un
                       glisser-déposer HTML5 ne fonctionne pas au doigt, et une poignée de
@@ -2958,6 +3036,29 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                         {s === "sm" ? "Petit" : s === "md" ? "Moyen" : "Grand"}
                       </button>
                     ))}
+                  </div>
+
+                  {/* ── POSITION ── le chemin CLAVIER et TACTILE du réordonnancement, et
+                      le SEUL depuis la suppression du mode « Personnaliser » (le
+                      glisser-déposer HTML5 ne fonctionne pas au doigt).
+                      ⚠️ EN DIRECT, contrairement au reste de cette colonne : la modale
+                      reste ouverte, la grille bouge derrière, et les boutons se
+                      désactivent d'eux-mêmes aux extrémités (`opts.index` est rafraîchi
+                      à chaque rendu). Enchaîner trois clics pour remonter de trois rangs
+                      doit rester possible sans refermer le panneau. */}
+                  <span style={{ ...lbl, marginTop: "13px" }}>Position <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600, color: T.ink4 }}>· appliquée aussitôt</span></span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button className="slb-menu-item" style={{ ...seg(false), display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
+                      onClick={opts.onMoveUp} disabled={opts.index === 0} aria-label={`Monter — ${title}`}>
+                      <ChevronUp aria-hidden style={{ width: 14, height: 14 }} />Monter
+                    </button>
+                    <button className="slb-menu-item" style={{ ...seg(false), display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
+                      onClick={opts.onMoveDown} disabled={opts.index === opts.total - 1} aria-label={`Descendre — ${title}`}>
+                      <ChevronDown aria-hidden style={{ width: 14, height: 14 }} />Descendre
+                    </button>
+                  </div>
+                  <div style={{ margin: "6px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
+                    Position {opts.index + 1} sur {opts.total} · à la souris, glissez l'en-tête de la carte.
                   </div>
                 </div>
 
@@ -3011,65 +3112,9 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
   );
 }
 
-/* --- Menu ⋮ d'édition — chemin CLAVIER et TACTILE (le DnD HTML5 ne fonctionne
-      pas au doigt : ce menu n'est donc pas optionnel). Boutons focusables,
-      aria-label explicites, fermeture Échap / clic extérieur (`useDismissOnOutside`,
-      qui porte les gardes du bug du 2026-08-03).
-      ⚠️ Ce menu-ci vit en mode Personnaliser, donc AU-DESSUS d'un wrapper
-      `draggable` : c'était lui le plus exposé au DnD qui annulait le clic. La garde
-      correspondante est dans `onDragStart` du Dashboard, pas ici. --- */
-function WidgetEditMenu({ chrome, title }: { chrome: WidgetChrome; title: string }) {
-  const [open, setOpen] = useState(false);
-  const ref = useDismissOnOutside(open, setOpen);
-  const item: CSSProperties = { display: "flex", alignItems: "center", gap: "9px", width: "100%", padding: "9px 12px", borderRadius: T.rSm, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "13px", fontWeight: 600, color: T.ink2, textAlign: "left", whiteSpace: "nowrap" };
-  const run = (fn: () => void) => () => { fn(); setOpen(false); };
-  const sep: CSSProperties = { height: 1, background: T.line, margin: "5px 8px" };
-  const segLbl: CSSProperties = { padding: "5px 12px 3px", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em" };
-  const segRow: CSSProperties = { display: "flex", gap: "6px", padding: "0 8px 5px" };
-  const seg = (active: boolean): CSSProperties => ({ flex: 1, padding: "6px 4px", borderRadius: T.rSm, border: `1px solid ${active ? T.brand : T.line}`, background: active ? T.brand050 : T.surface, color: active ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" });
-  return (
-    <div ref={ref} style={{ position: "relative", flex: "none" }}>
-      <button className="slb-nbtn" style={NBTN_SM} aria-haspopup="menu" aria-expanded={open}
-        onClick={() => setOpen((o) => !o)} aria-label={`Réorganiser — ${title}`} title="Réorganiser">
-        <MoreVertical aria-hidden style={{ width: 15, height: 15 }} />
-      </button>
-      {open && (
-        <div role="menu" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, minWidth: 214, padding: "5px", backgroundColor: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" }}>
-          <button role="menuitem" className="slb-menu-item" style={item} onClick={run(chrome.onMoveUp)} disabled={chrome.index === 0} aria-label={`Monter — ${title}`}>
-            <ChevronUp aria-hidden style={{ width: 16, height: 16 }} />Monter
-          </button>
-          <button role="menuitem" className="slb-menu-item" style={item} onClick={run(chrome.onMoveDown)} disabled={chrome.index === chrome.total - 1} aria-label={`Descendre — ${title}`}>
-            <ChevronDown aria-hidden style={{ width: 16, height: 16 }} />Descendre
-          </button>
-          <div style={sep} />
-          <div style={segLbl}>Largeur</div>
-          <div style={segRow}>
-            <button style={seg(!chrome.isWide)} onClick={() => chrome.onSetWide(false)} aria-pressed={!chrome.isWide} aria-label={`Largeur moitié — ${title}`}>Moitié</button>
-            <button style={seg(chrome.isWide)} onClick={() => chrome.onSetWide(true)} aria-pressed={chrome.isWide} aria-label={`Pleine largeur — ${title}`}>Pleine</button>
-          </div>
-          <div style={segLbl}>Taille</div>
-          <div style={segRow}>
-            <button style={seg(chrome.size === "sm")} onClick={() => chrome.onSetSize("sm")} aria-pressed={chrome.size === "sm"} aria-label={`Très petit — ${title}`}>Petit</button>
-            <button style={seg(chrome.size === "md")} onClick={() => chrome.onSetSize("md")} aria-pressed={chrome.size === "md"} aria-label={`Moyen — ${title}`}>Moyen</button>
-            <button style={seg(chrome.size === "lg")} onClick={() => chrome.onSetSize("lg")} aria-pressed={chrome.size === "lg"} aria-label={`Grand — ${title}`}>Grand</button>
-          </div>
-          <div style={sep} />
-          {/* Suppression définitive, et SEULE façon de retirer un widget (« Masquer »
-              a été retiré, cf. le type `Layout`). Réversible tant qu'on n'a pas
-              quitté le mode Personnaliser : rien n'est écrit avant « Enregistrer ». */}
-          <button role="menuitem" className="slb-menu-item" style={{ ...item, color: T.dangerInk }} onClick={run(chrome.onRemove)} aria-label={`Supprimer — ${title}`}>
-            <Trash2 aria-hidden style={{ width: 16, height: 16 }} />Supprimer
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* --- Coquille de widget compact : en-tête (icône + titre + actions), corps
-      libre, pied optionnel. En mode Personnaliser (contexte présent) : poignée
-      GripVertical + menu ⋮ d'édition dans l'en-tête, et corps rendu INERTE
-      (pointer-events:none) pour éviter tout clic accidentel pendant le drag.
+      libre, pied optionnel. L'en-tête est la zone de PRÉHENSION (glisser pour
+      réordonner) et porte le ⋮ des réglages ; le corps reste toujours interactif.
       chaque widget vit indépendamment. --- */
 function Widget({
   icon: Icon,
@@ -3088,10 +3133,8 @@ function Widget({
   children?: ReactNode;
   footer?: ReactNode;
 }) {
-  const chrome = useContext(WidgetChromeCtx);
   const opts = useContext(WidgetOptionsCtx);
   const grab = useContext(WidgetGrabCtx);
-  const editing = chrome !== null;
   /* TITRE : celui de l'instance s'il existe, sinon celui que le composant a passé.
      `title` (la prop) reste donc le titre PAR DÉFAUT — c'est lui que le panneau montre
      en `placeholder`, et lui qui revient si l'utilisateur vide le champ. `shown` sert
@@ -3116,20 +3159,12 @@ function Widget({
     : WHEAD;
   return (
     <Card style={cardStyle}>
-      {/* L'EN-TÊTE est la zone de préhension, dans les deux modes (cf. WidgetGrabCtx).
-          `cursor: grab` suffit comme affordance : pas de `title` ici, il se
-          déclencherait au survol du titre du widget. */}
+      {/* L'EN-TÊTE est la zone de préhension (cf. WidgetGrabCtx). `cursor: grab` suffit
+          comme affordance : pas de `title` ici, il se déclencherait au survol du titre du
+          widget. Pas de poignée « mors de déménageur » non plus — elle n'existait qu'en
+          mode Personnaliser, et sur chaque carte en usage courant elle serait du bruit. */}
       <div style={grab ? { ...headStyle, cursor: "grab" } : headStyle}
         draggable={!!grab} onDragStart={grab?.onDragStart} onDragEnd={grab?.onDragEnd}>
-        {/* La poignée n'est montrée qu'en édition — hors édition, la préhension existe
-            mais reste discrète : on ne veut pas d'un mors de déménageur sur chaque
-            carte en usage normal. */}
-        {editing && (
-          <span className="slb-grip" title="Glisser pour réordonner" aria-hidden
-            style={{ display: "grid", placeItems: "center", width: 22, height: 28, marginLeft: -4, color: T.ink4, flex: "none" }}>
-            <GripVertical style={{ width: 17, height: 17 }} />
-          </span>
-        )}
         <span style={!solar && tint.pill ? { ...icoPillSm(false), background: tint.pill, color: tint.ink } : icoPillSm(solar)}>
           <Icon aria-hidden style={{ width: 15, height: 15 }} strokeWidth={1.7} />
         </span>
@@ -3137,19 +3172,13 @@ function Widget({
           <div style={tint.head ? { ...WTITLE, color: tint.ink } : WTITLE}>{shown}</div>
           {sub && <div style={WSUB}>{sub}</div>}
         </div>
-        {editing ? (
-          <WidgetEditMenu chrome={chrome} title={shown} />
-        ) : (
-          <>
-            {headActions}
-            {/* ⋮ affiché pour TOUS les widgets depuis le 2026-08-04 : même un type sans
-                réglages propres est RENOMMABLE, donc le bouton a toujours quelque chose
-                à offrir — il n'est plus décoratif pour autant. */}
-            {opts && <WidgetOptionsMenu opts={opts} title={shown} defaultTitle={title} />}
-          </>
-        )}
+        {headActions}
+        {/* ⋮ affiché pour TOUS les widgets depuis le 2026-08-04 : même un type sans
+            réglages propres est RENOMMABLE, donc le bouton a toujours quelque chose
+            à offrir — il n'est plus décoratif pour autant. */}
+        {opts && <WidgetOptionsMenu opts={opts} title={shown} defaultTitle={title} />}
       </div>
-      <div style={editing ? { pointerEvents: "none", userSelect: "none" } : undefined}>
+      <div>
         {children}
         {footer && (
           <div style={{ display: "flex", justifyContent: "center", padding: "8px 16px", borderTop: `1px solid ${tint.head ? tint.pill || T.line : T.line}` }}>
@@ -3639,6 +3668,12 @@ const NOTIF_FIELDS: { key: string; label: string }[] = [
   { key: "creeLe", label: "Date de création" },
 ];
 const NOTIF_LIMITS = [5, 10, 20, 50];
+/* Palier du bouton « Voir plus » : combien de lignes DE PLUS un clic déroule. Dix, parce
+   qu'une dizaine se parcourt d'un coup d'œil sans repousser le bouton hors de portée du
+   pouce — et parce que le corps du widget étant scrollable, le geste est « je descends,
+   j'en veux encore », pas « je change de page ». Plafonné par `cfg.limite` à l'usage :
+   celui qui a réglé 5 lignes en veut 5 de plus, pas 10. */
+const NOTIF_PAGE = 10;
 /* ⚠️ « offre » (Type d'installation) a disparu avec la refonte : « Notification Center »
    ne porte pas ce champ. Une cfg déjà enregistrée qui le contient perd simplement cette
    clé à la lecture (`coerceNotifsCfg` écarte les clés inconnues) — aucune migration. */
@@ -3801,7 +3836,7 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
 function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
   tri: NotifTri; cfg: NotifsCfg; notifs: SourceApi; ident: UserIdent;
   /** Bascule « voir toutes les notifications » proposée dans l'état vide. Absente si
-   *  le widget ne peut pas écrire sa propre cfg (mode Personnaliser). */
+   *  le widget ne peut pas écrire sa propre cfg. */
   onVoirTout?: () => void;
 }) {
   /* Marquer comme vu = ÉCRIRE false sur « Statut de lecture ». Oui, false : dans cette
@@ -3829,18 +3864,25 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
       setEchec("Cette notification n'a pas pu être marquée comme vue. Réessayez.");
     }
   };
-  /* « Lire plus » — DÉROULEMENT EN PLACE, pas une pagination. Chaque clic ajoute un
-     palier de `cfg.limite` lignes SOUS les précédentes, dans le même corps scrollable :
-     on ne remplace jamais ce qui est déjà lu, et il n'y a pas de « page 2 » où l'on
-     pourrait se perdre. État LOCAL et non `cfg` : c'est de l'affichage éphémère, ça n'a
-     rien à faire dans les préférences enregistrées de l'utilisateur.
-     ⚠️ Le palier suit `cfg.limite` (le réglage « Nombre de lignes » du ⋮) : celui qui a
-     choisi 5 lignes en veut 5 de plus, pas 20. */
+  /* « Voir plus » — DÉROULEMENT EN PLACE, pas une pagination. Chaque clic ajoute un
+     palier de lignes SOUS les précédentes, dans le même corps scrollable : on ne remplace
+     jamais ce qui est déjà affiché, et il n'y a pas de « page 2 » où l'on pourrait se
+     perdre. État LOCAL et non `cfg` : c'est de l'affichage éphémère, ça n'a rien à faire
+     dans les préférences enregistrées de l'utilisateur.
+     ⚠️ Rien n'est « téléchargé » au clic, et c'est voulu : la source est déjà drainée en
+     entier (cf. le plafond de pages, §6) et `selectNotifs` a déjà trié TOUTES les lignes.
+     Le bouton ne fait donc que lever la troncature d'affichage — donc aucune attente, et
+     aucun risque de doublon ou de trou entre deux paliers, ce qu'une vraie pagination
+     serveur aurait apporté avec elle. */
   const [enPlus, setEnPlus] = useState(0);
+  // Palier : dix, ou le réglage « Nombre de lignes » s'il est plus court (cf. NOTIF_PAGE).
+  const palier = Math.min(cfg.limite, NOTIF_PAGE);
   // `vus` retire les lignes traitées à l'instant, avant que la source ne soit relue.
   const restantes = tri.items.filter((n) => !vus.includes(n.id));
   const items = restantes.slice(0, cfg.limite + enPlus);
   const reste = restantes.length - items.length;
+  // Ce que le PROCHAIN clic apportera : le palier, ou tout ce qu'il reste s'il en reste moins.
+  const aVenir = Math.min(reste, palier);
   /* Le filtre est-il RÉELLEMENT appliqué ? Demandé (`cfg`) ne suffit pas : sans session
      identifiable il est sauté (cf. `selectNotifs`), et le sous-titre ne doit pas
      annoncer « mes dossiers » quand ce sont ceux de tout le monde. */
@@ -3918,20 +3960,30 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
                 deviendrait silencieusement partielle : c'est `COM_MAX_PAGES` qu'il
                 faudrait relever, pas cet avertissement qu'il faudrait remettre.
               Reste UN seul élément de pied : le déroulement de la suite. */}
+          {/* Le libellé DIT COMBIEN arrive au prochain clic, et combien il reste derrière.
+              « Lire plus » ne disait ni l'un ni l'autre : on ne savait pas si l'on
+              s'engageait dans trois lignes ou dans trois cents. Quand le reste tient dans
+              un palier, le bouton l'annonce comme le DERNIER — c'est ce qui permet de
+              savoir qu'on a fait le tour de sa file. */}
           {reste > 0 && (
-            <button className="slb-row" onClick={() => setEnPlus((n) => n + cfg.limite)}
-              aria-label={`Afficher plus de notifications (${reste} restantes)`}
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, color: T.brand700 }}>
+            <button className="slb-row" onClick={() => setEnPlus((n) => n + palier)}
+              aria-label={`Afficher ${aVenir} notification${aVenir > 1 ? "s" : ""} de plus (${reste} restante${reste > 1 ? "s" : ""})`}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, color: T.brand700 }}>
               <ChevronDown aria-hidden style={{ width: 15, height: 15 }} strokeWidth={2} />
-              Lire plus
+              {aVenir === reste
+                ? `Voir ${reste === 1 ? "la dernière" : `les ${reste} dernières`}`
+                : `Voir ${aVenir} de plus`}
+              {aVenir !== reste && (
+                <span style={{ fontWeight: 500, color: T.ink4 }}>· {reste} restantes</span>
+              )}
             </button>
           )}
         </ScrollBody>
       )}
     </Widget>
-    {/* Frère du widget, jamais dans son corps — mêmes deux raisons que pour les widgets
-        génériques (corps inerte en mode Personnaliser, et `position: fixed` qui
-        s'accrocherait à un ancêtre transformé par le FLIP). Voir `DataView`.
+    {/* Frère du widget, jamais dans son corps — même raison que pour les widgets
+        génériques : `position: fixed` s'accrocherait à un ancêtre transformé par le
+        FLIP. Voir `DataView`.
         ⚠️ `ficheHref` est passé explicitement : le record id d'une ligne de
         « Notification Center » n'est PAS celui de l'abonné — le lien se construit depuis
         `abonneId`, et seulement s'il a bien la forme d'un record id. */}
@@ -3947,7 +3999,10 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
 }
 
 /* --- Widget « Journal des tâches » (colonne droite), onglets internes --- */
-function TaskRow({ t }: { t: Task }) {
+/* Une tâche du journal. `onFait` absent = pas de geste possible (source non écrivable,
+   ou session absente) : le bouton disparaît alors plutôt que de rester inopérant —
+   même règle que le « Vu » des notifications (§9). */
+function TaskRow({ t, onFait }: { t: Task; onFait?: () => void }) {
   return (
     <div className="slb-row" style={{ display: "flex", alignItems: "center", gap: "11px", padding: "10px 16px", flexWrap: "wrap" }}>
       <span style={{ ...LIST_ICO, width: 28, height: 28, borderRadius: "8px" }}>
@@ -3960,6 +4015,16 @@ function TaskRow({ t }: { t: Task }) {
       <span title={fmtDate(t.fin)} style={{ flex: "none" }}>
         <Badge variant={dueVariant(t.fin)} icon={Clock}>{fmtDue(t.fin)}</Badge>
       </span>
+      {/* MARQUER FAIT — c'est le geste qui manquait : le journal listait ce qu'il y a
+          à faire sans permettre de le clore, donc il fallait rouvrir /taches pour
+          cocher une case. L'écriture est bornée par `SELECT_TACHE_*_W` (le seul champ
+          écrivable est « Fait »). */}
+      {onFait && (
+        <button className="slb-nbtn slb-nbtn-ok" style={{ ...NBTN_SM, flex: "none" }}
+          onClick={onFait} aria-label={`Marquer comme faite — ${t.desc}`} title="Marquer comme faite">
+          <Check aria-hidden style={{ width: 15, height: 15 }} />
+        </button>
+      )}
     </div>
   );
 }
@@ -3970,25 +4035,77 @@ function TaskRow({ t }: { t: Task }) {
    2026-08-05 elles comptaient `prospects.length`, donc au plus RECENT — un onglet
    affichait « 12 » là où la table en portait quarante. Une pastille compteur est lue
    comme un total ; elle doit en être un. */
-function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires, partial }: {
+function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires, partial,
+  onFait, faisable, mineAsked, identifiee }: {
   prospects: Task[]; partenaires: Task[];
   totalProspects: number; totalPartenaires: number; partial?: boolean;
+  /** Clôt une tâche. `onFait` reçoit l'onglet courant : les deux tables sont
+   *  différentes, donc l'écriture ne part pas au même endroit. */
+  onFait?: (scope: "prospects" | "partenaires", id: string) => Promise<boolean>;
+  /** L'écriture est-elle possible, ONGLET PAR ONGLET (source connectée, session
+   *  présente) ? Le bouton « Fait » n'apparaît que là où il peut vraiment agir. */
+  faisable?: { prospects: boolean; partenaires: boolean };
+  /** Le filtre « mes tâches » est-il demandé, et la session est-elle identifiable ?
+   *  Les deux servent au bandeau : un filtre inapplicable doit se DIRE (cf. §9). */
+  mineAsked: boolean;
+  identifiee: boolean;
 }) {
   const [tab, setTab] = useState("prospects");
+  /* Disparition IMMÉDIATE de la ligne cochée, avant que la source ne soit relue, et
+     ROLLBACK annoncé si l'écriture échoue. Copié sur le « Vu » des notifications, pour
+     la même raison : une tâche qui disparaît sans écriture réelle ferait croire à un
+     travail fait. Ne jamais retirer le rollback. */
+  const [faites, setFaites] = useState<string[]>([]);
+  const [echec, setEchec] = useState<string | null>(null);
+  const clore = async (scope: "prospects" | "partenaires", id: string) => {
+    if (!onFait) return;
+    setFaites((v) => [...v, id]);
+    setEchec(null);
+    if (!(await onFait(scope, id))) {
+      setFaites((v) => v.filter((x) => x !== id));
+      setEchec("Cette tâche n'a pas pu être marquée comme faite. Réessayez.");
+    }
+  };
+  const scope: "prospects" | "partenaires" = tab === "prospects" ? "prospects" : "partenaires";
+  const peutClore = !!onFait && (faisable ? faisable[scope] : false);
+  const vivantes = (list: Task[]) => list.filter((t) => !faites.includes(t.id));
+  const rows = vivantes(tab === "prospects" ? prospects : partenaires);
+  /* Les pastilles suivent la même soustraction que la liste : un compteur ne doit pas
+     continuer d'annoncer une tâche qu'on vient de clore sous ses yeux.
+     ⚠️ On retire les lignes closes du TOTAL, pas de la liste affichée seulement : le total
+     vient du drainage complet (cf. `TachesCard`), la liste n'en montre que les RECENT
+     premières — les deux doivent baisser ensemble. */
+  const clos = (list: Task[]) => list.filter((t) => faites.includes(t.id)).length;
   const tabs: Tab[] = [
-    { id: "prospects", label: "Prospects", icon: ClipboardList, count: totalProspects },
-    { id: "partenaires", label: "Partenaires", icon: Building2, count: totalPartenaires },
+    { id: "prospects", label: "Prospects", icon: ClipboardList, count: totalProspects - clos(prospects) },
+    { id: "partenaires", label: "Partenaires", icon: Building2, count: totalPartenaires - clos(partenaires) },
   ];
-  const rows = tab === "prospects" ? prospects : partenaires;
-  const total = tab === "prospects" ? totalProspects : totalPartenaires;
+  const total = tab === "prospects" ? totalProspects - clos(prospects) : totalPartenaires - clos(partenaires);
   return (
-    <Widget icon={CalendarClock} title="Journal des tâches" sub="Prospects & partenaires"
+    <Widget icon={CalendarClock} title="Journal des tâches"
+      sub={mineAsked && identifiee ? "Mes tâches · prospects & partenaires" : "Prospects & partenaires"}
       headActions={
         // TODO : brancher la création de tâche
         <button className="slb-nbtn" style={NBTN_SM} aria-label="Nouvelle tâche" title="Nouvelle tâche">
           <Plus aria-hidden style={{ width: 15, height: 15 }} />
         </button>
       }>
+      {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le dit, au lieu de servir en silence
+          les tâches de toute l'équipe sous un titre qui annonce les siennes. */}
+      {mineAsked && !identifiee && (
+        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Badge variant="warn" dot>Filtre inactif</Badge>
+          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+            Session non identifiée : toutes les tâches sont affichées.
+          </span>
+        </div>
+      )}
+      {echec && (
+        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Badge variant="danger" dot>Échec</Badge>
+          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>{echec}</span>
+        </div>
+      )}
       <div style={{ padding: "2px 16px 0" }}>
         <TabBar dense tabs={tabs} activeTab={tab} onSelect={setTab} />
       </div>
@@ -3999,7 +4116,10 @@ function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires,
             hint={tab === "prospects" ? "Les tâches liées à vos prospects apparaîtront ici." : "Les tâches liées à vos partenaires apparaîtront ici."} />
         ) : (
           <ScrollBody>
-            {rows.map((t) => <TaskRow key={t.id} t={t} />)}
+            {rows.map((t) => (
+              <TaskRow key={t.id} t={t}
+                onFait={peutClore ? () => void clore(scope, t.id) : undefined} />
+            ))}
             {/* La liste est tronquée mais la pastille dit le total : sans cette ligne,
                 l'écart entre les deux se lirait comme une incohérence. On nomme ce qui
                 est montré ET sur quel critère — le tri par échéance garde les plus
@@ -4083,6 +4203,14 @@ type InstanceCfg = {
      et donnerait un widget qui paraît vide sans raison visible. */
   search?: boolean;
   facet?: string;
+  /* « Seulement les fiches dont je suis propriétaire » (2026-08-07). N'a de sens que si
+     le descripteur de la source déclare un `ownerField` ; ailleurs la clé est absente.
+     ACTIF par défaut là où il existe : une liste de suivi client sert d'abord à voir SON
+     portefeuille, et un filtre qu'il faut penser à activer ne l'est jamais.
+     ⚠️ Réglable, et il doit l'être : le rapprochement nom ↔ session est approximatif par
+     nature (cf. `ownerIsUser`) — un manager qui suit plusieurs portefeuilles, ou un nom
+     écrit autrement en base, doit pouvoir ouvrir la liste. */
+  mine?: boolean;
 };
 
 const LIST_LIMIT_MAX = 50;
@@ -4215,6 +4343,13 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
      ne renverrait jamais rien, sans rien dire. */
   const facet = kind === "kpi" ? "" : (known("facet" in o ? o.facet : desc.defaultFacet) ?? "");
 
+  /* --- « mes fiches » : offert seulement si la source a un propriétaire déclaré, ACTIF
+     par défaut (`!== false`, comme `search` : une cfg enregistrée avant ce réglage n'a
+     pas la clé et doit hériter du nouveau défaut). La clé est ÉCRITE même à `false`,
+     sinon un utilisateur qui ouvre volontairement la liste retrouverait le filtre au
+     rechargement suivant. Une source sans propriétaire n'a pas la clé du tout. --- */
+  const mine = desc.ownerField ? o.mine !== false : false;
+
   return {
     title: asText(o.title ?? base.title),
     unit: asText(o.unit || base.unit) || "élément",
@@ -4222,6 +4357,7 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
     query: { filter, sort: { by: sortBy, dir: sortDir }, limit },
     view,
     search: kind === "kpi" ? false : o.search !== false,
+    ...(desc.ownerField ? { mine } : {}),
     ...(facet ? { facet } : {}),
     ...(use.length ? { actions: { use } } : {}),
     ...(o.create && desc.create ? { create: true } : {}),
@@ -4268,10 +4404,32 @@ function compareRows(a: Row, b: Row, alias: string, kind: FieldKind | undefined,
   return asText(av).localeCompare(asText(bv), "fr", { numeric: true }) * sign;
 }
 
-/** Lignes retenues par les filtres (ET), sans tri ni limite — base des agrégats. */
-function selectRows(rows: Row[], cfg: InstanceCfg): Row[] {
+/** Le filtre « mes fiches » est-il RÉELLEMENT applicable ? Demandé dans la cfg ne suffit
+ *  pas : il faut que la source déclare un propriétaire ET que la session soit
+ *  identifiable. Sans nom ni e-mail, l'appliquer viderait la liste sans que personne
+ *  puisse comprendre pourquoi — même arbitrage que `selectNotifs` (§9). */
+const ownerFilterActive = (cfg: InstanceCfg, ident?: UserIdent): boolean =>
+  !!cfg.mine && !!CATALOG[cfg.source].ownerField && !!ident?.known;
+
+/** Périmètre PROPRIÉTAIRE seul, sans les filtres de consultation de la cfg. Sert là où
+ *  l'on a besoin du périmètre mais pas des filtres : les valeurs proposées par le filtre
+ *  à cases, par exemple — proposer d'y cocher un installateur qui n'est pas à soi
+ *  donnerait une case qui ne ramène jamais rien. PURE. */
+const ownerScope = (rows: Row[], cfg: InstanceCfg, ident?: UserIdent): Row[] => {
+  if (!ownerFilterActive(cfg, ident)) return rows;
+  const alias = CATALOG[cfg.source].ownerField!;
+  return rows.filter((r) => ownerIsUser(asText(r[alias]), ident!));
+};
+
+/** Lignes retenues par les filtres (ET), sans tri ni limite — base des agrégats.
+ *  ⚠️ Le filtre PROPRIÉTAIRE passe en premier et hors de la grammaire des `Filter` : ce
+ *  n'est pas un critère de consultation mais un PÉRIMÈTRE. Il s'applique donc aussi aux
+ *  agrégats (`kpiCompute`), sinon un KPI compterait le portefeuille de tout le monde
+ *  au-dessus d'une liste qui n'en montre qu'une part. */
+function selectRows(rows: Row[], cfg: InstanceCfg, ident?: UserIdent): Row[] {
+  const out = ownerScope(rows, cfg, ident);
   const fs = cfg.query.filter;
-  return fs.length ? rows.filter((r) => fs.every((f) => matchFilter(r[f.field], f))) : rows;
+  return fs.length ? out.filter((r) => fs.every((f) => matchFilter(r[f.field], f))) : out;
 }
 
 /** Minuscules sans accents — la forme sous laquelle on compare du texte saisi à la
@@ -4299,9 +4457,9 @@ type LocalRefine = {
 
 /** Filtres + recherche + facette + tri + limite : ce qu'une vue liste ou tableau
  *  affiche. PURE. L'ordre des passes n'est pas négociable — la limite EN DERNIER. */
-function applyQuery(rows: Row[], cfg: InstanceCfg, local?: LocalRefine): Row[] {
+function applyQuery(rows: Row[], cfg: InstanceCfg, local?: LocalRefine, ident?: UserIdent): Row[] {
   const desc = CATALOG[cfg.source];
-  let out = selectRows(rows, cfg);
+  let out = selectRows(rows, cfg, ident);
 
   // Recherche : chaque MOT saisi doit être présent (ET), dans n'importe quel champ.
   // « mc ener » trouve donc « MC ENERGY », et l'ordre des mots n'a pas d'importance.
@@ -4341,10 +4499,10 @@ function facetValues(rows: Row[], alias: string, max = 60): { value: string; cou
 
 /** Agrégat d'un KPI + écart avec la fenêtre précédente (`null` si non calculable).
  *  ⚠️ Porte sur les lignes CHARGÉES par la source, pas sur le total serveur. PURE. */
-function kpiCompute(rows: Row[], cfg: InstanceCfg): { value: number; delta: number | null } {
+function kpiCompute(rows: Row[], cfg: InstanceCfg, ident?: UserIdent): { value: number; delta: number | null } {
   if (cfg.view.kind !== "kpi") return { value: 0, delta: null };
   const v = cfg.view;
-  const base = selectRows(rows, cfg);
+  const base = selectRows(rows, cfg, ident);
   const agg = (list: Row[]): number => {
     if (v.agg === "count" || !v.field) return list.length;
     const nums = list.map((r) => Number(r[v.field!])).filter((n) => !Number.isNaN(n));
@@ -4557,9 +4715,12 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
    Elle rend le widget un peu plus haut que sa taille nominale — le tassement de
    la grille mesure la hauteur réelle (§11), donc rien à corriger.
    --------------------------------------------------------------------------- */
-function ListToolbar({ rows, cfg, desc, local, setLocal, triable }: {
+function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
   rows: Row[]; cfg: InstanceCfg; desc: SourceDesc;
   local: LocalRefine; setLocal: (next: LocalRefine) => void;
+  /** Identité de la session — seulement pour borner les valeurs proposées par le filtre
+   *  à cases au périmètre du filtre « mes fiches » (cf. ownerScope). */
+  ident?: UserIdent;
   /** Vue LISTE : le bouton de tri est offert. Vue tableau : il ne l'est pas (les
    *  en-têtes de colonnes s'en chargent, et deux commandes de tri concurrentes
    *  finiraient par se contredire à l'écran). */
@@ -4571,7 +4732,9 @@ function ListToolbar({ rows, cfg, desc, local, setLocal, triable }: {
   const refSort = useDismissOnOutside(openSort, setOpenSort);
 
   const cochees = local.facetValues ?? [];
-  const valeurs = cfg.facet ? facetValues(rows, cfg.facet) : [];
+  // Les valeurs proposées suivent le PÉRIMÈTRE : cocher un nom qui n'est pas dans son
+  // portefeuille ne ramènerait jamais rien (cf. ownerScope).
+  const valeurs = cfg.facet ? facetValues(ownerScope(rows, cfg, ident), cfg.facet) : [];
   const toggle = (v: string) => {
     const set = new Set(cochees);
     if (set.has(v)) set.delete(v); else set.add(v);
@@ -4775,6 +4938,9 @@ const ViewError = () => <EmptyState dense icon={XCircle} title="Données indispo
 type ViewProps = {
   rows: Row[]; cfg: InstanceCfg; desc: SourceDesc; api: SourceApi;
   onOpen?: (row: Row) => void;
+  /** Identité de la session. Seule la vue KPI en a besoin : elle agrège les lignes
+   *  BRUTES et doit donc appliquer elle-même le périmètre propriétaire. */
+  ident?: UserIdent;
   /** Tri courant (cfg ou surcharge locale) + demande de tri depuis un en-tête de
    *  colonne. `onSort` absent = en-têtes non cliquables. */
   tri?: { by: string; dir: "asc" | "desc" };
@@ -4883,9 +5049,9 @@ function GenericTable({ rows, cfg, desc, api, onOpen, tri = cfg.query.sort, onSo
 /* ⚠️ `onOpen` est ignoré ici, et volontairement : un indicateur n'affiche AUCUNE ligne
    (il agrège), donc il n'y a rien à ouvrir. Il est dans la signature commune pour que
    `DataView` puisse choisir la vue dans une variable. */
-function GenericKpi({ rows, cfg, desc, api }: ViewProps) {
+function GenericKpi({ rows, cfg, desc, api, ident }: ViewProps) {
   const v = cfg.view.kind === "kpi" ? cfg.view : null;
-  const { value, delta } = kpiCompute(rows, cfg);
+  const { value, delta } = kpiCompute(rows, cfg, ident);
   const legend = v?.agg === "sum" ? `Somme · ${desc.fields[v.field ?? ""]?.label ?? ""}`
     : v?.agg === "avg" ? `Moyenne · ${desc.fields[v.field ?? ""]?.label ?? ""}`
     : `${cfg.unit}${value > 1 ? "s" : ""}`;
@@ -4933,6 +5099,12 @@ function GenericKpi({ rows, cfg, desc, api }: ViewProps) {
 function DataView({ cfg }: { cfg: InstanceCfg }) {
   const desc = CATALOG[cfg.source];
   const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
+  /* Identité de la session — elle ne sert QU'au filtre « mes fiches » (`ownerField`).
+     Lue ici et non dans les fonctions pures : celles-ci restent testables, et c'est le
+     composant qui connaît la session (même découpage que `NotifsCard`, §9). */
+  const ident = identOf(useCurrentUser());
+  const mineAsked = !!cfg.mine && !!desc.ownerField;   // demandé dans la cfg
+  const mineOn = mineAsked && ident.known;             // … et réellement applicable
   /* Ligne ouverte dans la pop-up de détail. L'état vit ICI et non dans les vues : une
      seule modale rendue, et elle survit au re-rendu de la liste (un rafraîchissement de
      la source ne referme donc pas la fiche qu'on est en train de lire).
@@ -4956,15 +5128,20 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
         const isKpi = cfg.view.kind === "kpi";
         /* Les réglages locaux (recherche, cases, tri) passent DANS `applyQuery`, donc
            avant la limite : on cherche et on trie sur toute la table lue. */
-        const rows = isKpi ? api.rows : applyQuery(api.rows, cfg, local);
+        const rows = isKpi ? api.rows : applyQuery(api.rows, cfg, local, ident);
         /* Sous-titre : quand un outil restreint la liste, on annonce « N sur M ». Sans
-           ce « sur M », une recherche qui ne rend rien ressemble à une source vide. */
-        const total = isKpi ? 0 : applyQuery(api.rows, cfg).length;
+           ce « sur M », une recherche qui ne rend rien ressemble à une source vide.
+           ⚠️ `total` porte le MÊME périmètre propriétaire que `rows` : « 3 sur 12 » doit
+           comparer ce qui est cherché à ce qui est visible, pas au fichier entier. */
+        const total = isKpi ? 0 : applyQuery(api.rows, cfg, undefined, ident).length;
         const restreint = !isKpi && ((local.q ?? "") !== "" || (local.facetValues ?? []).length > 0);
+        /* Le sous-titre DIT que la liste est réduite à son portefeuille : sans ça, un
+           widget qui montre 4 notes sur 300 se lit comme une source presque vide. */
+        const perimetre = mineOn ? " · mes fiches" : "";
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
-          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}`
-          : plural(rows.length, cfg.unit);
+          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}`
+          : plural(rows.length, cfg.unit) + perimetre;
         const V = cfg.view.kind === "table" ? GenericTable : isKpi ? GenericKpi : GenericList;
         /* Le mappage des rôles sert le TITRE et le badge de la fiche. En vue tableau il
            n'y en a pas (les colonnes sont libres) : on prend celui du descripteur. */
@@ -4976,19 +5153,28 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
           <>
             <Widget icon={iconOf(desc.icon)} title={cfg.title || desc.label} sub={sub}
               headActions={cfg.create && desc.create ? <QuickCreate desc={desc} api={api} /> : undefined}>
+              {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en
+                  silence la liste de tout le monde sous un titre qui laisserait croire le
+                  contraire. Même bandeau, même raison que dans le widget des notifications
+                  (§9) — sans session identifiable, `ownerIsUser` écarterait TOUT. */}
+              {mineAsked && !ident.known && (
+                <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+                  <Badge variant="warn" dot>Filtre inactif</Badge>
+                  <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+                    Session non identifiée : toutes les fiches sont affichées.
+                  </span>
+                </div>
+              )}
               {outils && !api.loading && !api.error && (
                 <ListToolbar rows={api.rows} cfg={cfg} desc={desc} local={local} setLocal={setLocal}
-                  triable={cfg.view.kind !== "table"} />
+                  triable={cfg.view.kind !== "table"} ident={ident} />
               )}
-              <V rows={rows} cfg={cfg} desc={desc} api={api} onOpen={setFiche}
+              <V rows={rows} cfg={cfg} desc={desc} api={api} onOpen={setFiche} ident={ident}
                 tri={local.sort ?? cfg.query.sort}
                 onSort={(s) => setLocal({ ...local, sort: s })} />
             </Widget>
-            {/* ⚠️ LA MODALE EST FRÈRE DU WIDGET, PAS DANS SON CORPS. Deux raisons, et
-                les deux ont mordu ailleurs dans ce fichier :
-                · en mode Personnaliser, le corps d'un widget est rendu INERTE
-                  (`pointerEvents: none`, cf. `Widget`) — une modale posée dedans serait
-                  visible mais impossible à fermer ;
+            {/* ⚠️ LA MODALE EST FRÈRE DU WIDGET, PAS DANS SON CORPS. La raison a déjà
+                mordu ailleurs dans ce fichier :
                 · `position: fixed` se rattache au premier ancêtre TRANSFORMÉ. Le corps
                   reçoit un `transform` pendant les animations FLIP et les
                   redimensionnements (§11), donc la modale s'y accrocherait.
@@ -5330,6 +5516,26 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
         </>
       )}
 
+      {/* PÉRIMÈTRE — au-dessus des filtres, et séparé d'eux : ce n'est pas un critère de
+          consultation mais la réponse à « de qui parle ce widget ». Proposé seulement si
+          la source déclare qui est propriétaire (`ownerField`, §6-bis) ; ailleurs, la
+          case n'aurait rien sur quoi mordre. */}
+      {desc.ownerField && (
+        <>
+          <div style={lbl}>Périmètre</div>
+          <label style={{ display: "flex", alignItems: "center", gap: "9px", padding: "6px 4px", cursor: "pointer", fontSize: "12.5px", fontWeight: 500, color: T.ink2 }}>
+            <input type="checkbox" style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: "pointer" }}
+              checked={cfg.mine !== false} onChange={(e) => set({ mine: e.target.checked })} />
+            <span>Seulement les fiches dont je suis {desc.fields[desc.ownerField]?.label ?? "propriétaire"}</span>
+          </label>
+          <p style={{ margin: "2px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+            Le rapprochement se fait sur le NOM (ces champs ne portent pas d'e-mail) :
+            décochez si votre nom est écrit autrement en base, ou si vous suivez le
+            portefeuille de plusieurs personnes.
+          </p>
+        </>
+      )}
+
       <div style={lbl}>Filtres (tous doivent être vrais)</div>
       {cfg.query.filter.map((f, i) => {
         const opDef = FILTER_OPS.find((o) => o.op === f.op);
@@ -5469,8 +5675,8 @@ const RECENT = 12;
 function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
   const ident = identOf(useCurrentUser());
   /* Le widget écrit sa PROPRE cfg pour la bascule « voir toutes les notifications » —
-     canal prévu pour ça (`WidgetCfgCtx`, §8), absent en mode Personnaliser où le
-     brouillon fait autorité. D'où l'`onVoirTout` optionnel plutôt qu'un état local :
+     canal prévu pour ça (`WidgetCfgCtx`, §8). D'où l'`onVoirTout` optionnel plutôt
+     qu'un état local :
      le choix est PERSISTÉ, sinon le filtre reviendrait au rechargement et l'utilisateur
      rejouerait le même geste chaque matin. */
   const writer = useContext(WidgetCfgCtx);
@@ -5498,7 +5704,27 @@ function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
    utile pour autre chose : il garantit que les lignes AFFICHÉES (tronquées à RECENT)
    sont les plus urgentes, et non un échantillon arbitraire du total. */
 function TachesCard() {
-  const openRows = (rows: Row[]) => rows.filter((r) => !isDone(r));
+  /* ⚠️ `useCurrentUser()` est appelé ICI, au-dessus des `SourceFeed` : leurs enfants
+     sont des FONCTIONS de rendu, et un hook appelé dedans dépendrait de l'adapter
+     monté (mock ou live). Même précaution que dans `NotifsCard`. */
+  const ident = identOf(useCurrentUser());
+  /* DEUX PASSES, dans cet ordre :
+       1. « Fait » décoché — un journal liste ce qui reste à faire ;
+       2. ASSIGNÉ À MOI (2026-08-07, demandé) — le rapprochement passe par
+          `ownerIsUser` (§5), donc par les MOTS DU NOM : ces champs « Assignee » sont
+          du texte libre et ne portent aucun e-mail.
+     ⚠️ La passe 2 est SAUTÉE si la session n'est pas identifiable, et le widget le DIT
+     (bandeau « Filtre inactif ») : sans nom ni e-mail, elle viderait le journal sans
+     que personne puisse comprendre pourquoi. */
+  const mienne = (r: Row) => !ident.known || ownerIsUser(asText(r.assignee), ident);
+  const openRows = (rows: Row[]) => rows.filter((r) => !isDone(r) && mienne(r));
+  /* Clôture d'une tâche : `true` si l'écriture est passée, `false` sinon — le
+     présentiel s'en sert pour annuler sa disparition optimiste. Le champ écrit est le
+     seul que la whitelist autorise (`SELECT_TACHE_*_W` = « Fait »). */
+  const clore = (api: SourceApi) => async (id: string): Promise<boolean> => {
+    if (!api.write) return false;
+    try { await api.write.update(id, { fait: true }); return true; } catch { return false; }
+  };
   return (
     <SourceFeed source="tachesPa" drain>
       {(pa) => (
@@ -5506,12 +5732,21 @@ function TachesCard() {
           {(pr) => {
             const oPr = openRows(pr.rows);
             const oPa = openRows(pa.rows);
+            const closPr = clore(pr), closPa = clore(pa);
             return (
               <TasksWidget
                 prospects={oPr.slice(0, RECENT).map(mapTask)}
                 partenaires={oPa.slice(0, RECENT).map(mapTask)}
                 totalProspects={oPr.length}
                 totalPartenaires={oPa.length}
+                mineAsked identifiee={ident.known}
+                /* ⚠️ `faisable` est déclaré PAR ONGLET, et ce n'est pas du zèle : les deux
+                   onglets lisent deux tables différentes, dont une seule peut être
+                   écrivable (source non connectée, session absente). Un seul booléen
+                   global aurait affiché le bouton sur l'onglet muet — clic, disparition,
+                   puis message d'échec. */
+                onFait={(scope, id) => (scope === "prospects" ? closPr(id) : closPa(id))}
+                faisable={{ prospects: !!pr.write, partenaires: !!pa.write }}
                 partial={!!pr.partial || !!pa.partial} />
             );
           }}
@@ -7043,7 +7278,7 @@ function ClassementCard({ id, cfg }: { id: string; cfg: ClassementCfg }) {
      au rechargement. Cliquer la colonne déjà triée inverse le sens, comme partout. */
   const writer = useCfgWriter();
   const onSort = (col: ComCol) => {
-    if (!writer) return;                       // mode Personnaliser : le corps est inerte
+    if (!writer) return;                       // widget rendu hors du tableau de bord
     writer.save(col === cfg.tri ? { ...cfg, dir: cfg.dir === "desc" ? "asc" : "desc" } : { ...cfg, tri: col, dir: "desc" });
   };
   void id;
@@ -7203,7 +7438,7 @@ function InstWidget({ api, cfg, onSort }: { api: SourceApi; cfg: InstCfg; onSort
 function InstCard({ id, cfg }: { id: string; cfg: InstCfg }) {
   const writer = useCfgWriter();
   const onSort = (col: InstCol) => {
-    if (!writer) return;                       // mode Personnaliser : le corps est inerte
+    if (!writer) return;                       // widget rendu hors du tableau de bord
     writer.save(col === cfg.tri ? { ...cfg, dir: cfg.dir === "desc" ? "asc" : "desc" } : { ...cfg, tri: col, dir: "desc" });
   };
   void id;
@@ -7624,7 +7859,9 @@ const MEMO_MAX = 2000;        // caractères d'un pense-bête
 const CHECK_MAX = 40;         // lignes d'une liste à cocher
 const CHECK_TEXT_MAX = 160;   // caractères par ligne
 
-/** Accès en écriture à sa propre cfg, ou `null` en mode Personnaliser. */
+/** Accès en écriture à sa propre cfg. `null` seulement si le widget est rendu hors du
+ *  tableau de bord (aucun `WidgetCfgCtx` au-dessus) — la grille, elle, le fournit
+ *  toujours. */
 const useCfgWriter = () => useContext(WidgetCfgCtx);
 
 /* --- HORLOGE ------------------------------------------------------------------
@@ -7816,7 +8053,7 @@ function MemoCard({ cfg }: { cfg: MemoCfg }) {
 
   return (
     <Widget icon={FileSignature} title="Pense-bête"
-      sub={!writer ? "Lecture seule en mode Personnaliser" : dirty ? "Modifications non enregistrées" : "Enregistré"}
+      sub={!writer ? "Lecture seule" : dirty ? "Modifications non enregistrées" : "Enregistré"}
       headActions={writer ? (
         <button className="slb-nbtn" style={NBTN_SM} onClick={() => { if (edit) commit(); setEdit(!edit); }}
           aria-label={edit ? "Aperçu" : "Modifier"} title={edit ? "Aperçu" : "Modifier"}>
@@ -7866,7 +8103,7 @@ function MemoCard({ cfg }: { cfg: MemoCfg }) {
           <MemoRead text={text} />
         ) : (
           <EmptyState dense icon={FileSignature} title="Pense-bête vide"
-            hint={writer ? "Cliquez sur le crayon pour écrire." : "Quittez le mode Personnaliser pour écrire."} />
+            hint={writer ? "Cliquez sur le crayon pour écrire." : "Ce pense-bête est en lecture seule."} />
         )}
       </div>
     </Widget>
@@ -7927,7 +8164,7 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
       )}
       {!cfg.items.length ? (
         <EmptyState dense icon={ClipboardList} title="Rien à faire"
-          hint={writer ? "Ajoutez une ligne ci-dessus." : "Quittez le mode Personnaliser pour écrire."} />
+          hint={writer ? "Ajoutez une ligne ci-dessus." : "Cette liste est en lecture seule."} />
       ) : (
         <ScrollBody>
           {cfg.items.map((it) => (
@@ -7958,7 +8195,7 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
 
 /* --- Registre des TYPES de widget. Les CLÉS SONT UN CONTRAT DE PERSISTANCE :
       une fois livrées, ne JAMAIS les renommer (les layouts sauvegardés y font
-      référence). `title` = libellé du menu « Personnaliser » (le titre affiché
+      référence). `title` = libellé porté par la galerie (le titre affiché
       dans l'en-tête du widget vit dans le composant présentiel).
       Les 6 premières clés « legacy » reprennent à l'identique les WidgetId de la
       v1 : un layout v1 se migre donc sans perte (§10-bis, migrateV1).
@@ -7991,7 +8228,7 @@ type WidgetTypeKey =
   | "list" | "kpi";   // ← DÉPRÉCIÉS : livrés en rév. 1, rendent comme `data` (cfg traduite)
 
 type WidgetTypeDef = {
-  title: string;                                  // libellé du menu « Personnaliser » / galerie
+  title: string;                                  // libellé dans la galerie
   icon: LucideIcon;
   Render: FC<{ id: string; cfg: any }>;
   defaults?: () => any;                           // cfg d'une instance neuve
@@ -7999,9 +8236,9 @@ type WidgetTypeDef = {
   Options?: FC<{ cfg: any; onChange: (next: any) => void }>;
 };
 
-/* Fabriques de types génériques. `icon` ne sert plus qu'aux LIBELLÉS (menu
-   « Personnaliser », galerie) : à l'écran, le widget prend l'icône du descripteur
-   de sa source, donc elle suit un changement de source. */
+/* Fabriques de types génériques. `icon` ne sert plus qu'aux LIBELLÉS (galerie) : à
+   l'écran, le widget prend l'icône du descripteur de sa source, donc elle suit un
+   changement de source. */
 /* Fabrique d'un type « data ». UNE seule implémentation : le rendu, la coercition
    et le formulaire sont toujours les mêmes ; seuls le libellé, l'icône de galerie
    et la cfg de départ changent. `icon` ne sert qu'aux LIBELLÉS (menu, galerie) :
@@ -8159,7 +8396,7 @@ const DEFAULT_INSTANCES: Instance[] = [
   { id: "sav", type: "sav", cfg: {}, w: "half", h: "lg" },
 ];
 
-/* --- GALERIE « Ajouter un widget » : les modèles proposés en mode Personnaliser.
+/* --- GALERIE « Ajouter un widget » : les modèles qu'on peut poser sur la grille.
    Entièrement GÉNÉRÉE, de deux origines :
      · les types SUR-MESURE (pour ré-ajouter un widget supprimé) ;
      · les `presets` DÉCLARÉS DANS LE CATALOGUE de chaque source (§6-bis) — c'est
@@ -8397,8 +8634,8 @@ const PRESET_GROUPS = GALLERY_GROUPS
    ----------------------------------------------------------------------------
    Elle remplace le dépliant par famille (2026-08-04). Ce qui n'allait pas, et que
    chaque point ci-dessous corrige :
-     · elle n'existait qu'en mode Personnaliser — il fallait entrer dans un mode pour
-       ajouter une carte ;
+     · elle n'était atteignable qu'en mode Personnaliser — il fallait entrer dans un
+       mode pour ajouter une carte (ce mode n'existe plus du tout, cf. §11) ;
      · il fallait DEVINER dans quel dépliant chercher, sans recherche ;
      · un libellé et une icône ne disent pas à quoi ressemblera le widget.
 
@@ -8801,7 +9038,7 @@ function setInstanceLook(layout: Layout, id: string, title: string, tint: string
 }
 
 /* ============================================================================
-   11. Tableau de bord — héro, persistance & grille (mode Personnaliser)
+   11. Tableau de bord — héro, persistance & grille (réglages en direct)
    ============================================================================ */
 /* --- Compteur du héro : À IMPLÉMENTER. Le chip « Notifications » du héro ne porte
    volontairement AUCUN nombre pour l'instant.
@@ -8967,16 +9204,26 @@ function SkeletonCard() {
   );
 }
 
-/* --- Grille du tableau de bord + mode Personnaliser (opt-in) -----------------
-   Détient l'état de layout éditable (via usePersistentLayout). En usage normal,
-   RIEN n'est déplaçable ni redimensionnable. « Personnaliser » bascule en
-   édition : poignée de drag + DnD HTML5 natif (réordonner), poignées de bord
-   (redimensionner en largeur, événements pointer souris+tactile) et menu ⋮
-   (Monter / Descendre / Largeur / Taille / Supprimer — chemin clavier/tactile).
-   « Enregistrer » persiste (§11) ; « Annuler » restaure le layout d'entrée ;
-   « Réinitialiser » revient au défaut (confirmation inline, jamais
-   window.confirm). Grille responsive via la classe .slb-dash ; un widget
-   « pleine largeur » occupe gridColumn 1/-1. --- */
+/* --- Grille du tableau de bord — TOUT EN DIRECT --------------------------------
+   ⚠️⚠️ 2026-08-07 — LE MODE « PERSONNALISER » A ÉTÉ SUPPRIMÉ, et avec lui le
+   brouillon, « Enregistrer », « Annuler » et « Réinitialiser ». Il ne reste qu'un
+   bouton : « Ajouter un widget ». Tout le reste s'applique et s'écrit AU GESTE :
+     · réordonner — glisser l'en-tête d'une carte (DnD HTML5), ou « Monter/Descendre »
+       dans le ⋮ (chemin clavier et tactile) ;
+     · largeur / hauteur — poignées de bord et du bas (pointer, souris + doigt), ou les
+       segments du ⋮ ;
+     · réglages et retrait — la modale du ⋮ (elle seule garde un brouillon local, cf.
+       `WidgetOptionsMenu`, sauf position et retrait qui agissent aussitôt).
+   POURQUOI. Le mode ne protégeait plus rien : les poignées et les réglages étaient déjà
+   sortis de l'édition (2026-08-06), il n'y restait qu'un doublon de gestes derrière deux
+   clics et une question — « ai-je pensé à enregistrer ? » — à laquelle une page d'accueil
+   n'a pas à faire réfléchir.
+   CE QUI PROTÈGE MAINTENANT : l'écriture est OPTIMISTE et silencieuse quand elle
+   réussit, mais tout échec s'affiche avec « Réessayer » (`runSave`), et le retrait d'un
+   widget demande une confirmation. Il n'y a plus d'annulation globale : c'est le prix
+   assumé du direct.
+   Grille responsive via la classe .slb-dash ; un widget « pleine largeur » occupe
+   gridColumn 1/-1. --- */
 function Dashboard() {
   const { layout: applied, status, persist } = usePersistentLayout();
   // Nombre de colonnes selon la largeur RÉELLE DU BLOC (et non de la fenêtre : le
@@ -9023,10 +9270,7 @@ function Dashboard() {
     // Repli avant la première mesure (et si ResizeObserver manque) : en-tête ~52 px,
     // pied ~49 px. Évite un saut de mise en page au premier rendu.
     Math.ceil((WIDGET_HEIGHTS[h] + 52 + (hasFooter ? 49 : 0) + DASH_GAP) / DASH_ROW);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<Layout>(() => cloneDefault());
-  const [confirmReset, setConfirmReset] = useState(false);
-  // Galerie d'ajout : une feuille modale, ouvrable dans les DEUX modes.
+  // Galerie d'ajout : une feuille modale, seul bouton de la barre du tableau de bord.
   const [gallery, setGallery] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -9034,15 +9278,13 @@ function Dashboard() {
 
   const loading = status === "loading" && !applied;   // squelettes tant que rien à afficher
   const current = applied ?? cloneDefault();
-  /* APERÇU d'un redimensionnement fait HORS mode Personnaliser (2026-08-06). Les poignées
-     de bord sont désormais actives dans les deux modes ; hors édition il n'y a pas de
-     brouillon, donc le geste a besoin d'un layout temporaire pour que la carte suive la
-     souris.
+  /* APERÇU d'un redimensionnement EN COURS. Il n'y a pas de brouillon : le geste a donc
+     besoin d'un layout temporaire pour que la carte suive la souris pendant qu'on tire.
      ⚠️ On n'écrit PAS en base à chaque cran : un glissement franchit plusieurs seuils, ce
      qui ferait autant d'écritures concurrentes sur le même document. L'écriture a lieu une
      seule fois, au relâchement (cf. `onResizeUp` / `onSizeUp`). */
   const [livePreview, setLivePreview] = useState<Layout | null>(null);
-  const shown = editing ? draft : livePreview ?? current;
+  const shown = livePreview ?? current;
   const resetDrag = () => { setDragIndex(null); setOverIndex(null); };
 
   // Toast succès : disparition auto ; échec : reste jusqu'à Réessayer / fermeture.
@@ -9062,8 +9304,10 @@ function Dashboard() {
   const innerRefs = useRef(new Map<string, HTMLElement>());
   const flipPrev = useRef(new Map<string, DOMRect>());
   const flipSig = useRef("");
+  // Laissez-passer d'UN changement sans animation (cf. la note dans le FLIP ci-dessous).
+  const noFlip = useRef(false);
   useLayoutEffect(() => {
-    const sig = `${shown.items.map((it) => `${it.id}:${it.w}:${it.h}`).join(",")}|${editing}|${loading}`;
+    const sig = `${shown.items.map((it) => `${it.id}:${it.w}:${it.h}`).join(",")}|${loading}`;
     const changed = sig !== flipSig.current;
     flipSig.current = sig;
     const prev = flipPrev.current;
@@ -9077,7 +9321,13 @@ function Dashboard() {
        impression de tremblement où l'on ne distingue plus ce qu'on règle. Sans
        animation, le changement est instantané et NET — on voit ce qu'on fait. */
     const resizing = !!resizeRef.current || !!sizeRef.current;
-    if (changed && !reduce && !resizing) {
+    /* ⚠️ NI PENDANT UN DÉPLACEMENT DEMANDÉ DEPUIS LA MODALE ⋮ (`noFlip`). Le panneau de
+       réglages est en `position: fixed` mais vit DANS la carte : un `fixed` se rattache au
+       premier ancêtre TRANSFORMÉ, donc il suivrait le `translate()` + `scale()` du FLIP —
+       la modale glisserait et se déformerait pendant 340 ms avant de se recaler, alors que
+       c'est justement d'elle qu'on vient de cliquer « Monter ». Sans animation, la grille
+       se réordonne d'un coup sous un panneau qui ne bouge pas. */
+    if (changed && !reduce && !resizing && !noFlip.current) {
       wrapRefs.current.forEach((el, id) => {
         const p = prev.get(id), n = next.get(id);
         if (!p || !n) return;
@@ -9101,6 +9351,10 @@ function Dashboard() {
         });
       });
     }
+    /* Le laissez-passer ne vaut que pour LE changement qu'il accompagne : on le rend dès
+       qu'il a servi, sinon le déplacement suivant (au glisser-déposer, celui-là) perdrait
+       son animation. */
+    if (changed) noFlip.current = false;
     flipPrev.current = next;
   });
 
@@ -9132,33 +9386,21 @@ function Dashboard() {
     return () => ro.disconnect();
   });
 
-  /* Entrer en édition ferme la galerie si elle était ouverte : son bouton « Ajouter »
-     alimenterait le BROUILLON alors qu'elle a été ouverte hors mode, où l'ajout est écrit
-     directement. Deux régimes derrière un même bouton, c'est le genre d'ambiguïté qui
-     finit par perdre un widget. */
-  const enterEdit = () => { setDraft(current); setConfirmReset(false); setGallery(false); setEditing(true); };
-  const cancel = () => { setEditing(false); setConfirmReset(false); setGallery(false); resetDrag(); };
-  /** `silent` : succès sans toast. Réservé aux gestes DIRECTS et répétés (déplacer un
-   *  widget hors mode Personnaliser) — un bandeau de confirmation à chaque glissement
-   *  serait du bruit. L'ÉCHEC reste toujours annoncé : une écriture perdue en silence
-   *  est bien pire qu'un toast de trop. */
+  /** `silent` : succès sans toast. Réservé aux gestes DIRECTS et répétés (déplacer ou
+   *  redimensionner un widget) — un bandeau de confirmation à chaque glissement serait du
+   *  bruit. L'ÉCHEC reste toujours annoncé : une écriture perdue en silence est bien pire
+   *  qu'un toast de trop, surtout depuis qu'il n'y a plus de « Enregistrer » où se
+   *  rattraper. */
   const runSave = async (next: Layout, silent = false) => {
     const res = await persist(next);                  // optimiste : le layout est déjà appliqué
     if (silent && res.ok && !res.note) return;
     setToast(res.ok ? { ok: true, error: res.note } : { ok: false, layout: next, error: res.error });
   };
-  const save = () => {
-    const next = draft;
-    setEditing(false); setConfirmReset(false); resetDrag();
-    void runSave(next);
-  };
-  const doReset = () => { setDraft(cloneDefault()); setConfirmReset(false); };
 
-  /** Enregistre la cfg d'une instance depuis son ⋮ « Options » (mode normal).
-   *  Même pipeline que « Enregistrer » de la grille : optimiste + toast, écriture
-   *  d'un seul document `layout_json`. La cfg est stockée TELLE QUELLE (le rendu la
-   *  passe par `coerce`). Édition impossible en mode Personnaliser → pas de conflit
-   *  avec le brouillon `draft`. */
+  /** Enregistre la cfg d'une instance (écriture du widget lui-même : pense-bête, liste à
+   *  cocher, tri d'une colonne…). Optimiste + toast en cas d'échec, écriture d'un seul
+   *  document `layout_json`. La cfg est stockée TELLE QUELLE (le rendu la passe par
+   *  `coerce`). Un seul écrivain par instance, donc pas de conflit possible. */
   const persistCfg = (id: string, cfg: unknown) =>
     void runSave({ ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) });
 
@@ -9174,9 +9416,7 @@ function Dashboard() {
     void runSave(setWidgetSize(setWidgetWide(withLook, id, wide), id, size));
   };
 
-  /** Retire une instance HORS mode Personnaliser, depuis son ⋮ (2026-08-06). Écriture
-   *  immédiate, comme l'ajout depuis la galerie hors édition : il n'y a pas de brouillon
-   *  dans ce régime, donc rien à « Enregistrer » ensuite.
+  /** Retire une instance depuis son ⋮. Écriture immédiate, comme tout le reste.
    *  ⚠️ `true` en 2e argument de `runSave` : le retrait est CONFIRMÉ par un toast, alors
    *  qu'un simple réglage reste silencieux. Un widget qui disparaît sans un mot laisse
    *  penser à un bug d'affichage — et c'est le seul geste de ce panneau qui détruise
@@ -9184,40 +9424,33 @@ function Dashboard() {
    *  galerie, mais avec les réglages par défaut). */
   const persistRemove = (id: string) => void runSave(removeInstance(current, id), true);
 
-  // Menu ⋮ (clavier/tactile) — mêmes fonctions pures que le DnD. `id` = id d'INSTANCE.
-  const onMoveUp = (id: string) => setDraft((d) => moveWidget(d, id, -1));
-  const onMoveDown = (id: string) => setDraft((d) => moveWidget(d, id, 1));
-  const onSetWide = (id: string, v: boolean) => setDraft((d) => setWidgetWide(d, id, v));
-  const onSetSize = (id: string, s: WidgetSize) => setDraft((d) => setWidgetSize(d, id, s));
-  // Multi-instances (mode Personnaliser) — tout reste dans le brouillon jusqu'à « Enregistrer ».
-  const onRemove = (id: string) => setDraft((d) => removeInstance(d, id));
-  /* Ajout — DEUX RÉGIMES, comme le déplacement : en mode Personnaliser il va dans le
-     brouillon (« Annuler » le jette), hors mode il n'y a pas de brouillon, donc il est
-     écrit IMMÉDIATEMENT. Silencieux si tout va bien, toast en cas d'échec (`runSave`) :
-     poser un widget est un geste courant, il n'a pas à s'annoncer. */
-  const onAdd = (p: Preset) => {
-    if (editing) setDraft((d) => addInstance(d, p.type, p.cfg(), p.h ?? "md", p.key));
-    else void runSave(addInstance(current, p.type, p.cfg(), p.h ?? "md", p.key), true);
+  /** Déplacement depuis le ⋮ (chemin clavier et tactile) — même fonction pure que le
+   *  DnD, et même écriture immédiate et silencieuse. `id` = id d'INSTANCE.
+   *  ⚠️ Le calcul part de `current` et non d'un état local : deux clics d'affilée
+   *  doivent s'enchaîner sur le layout DÉJÀ déplacé (le rendu qui suit `persist` est
+   *  synchrone côté état, cf. `persist` qui pose `setLayout(next)` en premier). */
+  const onMove = (id: string, dir: -1 | 1) => {
+    noFlip.current = true;                  // la modale du ⋮ ne doit pas suivre le FLIP
+    void runSave(moveWidget(current, id, dir), true);
   };
+  /* Ajout depuis la galerie : écrit IMMÉDIATEMENT. Silencieux si tout va bien, toast en
+     cas d'échec (`runSave`) — poser un widget est un geste courant, il n'a pas à
+     s'annoncer. */
+  const onAdd = (p: Preset) => void runSave(addInstance(current, p.type, p.cfg(), p.h ?? "md", p.key), true);
   // Modèles déjà sur la grille — la galerie les grise (un seul exemplaire par modèle).
   const posed = usedPresets(shown);
 
   /* DnD HTML5 natif. Drop hors cible → no-op (seul onDragEnd nettoie l'état).
-     DEUX RÉGIMES, et c'est la seule vraie différence entre les modes :
-     · en Personnaliser, le déplacement va dans le BROUILLON — « Enregistrer »
-       l'écrit, « Annuler » le jette, comme tous les autres réglages ;
-     · hors Personnaliser, il n'y a pas de brouillon : le déplacement est écrit
-       IMMÉDIATEMENT, sinon il serait perdu au rechargement. En silence si tout va
-       bien (cf. `runSave`), mais un échec s'affiche. */
+     Le déplacement est écrit IMMÉDIATEMENT — sans brouillon, il serait perdu au
+     rechargement. En silence si tout va bien (cf. `runSave`), mais un échec s'affiche. */
   const onDrop = (to: number) => {
     if (dragIndex !== null && dragIndex !== to) {
-      if (editing) setDraft((d) => ({ ...d, items: reorder(d.items, dragIndex, to) }));
-      else void runSave({ ...current, items: reorder(current.items, dragIndex, to) }, true);
+      void runSave({ ...current, items: reorder(current.items, dragIndex, to) }, true);
     }
     resetDrag();
   };
 
-  /** Préhension par l'en-tête, fournie à CHAQUE widget dans les deux modes.
+  /** Préhension par l'en-tête, fournie à CHAQUE widget.
    *  L'image de glissement est forcée sur la carte entière : sans cela, le navigateur
    *  ne trimballerait que le bandeau de l'en-tête, ce qui rend la cible illisible. */
   const grabOf = (id: string, i: number): WidgetGrab => ({
@@ -9261,10 +9494,8 @@ function Dashboard() {
     resizeRef.current = { id, startX: e.clientX, side };
     freezeHeight();
   };
-  /* `applyLive` : en mode Personnaliser le changement va dans le BROUILLON (« Annuler »
-     le jette) ; hors mode il va dans l'APERÇU local, écrit en base au relâchement. Un
-     seul chemin pour les deux régimes, donc pas de geste qui marche d'un côté et pas de
-     l'autre.
+  /* `applyLive` : le changement va dans l'APERÇU local (la carte suit la souris cran par
+     cran), et il est écrit en base UNE SEULE FOIS, au relâchement.
 
      ⚠️⚠️ L'APERÇU EST DOUBLÉ D'UNE REF, et ce n'est pas une redondance — c'est la
      correction d'un GEL D'ONGLET (2026-08-06). La première version lisait l'aperçu dans
@@ -9282,12 +9513,11 @@ function Dashboard() {
      tout ce qui écrit ou persiste doit rester DEHORS des updaters. */
   const liveRef = useRef<Layout | null>(null);
   const applyLive = (fn: (l: Layout) => Layout) => {
-    if (editing) { setDraft(fn); return; }
     const next = fn(liveRef.current ?? current);
     liveRef.current = next;
     setLivePreview(next);
   };
-  /** Fin d'un geste hors édition : UNE écriture, silencieuse si elle réussit. Un
+  /** Fin d'un geste de poignée : UNE écriture, silencieuse si elle réussit. Un
    *  redimensionnement est un geste direct et répété — un toast à chaque poignée
    *  relâchée serait du bruit. L'échec, lui, reste toujours annoncé (`runSave`). */
   const commitLive = () => {
@@ -9321,7 +9551,7 @@ function Dashboard() {
     if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
     resizeRef.current = null;
     setLockH(null);
-    if (!editing) commitLive();
+    commitLive();
   };
 
   /* Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
@@ -9337,9 +9567,9 @@ function Dashboard() {
   const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    /* ⚠️ La hauteur de départ se lit dans le layout AFFICHÉ (`shown`) et non dans
-       `draft` : hors mode Personnaliser, `draft` n'est pas à jour et le geste partirait
-       du mauvais cran — la première poussée aurait sauté une taille. */
+    /* ⚠️ La hauteur de départ se lit dans le layout AFFICHÉ (`shown`) : c'est le seul
+       qui tient compte d'un aperçu en cours, sans quoi une seconde poussée dans le même
+       geste repartirait du cran d'origine et sauterait une taille. */
     const h = shown.items[idxOf(shown.items, id)]?.h ?? "md";
     sizeRef.current = { id, startY: e.clientY, idx: SIZE_STEPS.indexOf(h) };
     freezeHeight();
@@ -9362,7 +9592,7 @@ function Dashboard() {
     if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId);
     sizeRef.current = null;
     setLockH(null);
-    if (!editing) commitLive();
+    commitLive();
   };
 
   /* --- FILET DE SÉCURITÉ : aucun geste ne doit pouvoir rester ARMÉ -----------------
@@ -9384,7 +9614,7 @@ function Dashboard() {
      cherche à supprimer. En bubble sur `window`, le filet passe en dernier et ne trouve
      plus rien à faire quand le geste s'est terminé normalement.
      Les écouteurs sont posés à chaque rendu (pas de tableau de dépendances) pour voir un
-     `editing` et un `commitLive` frais ; ils ne coûtent rien quand aucun geste n'est en
+     `commitLive` frais ; ils ne coûtent rien quand aucun geste n'est en
      cours (`return` immédiat). */
   useEffect(() => {
     const finir = () => {
@@ -9392,7 +9622,7 @@ function Dashboard() {
       resizeRef.current = null;
       sizeRef.current = null;
       setLockH(null);
-      if (!editing) commitLive();
+      commitLive();
     };
     window.addEventListener("pointerup", finir);
     window.addEventListener("pointercancel", finir);
@@ -9409,51 +9639,18 @@ function Dashboard() {
 
   return (
     <section aria-label="Tableau de bord" className="slb-dash-wrap">
-      {/* En-tête de section : titre + bascule Personnaliser / barre d'actions */}
+      {/* En-tête de section : titre + LE bouton. Un seul, depuis la suppression du mode
+          « Personnaliser » (2026-08-07) : « Réinitialiser », « Annuler » et
+          « Enregistrer » n'avaient de sens que face à un brouillon, et il n'y en a plus.
+          Tout le reste se règle sur la carte elle-même. */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
         <h2 style={{ ...H2, flex: 1, minWidth: 120 }}>Tableau de bord</h2>
-        {loading ? null : !editing ? (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-            {/* AJOUTER sans entrer dans un mode : c'est le geste le plus fréquent, il
-                n'a pas à coûter deux clics. « Personnaliser » reste pour réorganiser,
-                redimensionner et supprimer. */}
-            <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
-              <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget
-            </button>
-            <button className="slb-btng" style={btn} onClick={enterEdit}>
-              <SlidersHorizontal aria-hidden style={{ width: 16, height: 16 }} />Personnaliser
-            </button>
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-            <button className="slb-btng" style={btn} onClick={() => setGallery(true)}>
-              <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter</button>
-            {!confirmReset ? (
-              <button className="slb-btng" style={btn} onClick={() => setConfirmReset(true)}>
-                <RotateCcw aria-hidden style={{ width: 15, height: 15 }} />Réinitialiser
-              </button>
-            ) : (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "4px 4px 4px 12px", borderRadius: T.rMd, background: T.danger050, border: `1px solid ${T.line}` }}>
-                <span style={{ fontSize: "12.5px", fontWeight: 600, color: T.dangerInk }}>Tout réinitialiser ?</span>
-                <button style={{ ...btn, padding: "6px 11px", border: "none", background: T.danger, color: "#fff" }} onClick={doReset}>Confirmer</button>
-                <button className="slb-nbtn" style={NBTN_SM} onClick={() => setConfirmReset(false)} aria-label="Annuler la réinitialisation" title="Annuler">
-                  <X aria-hidden style={{ width: 15, height: 15 }} />
-                </button>
-              </span>
-            )}
-            <button className="slb-btng" style={btn} onClick={cancel}>Annuler</button>
-            <button className="slb-btnp" style={btnPrimary} onClick={save}>
-              <Save aria-hidden style={{ width: 15, height: 15 }} />Enregistrer
-            </button>
-          </div>
+        {loading ? null : (
+          <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
+            <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget
+          </button>
         )}
       </div>
-
-      {editing && (
-        <p style={{ margin: "-4px 0 14px", fontSize: "12.5px", fontWeight: 500, color: T.ink3 }}>
-          Glissez les cartes pour réordonner ; poignées latérales = largeur (moitié / pleine), poignée du bas = hauteur ; ou tout régler via le menu ⋮ (Largeur, Taille, Supprimer). Rien n'est écrit avant « Enregistrer ».
-        </p>
-      )}
 
       {loading ? (
         /* Les squelettes reprennent la grille MAIS pas le tassement : ils sont tous
@@ -9530,26 +9727,22 @@ function Dashboard() {
                     outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3,
                     boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined,
                     position: isTarget ? "relative" : undefined, zIndex: isTarget ? 4 : undefined }}>
-                  <WidgetChromeCtx.Provider value={editing ? { index: i, total: shown.items.length, isWide: wide, size, onMoveUp: () => onMoveUp(id), onMoveDown: () => onMoveDown(id), onSetWide: (v) => onSetWide(id, v), onSetSize: (s) => onSetSize(id, s), onRemove: () => onRemove(id) } : null}>
-                    {/* Options : mode NORMAL, et pour TOUS les types — même sans
-                        formulaire propre, un widget est renommable (`Form` est alors
-                        `undefined` et le panneau n'affiche que le champ Titre). */}
-                    <WidgetOptionsCtx.Provider value={!editing
-                      ? { cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
-                          wide, size,
-                          onSave: ({ title, tint, cfg: c, wide: w, size: s }) => persistOptions(id, title, tint, c, w, s),
-                          onRemove: () => persistRemove(id) }
-                      : null}>
-                      {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
-                          hors édition seulement — pendant l'édition, `draft` fait
-                          autorité et deux écrivains s'écraseraient. */}
-                      <WidgetCfgCtx.Provider value={!editing ? { save: (c) => persistCfg(id, c) } : null}>
-                      {/* Préhension par l'en-tête — fournie dans LES DEUX modes. */}
+                  {/* Options — pour TOUS les types : même sans formulaire propre, un
+                      widget est renommable, déplaçable, redimensionnable et retirable
+                      (`Form` est alors `undefined` et le panneau n'affiche que
+                      « Apparence »). */}
+                  <WidgetOptionsCtx.Provider
+                    value={{ cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
+                      wide, size, index: i, total: shown.items.length,
+                      onMoveUp: () => onMove(id, -1), onMoveDown: () => onMove(id, 1),
+                      onSave: ({ title, tint, cfg: c, wide: w, size: s }) => persistOptions(id, title, tint, c, w, s),
+                      onRemove: () => persistRemove(id) }}>
+                    {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
+                        toujours ouverte — il n'y a plus qu'un seul écrivain. */}
+                    <WidgetCfgCtx.Provider value={{ save: (c) => persistCfg(id, c) }}>
+                      {/* Préhension par l'en-tête (réordonnancement à la souris). */}
                       <WidgetGrabCtx.Provider value={grabOf(id, i)}>
-                        {/* Titre personnalisé : fourni dans les deux modes, sinon un
-                            widget renommé reprendrait son nom d'origine en édition. */}
                         <WidgetTitleCtx.Provider value={inst.title ?? ""}>
-                          {/* Teinte : fournie dans les deux modes, comme le titre. */}
                           <WidgetTintCtx.Provider value={inst.tint ?? ""}>
                             {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
                             <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
@@ -9558,56 +9751,46 @@ function Dashboard() {
                           </WidgetTintCtx.Provider>
                         </WidgetTitleCtx.Provider>
                       </WidgetGrabCtx.Provider>
-                      </WidgetCfgCtx.Provider>
-                    </WidgetOptionsCtx.Provider>
-                  </WidgetChromeCtx.Provider>
+                    </WidgetCfgCtx.Provider>
+                  </WidgetOptionsCtx.Provider>
                 </div>
-                {/* ── POIGNÉES DE REDIMENSIONNEMENT — actives dans LES DEUX MODES depuis
-                    le 2026-08-06. Elles n'existaient qu'en mode Personnaliser, ce qui
-                    obligeait à y entrer pour agrandir une carte ; c'est ce qui rendait ce
-                    mode presque obligatoire.
-                    HORS ÉDITION elles sont DISCRÈTES : leur trait est à `opacity: 0` et
-                    n'apparaît qu'au survol de la carte (règle `.slb-dragwrap` de HoverFX,
-                    §2-bis). La zone de saisie reste là en permanence — révéler la zone
-                    ELLE-MÊME au survol créerait une cible qui se dérobe.
+                {/* ── POIGNÉES DE REDIMENSIONNEMENT — toujours présentes, toujours
+                    DISCRÈTES : leur trait est à `opacity: 0` et n'apparaît qu'au survol de
+                    SON bord (règle HoverFX, §2-bis). La zone de saisie, elle, reste là en
+                    permanence — révéler la zone ELLE-MÊME au survol créerait une cible qui
+                    se dérobe ; c'est le `cursor` qui annonce le geste avant le trait.
                     ⚠️ `touchAction: "none"` est indispensable : sans lui, le navigateur
                     interprète le glissement vertical comme un défilement de page et la
                     poignée ne reçoit plus rien au doigt. */}
-                {/* ⚠️ POSITION DIFFÉRENTE SELON LE MODE, et ce n'est pas cosmétique.
-                    En ÉDITION, la poignée vit DANS la carte : le corps y est inerte
-                    (`pointerEvents: none`) et sans barre de défilement, la bande de 14 px
-                    ne gêne personne.
-                    HORS ÉDITION, le contenu est INTERACTIF : une bande de 14 px posée sur
-                    le bord intérieur volerait les clics des lignes (qui ouvrent la fiche)
-                    et recouvrirait la barre de défilement du corps, à droite. Les poignées
-                    sont donc déportées dans la GOUTTIÈRE (`DASH_GAP`, 18 px d'espace vide
-                    entre les cartes) : elles ne recouvrent plus rien du tout. */}
+                {/* ⚠️ LES POIGNÉES VIVENT DANS LA GOUTTIÈRE, HORS DE LA CARTE, et ce n'est
+                    pas cosmétique : le contenu est INTERACTIF, donc une bande de 14 px
+                    posée sur le bord intérieur volerait les clics des lignes (qui ouvrent
+                    la fiche) et recouvrirait la barre de défilement du corps, à droite.
+                    `DASH_GAP` (18 px d'espace vide entre les cartes) leur laisse la place
+                    de ne rien recouvrir du tout. Ne pas les ramener sur le bord. */}
                 {([-1, 1] as const).map((side) => (
                   <span key={side} className="slb-rzh" aria-hidden
                     onPointerDown={onResizeDown(id, side)} onPointerMove={onResizeMove} onPointerUp={onResizeUp} onPointerCancel={onResizeUp}
                     title={wide ? "Réduire la largeur" : "Élargir sur toute la largeur"}
-                    /* ⚠️ Hors édition la bande est ENTIÈREMENT hors de la carte (−13 sur
-                       13 px de large, dans une gouttière de 18) : elle ne recouvre donc
-                       aucun pixel du contenu. Un décalage plus faible la faisait mordre
-                       sur les derniers pixels du corps — donc sur la BARRE DE DÉFILEMENT
-                       (6 px, à droite) et sur le bord des lignes cliquables. C'est le
-                       `cursor: ew-resize`, actif dès qu'on approche du bord, qui annonce
-                       le geste — pas le trait, qui n'apparaît qu'ensuite. */
+                    /* ⚠️ La bande est ENTIÈREMENT hors de la carte (−13 sur 13 px de large,
+                       dans une gouttière de 18) : elle ne recouvre donc aucun pixel du
+                       contenu. Un décalage plus faible la faisait mordre sur les derniers
+                       pixels du corps — donc sur la BARRE DE DÉFILEMENT (6 px, à droite) et
+                       sur le bord des lignes cliquables. */
                     style={{ position: "absolute", top: 46, bottom: 10 + DASH_GAP,
-                      [side === 1 ? "right" : "left"]: editing ? 0 : -13,
-                      width: editing ? 14 : 13,
+                      [side === 1 ? "right" : "left"]: -13, width: 13,
                       display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5 }}>
-                    <span style={{ width: 4, height: 34, borderRadius: 999, background: T.line2, opacity: editing ? 1 : 0 }} />
+                    <span style={{ width: 4, height: 34, borderRadius: 999, background: T.line2, opacity: 0 }} />
                   </span>
                 ))}
                 <span className="slb-rzv" aria-hidden
                   onPointerDown={onSizeDown(id)} onPointerMove={onSizeMove} onPointerUp={onSizeUp} onPointerCancel={onSizeUp}
                   title="Glisser pour régler la hauteur (petit / moyen / grand)"
-                  /* Hors édition, `bottom: 2` place la poignée ENTIÈREMENT sous la carte,
-                     dans la gouttière : à `DASH_GAP - 3` elle empiétait de 11 px sur le bas
-                     du corps et interceptait le « Lire plus » des listes. */
-                  style={{ position: "absolute", left: 24, right: 24, bottom: editing ? DASH_GAP - 3 : 2, height: 14, display: "grid", placeItems: "center", cursor: "ns-resize", touchAction: "none", zIndex: 5 }}>
-                  <span style={{ height: 4, width: 34, borderRadius: 999, background: T.line2, opacity: editing ? 1 : 0 }} />
+                  /* `bottom: 2` place la poignée ENTIÈREMENT sous la carte, dans la
+                     gouttière : à `DASH_GAP - 3` elle empiétait de 11 px sur le bas du corps
+                     et interceptait le « Voir plus » des listes. */
+                  style={{ position: "absolute", left: 24, right: 24, bottom: 2, height: 14, display: "grid", placeItems: "center", cursor: "ns-resize", touchAction: "none", zIndex: 5 }}>
+                  <span style={{ height: 4, width: 34, borderRadius: 999, background: T.line2, opacity: 0 }} />
                 </span>
               </div>
             );
@@ -9699,8 +9882,8 @@ export default function Block() {
           // Onglet Accueil — outils + tableau de bord à widgets.
           <>
             <QuickLinks />
-            {/* Tableau de bord : widgets indépendants (dont les 2 feeds LinkedIn)
-                + mode Personnaliser (opt-in) */}
+            {/* Tableau de bord : widgets indépendants (dont les 2 feeds LinkedIn),
+                tous réglables en direct sur leur carte */}
             <Dashboard />
           </>
         )}

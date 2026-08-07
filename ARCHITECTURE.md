@@ -16,6 +16,17 @@
 > (heure, pense-bête, liste à cocher), le **marquage lu persistant** des dossiers abonnés, la
 > **grille qui se tasse** (masonry) et le **déplacement hors mode Personnaliser**.
 >
+> **⚠️ 2026-08-07 — LE MODE « PERSONNALISER » N'EXISTE PLUS.** Tout ce document qui parle
+> d'« édition », de « brouillon », de « draft », de « WidgetChromeCtx », de « WidgetEditMenu »
+> ou de « corps inerte » décrit un état RÉVOLU du fichier : ces éléments ont été supprimés.
+> Il ne reste **qu'un régime** — tout geste (déplacer, redimensionner, régler, retirer)
+> s'applique et s'écrit **en direct** —, **un seul bouton** dans la barre (« Ajouter un
+> widget »), et **aucune annulation globale**. Ce qui protège : écriture optimiste, échec
+> toujours annoncé avec « Réessayer », confirmation sur le retrait. Le réordonnancement au
+> **clavier et au doigt** vit désormais dans la modale ⋮ (« Position : Monter / Descendre »),
+> appliqué aussitôt. Les sections ci-dessous n'ont pas été réécrites une à une : en cas de
+> doute, **le code fait foi**.
+>
 > Reste à faire : connecter **`notifC`** (« Notification Center ») pour que l'état lu / non lu
 > existe ; renseigner les **URLs** de `QUICK_LINKS` (encore `#`) ; **vérifier à l'écran** ce qui
 > ne se manifeste qu'à la souris et en session (§7).
@@ -512,7 +523,7 @@ actions et la création se testent sans base.
 
 | Contexte | Quand | Effet |
 |---|---|---|
-| `WidgetChromeCtx` non-null | mode Personnaliser | poignée `GripVertical`, `WidgetEditMenu` (Monter/Descendre/Largeur/Taille/**Supprimer**), **corps inerte** (`pointerEvents: "none"`) |
+| ~~`WidgetChromeCtx`~~ | **SUPPRIMÉ le 2026-08-07** | avec le mode Personnaliser : plus de poignée `GripVertical`, plus de `WidgetEditMenu`, plus de corps inerte. Monter/Descendre sont passés dans `WidgetOptionsCtx` (modale ⋮, appliqués en direct) |
 | `WidgetOptionsCtx` non-null | mode normal, **tous les types** | bouton ⋮ → `WidgetOptionsMenu` : champ **Titre** (commun) + le formulaire du type s'il en a un, brouillon local, « Annuler » / « Enregistrer » |
 | **`WidgetTitleCtx`** | **les deux modes** | titre personnalisé de l'instance, appliqué **par-dessus** la prop `title` |
 | **`WidgetTintCtx`** | **les deux modes** | teinte de l'instance : fond de l'en-tête, encre du titre, pastille d'icône |
@@ -844,7 +855,7 @@ par vigilance**. `cfg.text` reste une simple chaîne, donc les notes déjà écr
 L'enregistrement se fait à la **perte de focus** (ou Ctrl/⌘+Entrée), pas à chaque frappe :
 `persistCfg` réécrit tout le document, une écriture par caractère saturerait la base.
 
-### Cycle du mode Personnaliser (dans `Dashboard`)
+### ~~Cycle du mode Personnaliser~~ — SUPPRIMÉ le 2026-08-07 (section conservée pour l'historique)
 
 `applied` (layout persisté) vs `draft` (brouillon d'édition). « Personnaliser » →
 `setDraft(current); setEditing(true)`. Toutes les manipulations modifient `draft` seul.

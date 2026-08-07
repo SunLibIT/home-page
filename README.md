@@ -72,27 +72,38 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      propriétaire = **utilisateur connecté** (`cfg.mesDossiers`, actif par défaut),
      regroupement des **jumelles** (chaque événement crée 2 lignes), et **non traitées
      seulement**. En pied de liste, un
-     **« Lire plus »** déroule le palier suivant (de `cfg.limite` lignes) sous les
-     précédentes, dans le même corps scrollable — état local, jamais persisté.
+     **« Voir 10 de plus · N restantes »** (2026-08-07) déroule le palier suivant sous les
+     précédentes, dans le même corps scrollable — état local, jamais persisté. Le libellé
+     dit **combien arrive** et **combien reste** ; quand le reste tient dans un palier, il
+     annonce le dernier (« Voir les 3 dernières »), ce qui permet de savoir qu'on a fait le
+     tour de sa file. Palier = **10**, ou le réglage « Nombre de lignes » du ⋮ s'il est plus
+     court. ⚠️ Rien n'est « téléchargé » au clic : la table est déjà lue en entier
+     (drainage), le bouton lève seulement la troncature d'affichage — donc aucune attente,
+     et pas de trou possible entre deux paliers.
      ⚠️ **Le rapprochement se fait sur le NOM, pas sur l'e-mail** : la table ne porte aucun
      e-mail, seulement des noms (`Ilan LEVY`, `Frédéric HUET`…). La règle exige **deux mots
      communs** dès que les deux côtés ont prénom + nom, pour qu'un homonyme de prénom ne voie
      pas les dossiers de l'autre (« Frédéric Martin » ≠ « Frédéric HUET »). Voir `ownerIsUser`.
      Décocher « Seulement les dossiers dont je suis propriétaire » dans ⋮ ouvre la liste.
    - **Journal des tâches** — onglets denses Prospects | Partenaires (pastilles compteur), badge
-     d'échéance par seuil (vert > 14 j, ambre 3–14 j, rouge < 3 j), case **« Fait » qui écrit en base**.
-   - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques).
+     d'échéance par seuil (vert > 14 j, ambre 3–14 j, rouge < 3 j). **Deux filtres (2026-08-07)** :
+     `Fait` décoché **et** `Assignee` = personne connectée (sauté, et annoncé, si la session
+     n'est pas identifiable). Chaque ligne porte un bouton **« Marquer comme faite »** qui
+     écrit en base : la ligne part aussitôt, revient avec un message si l'écriture échoue,
+     et les pastilles suivent.
+   - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques) —
+     filtrées sur **leur propriétaire SunLib** depuis le 2026-08-07 (§4, ⚠️ deux prérequis
+     Softr).
    - **⋮ Réglages du widget** (2026-08-06) — une **modale** en deux colonnes (*Apparence* :
      titre, couleur ; *Contenu* : les réglages du type), et non plus un panneau de 292 px.
-     Elle porte aussi le **retrait du widget** (confirmation en deux temps) et son
-     **encombrement** (largeur moitié / pleine, hauteur petit / moyen / grand) : plus besoin
-     d'entrer dans « Personnaliser » pour redimensionner ou supprimer une carte. Les
-     **poignées de bord** font la même chose à la souris et sont désormais actives **dans les
-     deux modes** — discrètes au repos, révélées au survol de la carte, et déportées dans la
-     gouttière hors édition pour ne pas voler les clics des lignes ni recouvrir la barre de
-     défilement. Le geste s'écrit **une seule fois, au relâchement** (pas à chaque cran). ⚠️ Hors mode Personnaliser,
-     ce retrait est **écrit immédiatement** (pas de brouillon), d'où la confirmation et le
-     toast. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
+     Elle porte aussi le **retrait du widget** (confirmation en deux temps), son
+     **encombrement** (largeur moitié / pleine, hauteur petit / moyen / grand) et sa
+     **position** (Monter / Descendre — le chemin clavier et tactile du réordonnancement).
+     Les **poignées de bord** font la même chose à la souris : discrètes au repos, révélées
+     au survol de leur bord, et déportées dans la gouttière pour ne pas voler les clics des
+     lignes ni recouvrir la barre de défilement. Le geste s'écrit **une seule fois, au
+     relâchement** (pas à chaque cran). ⚠️ Retrait et position sont **écrits
+     immédiatement** (pas de brouillon), d'où la confirmation du retrait et le toast. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
      est décidée à la pose par le modèle de la galerie et ne change plus — un indicateur
      reste un indicateur. Pour une autre forme, on pose un autre widget.
    - **Tous les installateurs** (2026-08-06) — le classement du bloc KPI, en version resserrée :
@@ -162,10 +173,17 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    « Aucune » rend la carte blanche. *(Ni rouge ni orange vif dans la palette : ce sont les couleurs d'alerte de la charte, et
    les banaliser en décor les affaiblirait là où elles comptent.)*
 
-   **Ajouter un widget** se fait depuis une **galerie en feuille modale**, ouvrable dans les deux
-   modes : recherche, filtres par famille, et une **miniature** par modèle qui montre sa forme avant
-   de le poser. « Personnaliser » reste pour réorganiser, redimensionner et supprimer. Toute la
+   **Ajouter un widget** se fait depuis une **galerie en feuille modale** : recherche, filtres
+   par famille, et une **miniature** par modèle qui montre sa forme avant de le poser. Toute la
    disposition — titres et couleurs compris — est **persistée par utilisateur**.
+
+   **⚠️ 2026-08-07 — le mode « Personnaliser » a été SUPPRIMÉ.** La barre du tableau de bord ne
+   porte plus qu'un bouton, **« Ajouter un widget »** ; « Réinitialiser », « Annuler » et
+   « Enregistrer » ont disparu avec le brouillon qu'ils servaient. **Tout se règle en direct** :
+   glisser l'en-tête d'une carte pour réordonner, poignées de bord et du bas pour la taille,
+   ⋮ pour le reste. Chaque geste est écrit aussitôt — silencieusement s'il réussit, avec un
+   toast **« Réessayer »** s'il échoue. Contrepartie assumée : **il n'y a plus d'annulation
+   globale**, seul le retrait d'un widget demande une confirmation.
 
 ## 4. Branchement Airtable — état au 2026-08-05
 
@@ -179,10 +197,10 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | Alias (`DS.`) | Table Airtable (base)                       | Datasource ID | Champs (alias → nom Airtable exact) |
 | ------------- | ------------------------------------------- | ------------- | ----------------------------------- |
 | `abonnes`  | « Abonnés » (BDD Abonné)                        | ✅ `8fc957d0-…` | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
-| `notesIns` | « Suivi client » (Bdd Installateurs)           | ✅ `122fbc71-…` | nom `Installateur` · note `Notes` · date `Date ` *(espace final)* |
-| `notesPro` | « Suivi propect » (BDD Propect)                | ✅ `dbd7e501-…` | nom `Nom` · note `Notes` · date `date ` *(espace final, createdTime)* |
-| `tachesPa` | « Taches » (Bdd Installateurs)                 | ✅ `7198b954-…` | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` |
-| `tachesPr` | « Taches prospect »                            | ✅ `9414183e-…` | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` |
+| `notesIns` | « Suivi client » (Bdd Installateurs)           | ✅ `122fbc71-…` | nom `Installateur` · note `Notes` · date `Date ` *(espace final)* · **⚠️ à exposer** : proprio `Proprietaire (from Installateurs)` |
+| `notesPro` | « Suivi propect » (BDD Propect)                | ✅ `dbd7e501-…` | nom `Nom` · note `Notes` · date `date ` *(espace final, createdTime)* · **⚠️ à exposer** : proprio `Propriétaire (from Propects)` *(lookup **créé le 2026-08-07**)* |
+| `tachesPa` | « Taches » (Bdd Installateurs)                 | ✅ `7198b954-…` | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` · **⚠️ à exposer** : assignee `Assignee` |
+| `tachesPr` | « **Tâches** » (**BDD Propect Sunlib**) *(id confirmé le 2026-08-07)* | ✅ `9414183e-…` | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` · **⚠️ à exposer** : assignee `Assignee` |
 | `sav`      | « Tickets » (SAV) — *lecture seule*            | ✅ `3f5f8f6c-…` | 22 alias : ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût |
 | `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` |
 | `parcAbo`  | « Abonnés » **relue en 1 champ**, paginée       | ✅ (même `8fc957d0-…`) | ref `Contrat abonné` — dénominateur « % du parc » |
@@ -207,6 +225,35 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 > ⚠️ **Les champs exposés sont choisis à la connexion** : la datasource de « Taches » n'en expose
 > que 3 sur 12 à ses blocs de page. Si l'éditeur signale « you have a field in your source code X
 > which is not present in your datasource » au collage, il faut **remapper la source**.
+
+#### ⚠️ 2026-08-07 — filtres « mes fiches » : DEUX prérequis avant de recoller le bloc
+
+Quatre widgets ne montrent plus que ce qui est **à soi** (rapprochement par le NOM, via
+`ownerIsUser` : ces champs ne portent aucun e-mail). Le filtre est **réglable** et **actif par
+défaut** ; décochable dans ⋮ → *Périmètre* pour les widgets `data`.
+
+| Widget | Champ qui porte le propriétaire |
+| ------ | ------------------------------- |
+| Dernières notes — Installateurs | `Proprietaire (from Installateurs)` *(lookup existant)* |
+| Dernières notes — Prospects | `Propriétaire (from Propects)` *(lookup **créé le 2026-08-07** dans « Suivi propect » : la table n'en avait aucun)* |
+| Journal des tâches — onglet Prospects | `Assignee` |
+| Journal des tâches — onglet Partenaires | `Assignee` |
+
+1. **Exposer les 4 champs dans l'onglet *Sources* du bloc** (`notesIns`, `notesPro`, `tachesPa`,
+   `tachesPr`). Un champ lu par le code mais absent de la datasource fait échouer **le bloc
+   entier** (« does not match / Remap the fields »), pas seulement son widget.
+2. ~~Vérifier la datasource `tachesPr`~~ — **fait le 2026-08-07** : l'id `9414183e-…` déjà en
+   place désigne bien « **Tâches** » de **BDD Propect Sunlib** (`appKrZfi0alQwq7HX` ·
+   `tblqcm9RYT1KgIe6K`), confirmé par le propriétaire du bloc ; la connexion Softr porte
+   seulement le nom de l'ancienne table. ⚠️ **Si le journal affichait un jour des tâches
+   étrangères aux prospects**, c'est le premier endroit à regarder : les cinq noms de champs
+   existent dans **les deux** tables, donc une datasource repointée lirait **sans erreur**,
+   simplement les mauvaises lignes. Signe distinctif : dans « Tâches » (BDD Propect),
+   `Prospect associé` est un **lien** ; dans « Taches prospect », du **texte libre**.
+
+Le **journal des tâches** gagne au passage un bouton **« Marquer comme faite »** par ligne
+(écrit `Fait` = vrai ; disparition immédiate de la ligne, annulée avec un message si l'écriture
+échoue), et ses pastilles de compteur baissent avec elle.
 
 Détails du choix :
 - **Nouveaux dossiers abonnés** = table `Notification Center`, par `Created Date`. L'état lu /
