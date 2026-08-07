@@ -57,7 +57,14 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 4. **Raccourcis** (onglet Accueil) — tuiles vers les pages de l'espace en `target="_top"`. Cette
    section s'appelait « Outils » avant que les outils aient leur onglet.
 5. **Tableau de bord** (onglet Accueil) — grille de widgets **indépendants, redimensionnables et
-   déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui) :
+   déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui).
+   **Hauteur rabattue sur le contenu (2026-08-07)** : les crans valent 168 / 340 / 560 px,
+   mais le corps d'un widget est ramené à la **dernière frontière d'élément qui tient dans le
+   cran** — une ligne de liste, une rangée de tuiles. Un cran ne coupe donc plus une tuile en
+   deux (symptôme observé sur « Pilotage SAV » en petit). Au moins un élément est toujours
+   montré, même s'il dépasse le cran ; un widget sans élément répétitif (pense-bête, embed)
+   garde son cran au pixel. Les unités sont **déclarées** (`.slb-row`, `.slb-unit`), jamais
+   devinées :
    - **Nouveaux dossiers abonnés** — lit **`Notification Center` et cette table seule** (refonte
      du 2026-08-06 : avant, il lisait `Abonnés` et joignait l'état de lecture, et un preset de
      galerie affichait la même liste — deux widgets jumeaux). Avatar, texte de la notification,
@@ -96,14 +103,21 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      Softr).
    - **⋮ Réglages du widget** (2026-08-06) — une **modale** en deux colonnes (*Apparence* :
      titre, couleur ; *Contenu* : les réglages du type), et non plus un panneau de 292 px.
-     Elle porte aussi le **retrait du widget** (confirmation en deux temps), son
-     **encombrement** (largeur moitié / pleine, hauteur petit / moyen / grand) et sa
-     **position** (Monter / Descendre — le chemin clavier et tactile du réordonnancement).
+     Elle porte aussi le **retrait du widget** (confirmation en deux temps) et son
+     **encombrement** (largeur moitié / pleine, hauteur petit / moyen / grand / **XL** —
+     ce 4ᵉ cran, 860 px, a été ajouté le 2026-08-07 : les trois d'origine plafonnaient à
+     560 px, trop court pour un embed qui ne défile pas). **Pas de
+     réglage de position** (2026-08-07) : on réordonne en glissant l'en-tête d'une carte,
+     et rien d'autre. ⚠️ Conséquence acceptée : il n'existe donc **aucun chemin de
+     réordonnancement au clavier ni au doigt**, le glisser-déposer HTML5 ne répondant pas
+     au tactile.
      Les **poignées de bord** font la même chose à la souris : discrètes au repos, révélées
      au survol de leur bord, et déportées dans la gouttière pour ne pas voler les clics des
      lignes ni recouvrir la barre de défilement. Le geste s'écrit **une seule fois, au
-     relâchement** (pas à chaque cran). ⚠️ Retrait et position sont **écrits
-     immédiatement** (pas de brouillon), d'où la confirmation du retrait et le toast. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
+     relâchement** (pas à chaque cran). ⚠️ Le retrait est **écrit immédiatement** (pas de
+     brouillon), d'où sa confirmation et le toast. La mention « Rien n'est appliqué avant
+     Enregistrer » a été retirée du pied : deux boutons nommés « Annuler » et
+     « Enregistrer » le disent déjà. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
      est décidée à la pose par le modèle de la galerie et ne change plus — un indicateur
      reste un indicateur. Pour une autre forme, on pose un autre widget.
    - **Tous les installateurs** (2026-08-06) — le classement du bloc KPI, en version resserrée :
@@ -137,7 +151,12 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      attente) — tous déjà lus par `SELECT_COM` sur la même datasource, donc leur exposition est
      prouvée. Ils servent aussi de colonnes et de filtres aux widgets génériques.
    - **Pilotage SAV — synthèse** — les valeurs cochées dans son ⋮, en **tuiles** (grande valeur,
-     détail dessous, barre pour les proportions) ou en **lignes** denses.
+     détail dessous, barre pour les proportions) ou en **lignes** denses. ⚠️ L'alerte
+     **« N ouverts > 60 j » a été retirée le 2026-08-07** : elle n'appelait aucun geste depuis
+     l'accueil (le dossier se traite dans le bloc SAV) et occupait la tête du widget. Comme
+     pour « priorité élevée », le calcul reste dans `savKpis` et la remettre ne demande que de
+     ré-ajouter son entrée au registre — ceux qui l'avaient cochée la retrouveraient, le
+     document n'étant jamais « réparé ».
    - **Indicateurs commerciaux** — rangée de tuiles : contrats signés, annulés (+ taux), CAPEX
      signé HT et kWc, installateurs actifs, et le pipeline **« à signer (30 j) »** avec son CAPEX
      restant. Période réglable, sauf le pipeline qui reste sur sa fenêtre glissante.
@@ -288,21 +307,46 @@ Détails du choix :
 Tout est dans le registre `PAGES` / `TOOLS` — voir la section **E** ci-dessous. Aucune URL n'est
 écrite ailleurs, et une adresse qui change se change là, une fois.
 
-### C — Embed LinkedIn ✅ intégré
-Widget **Elfsight** (bannière SunLib) `elfsight-app-488a28ed-…` intégré tel quel dans
-`LinkedInSection` : le `<div>` cible est rendu sans restyle et `platform.js` est chargé
-une fois via `useEffect` (un `<script>` en JSX ne s'exécute pas). Rien à faire, sinon
-vérifier que `elfsightcdn.com` est autorisé par la CSP de l'iframe Softr.
+### C — Embeds Elfsight ✅ intégrés
+Les trois embeds (fil LinkedIn `2df6db63-…`, bannière « À la une » `488a28ed-…`, barre d'annonces
+`8f372b94-…`) passent par le composant **`ElfsightWidget`** (refonte du 2026-08-07) :
+
+```tsx
+<ElfsightWidget widgetId="488a28ed-f4b6-4f5b-af44-c16613885c98" />
+```
+
+Il rend une **iframe `srcDoc`** qui contient le snippet officiel — doctype, `body` sans marge,
+le script `elfsightcdn.com/platform.js` en `async`, le `<div class="elfsight-app-…">` — et rien
+d'autre. `width: 100%`, `border: 0`, `loading="lazy"`, hauteur `420` px par défaut (prop
+`height`).
+
+**Pourquoi cette forme** : le montage direct dans le document de l'app ne fonctionne pas, et trois
+implémentations y ont échoué. Le test du 2026-08-07, en production, montre que le même widget
+s'affiche dès qu'il a son propre document — ce qui **innocente** le widget, le compte, l'URL du CDN
+et la **CSP** (un `srcdoc` hérite de la politique du parent). La cause résiduelle est le document
+lui-même (shadow DOM du bloc `vibe code`, ou remontages React) : on ne la corrige pas, on l'isole.
+
+⚠️ **La hauteur est fixe** — une iframe ne se dimensionne pas sur son contenu. Si le contenu de la
+bannière change côté Elfsight, ajuster `ELFSIGHT_HEIGHT` dans `Block.tsx` ou passer `height`.
+
+La prop `hideLabel` masque un texte rendu PAR Elfsight dans l'iframe — utilisée pour l'en-tête
+« SunLib sur LinkedIn » de la bannière, qui doublonnait le titre de la carte. Le ciblage se fait sur
+le **texte exact** et sur le nœud le plus profond qui le porte, jamais sur un sélecteur : les classes
+d'Elfsight ne sont pas un contrat, et masquer `[class*="title"]` emporterait le titre du webinaire.
+⚠️ **La voie propre reste côté Elfsight** : décocher l'affichage du titre dans l'éditeur du widget,
+puis retirer la prop.
 
 > ⛔ **Le Fil LinkedIn ne monte pas dans le bloc, y compris sur le domaine publié (2026-08-05).**
 > Diagnostic en cours. Ce qui est **éliminé**, et par quelle observation :
 >
 > | Suspect | Écarté par |
 > | --- | --- |
-> | CSP, bloqueur de contenu | le runtime **se charge** (`onload` appelé) — l'état du loader le dit |
+> | CSP, bloqueur de contenu | le runtime **se chargeait** (`onload` appelé) — relevé avec l'ancien loader, qui exposait cet état ; `ElfsightWidget` ne le suit plus (2026-08-07) |
 > | Domaine, compte Elfsight | le même runtime sert un autre widget depuis un bloc « Custom Code » sur ce domaine |
-> | URL du runtime | le bloc chargeait `elfsightcdn.com/platform.js`, aligné depuis sur le `static.elfsight.com/platform/platform.js` du snippet vérifié |
-> | `data-elfsight-app-lazy` manquant | attribut **remis**, pour ne plus différer du snippet vérifié |
+> | URL du runtime | aligné sur `static.elfsight.com/platform/platform.js` le 2026-08-05, **repassé à `elfsightcdn.com/platform.js`** (snippet officiel) le 2026-08-07 — les deux servent le même runtime, mais une CSP qui liste des hôtes ne les vaut pas ; c'est la première chose à rebasculer |
+> | `data-elfsight-app-lazy` manquant | attribut remis le 2026-08-05, **retiré de nouveau** : il n'a rien débloqué et lie le montage à la visibilité, or la grille est scrollable |
+> | Injection par `innerHTML` (un `<script>` n'y s'exécute jamais) | **jamais utilisée ici** : le runtime a toujours été créé par `document.createElement` dans un `useEffect` |
+> | Runtime chargé dans la page parente, div dans l'iframe | **non applicable** : le script est appendé au `document.body` de l'iframe, le même document que le div |
 >
 > ⚠️ La CSP `script-src 'self' 'unsafe-inline'` relevée en aperçu était un **faux indice** : l'erreur
 > nommait le beacon Cloudflare de Softr, pas Elfsight. Elle reste vraie, mais n'explique pas ce

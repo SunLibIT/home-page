@@ -133,8 +133,8 @@ const USE_MOCK: boolean = false;
    `pageUrl` renvoie alors "" et l'appelant rend un lien INERTE plutôt qu'un lien mort.
 
    Ce que ce bloc NE couvre PAS, pour ne pas le chercher ici : les images de la charte
-   (constante `IMG`, §1) et le runtime des embeds (`ELFSIGHT_PLATFORM`, posé juste au-
-   dessus de `useElfsightPlatform`, son unique consommateur).
+   (constante `IMG`, §1) et l'URL du runtime des embeds, qui vit dans le document servi à
+   leur iframe (`elfsightDoc`, §9-sexies — son unique endroit).
    Ce ne sont pas des cibles de navigation mais des ressources techniques, chacune
    déjà unique en son endroit.
    ============================================================================ */
@@ -2602,9 +2602,19 @@ function EmptyState({ icon: Icon, title, hint, dense }: { icon: LucideIcon; titl
   );
 }
 
-/* Taille (hauteur) d'un widget, réglable par sa poignée du bas ou son ⋮. Défaut "md". */
-type WidgetSize = "sm" | "md" | "lg";
-const WIDGET_HEIGHTS: Record<WidgetSize, number> = { sm: 168, md: 340, lg: 560 };
+/* Taille (hauteur) d'un widget, réglable par sa poignée du bas ou son ⋮. Défaut "md".
+   ⚠️ LES CLÉS SONT UN CONTRAT DE PERSISTANCE : elles sont stockées dans le layout de chaque
+   utilisateur (`Instance.h`). On peut changer une VALEUR en pixels librement — la carte
+   grandit ou rétrécit —, jamais renommer une clé.
+   ⚠️ `xl` a été AJOUTÉ le 2026-08-07 : les trois cran d'origine plafonnaient à 560 px, trop
+   court pour un embed qui ne défile pas (le fil LinkedIn en iframe était coupé, cf.
+   `ElfsightWidget`). Les valeurs des trois autres n'ont PAS bougé : les relever aurait
+   changé l'apparence de tous les accueils déjà réglés.
+   ⚠️ Toute nouvelle clé doit être ajoutée AUX DEUX ENDROITS qui valident `h` à la lecture
+   (`normalizeLayout` et la migration v1) — sinon elle serait ramenée à "md" au chargement
+   suivant, et le réglage se perdrait sans un mot. */
+type WidgetSize = "sm" | "md" | "lg" | "xl";
+const WIDGET_HEIGHTS: Record<WidgetSize, number> = { sm: 168, md: 340, lg: 560, xl: 860 };
 
 /* --- GRILLE DU TABLEAU DE BORD — géométrie du TASSEMENT (masonry) -------------
    Avant, la grille était une grille CSS ordinaire : chaque rangée prenait la
@@ -2635,6 +2645,67 @@ const DASH_ROW = 4;    // granularité des lignes implicites : le résidu ≤ 3 
    `slb-scrolly` reste, mais seulement pour l'habillage de la scrollbar. --- */
 const WidgetHeightCtx = createContext<number>(WIDGET_HEIGHTS.md);
 
+/* --- ARRONDI AU DERNIER ÉLÉMENT ENTIER (« snap », 2026-08-07) -------------------
+   Les crans de hauteur sont des PIXELS (168 / 340 / 560) et le contenu, lui, a sa
+   propre granularité : une ligne de liste, une rangée de tuiles. Un cran tombe donc
+   presque toujours au milieu d'un élément, et une tuile coupée en deux se lit comme un
+   bug d'affichage — c'est ce qui a été rapporté sur « Pilotage SAV » en petit.
+
+   La hauteur réelle du corps est donc RABATTUE sur la dernière frontière d'élément qui
+   tient dans le cran. Trois précisions qui comptent :
+   · les UNITÉS sont déclarées, pas devinées : `.slb-row` (toutes les listes et lignes de
+     tableau du bloc l'ont déjà) et `.slb-unit` (les tuiles de `KpiTiles`, les sections du
+     SAV). Un widget sans unité — pense-bête, embed, squelette — garde son cran au pixel :
+     rien à rabattre sur du texte libre ;
+   · AU MOINS UNE unité est toujours montrée, même si elle dépasse le cran : mieux vaut un
+     widget un peu plus haut que demandé qu'un widget qui ne montre rien d'entier ;
+   · le PADDING BAS du parent de la dernière unité est réintégré, sinon la tuile toucherait
+     le bord de la carte là où la mise en page prévoit 16 px de respiration.
+
+   ⚠️ MESURE EN `offsetTop` / `offsetHeight`, jamais en `getBoundingClientRect()` : les
+   wrappers de la grille reçoivent des `scale()` pendant les animations FLIP (§11), et un
+   rect inclut les transforms des ancêtres — les frontières seraient fausses à chaque
+   réordonnancement. La chaîne des `offsetParent` est remontée jusqu'au conteneur, qui est
+   donc `position: relative` (sans quoi il ne serait pas l'`offsetParent` de personne).
+   ⚠️ Le rabattement ne vaut que pour l'état de REPOS : une fois qu'on défile, on s'arrête
+   où l'on veut. C'est voulu — le défilement libre est la façon dont on lit une liste. --- */
+const scrollUnits = (root: HTMLElement): HTMLElement[] =>
+  Array.from(root.querySelectorAll<HTMLElement>(".slb-row, .slb-unit"));
+
+/** Bas d'un élément, en pixels depuis le haut du CONTENU de `root`. `-1` si l'élément
+ *  n'est pas dans le sous-arbre positionné de `root` (cas d'un ancêtre intermédiaire
+ *  positionné : on préfère l'ignorer plutôt que de rendre une valeur fausse). */
+function offsetBottomIn(el: HTMLElement, root: HTMLElement): number {
+  let y = el.offsetHeight;
+  let n: HTMLElement | null = el;
+  while (n && n !== root) { y += n.offsetTop; n = n.offsetParent as HTMLElement | null; }
+  return n === root ? y : -1;
+}
+
+/** Hauteur à appliquer pour ne couper aucune unité, ou `max` s'il n'y a rien à rabattre. */
+function snapHeight(root: HTMLElement, max: number): number {
+  const units = scrollUnits(root);
+  if (!units.length) return max;
+  let best = 0, bestEl: HTMLElement | null = null;   // plus grande frontière ≤ max
+  let first = Infinity, firstEl: HTMLElement | null = null;  // repli « au moins une unité »
+  for (const u of units) {
+    const b = offsetBottomIn(u, root);
+    if (b < 0) continue;
+    if (b <= max && b > best) { best = b; bestEl = u; }
+    if (b < first) { first = b; firstEl = u; }
+  }
+  const el = bestEl ?? firstEl;
+  const y = bestEl ? best : first;
+  if (!el || !Number.isFinite(y)) return max;
+  /* Respiration : le padding bas du parent n'est réintégré que si l'unité retenue est la
+     DERNIÈRE de ce parent — au milieu d'une liste, ajouter 16 px découvrirait un bandeau
+     de la ligne suivante, exactement ce qu'on cherche à éviter. */
+  const parent = el.parentElement;
+  const dernier = !!parent && parent.lastElementChild === el;
+  const pad = dernier && parent ? parseFloat(getComputedStyle(parent).paddingBottom) || 0 : 0;
+  return Math.round(y + pad);
+}
+
 function ScrollBody({ children }: { children?: ReactNode }) {
   const maxHeight = useContext(WidgetHeightCtx);
   /* Le corps défile TOUJOURS : il n'y a plus de mode où il serait inerte (le mode
@@ -2642,8 +2713,45 @@ function ScrollBody({ children }: { children?: ReactNode }) {
      ⚠️ La barre de défilement longe le même bord droit que la poignée de largeur : ce
      conflit est réglé côté §11, où les poignées sont déportées DANS LA GOUTTIÈRE, hors
      de la carte. Ne pas les ramener sur le bord intérieur. */
+  /* Hauteur RABATTUE (cf. `snapHeight`). Elle part du cran demandé — donc le premier
+     rendu est déjà correct au pixel près pour les widgets sans unité — puis se cale à la
+     mesure. `null` = pas encore mesuré.
+     · Pas de tableau de dépendances, comme les autres mesures du fichier (§11) : le
+       contenu d'un widget change (une ligne cochée, une source relue) et la frontière
+       change avec lui.
+     · Le garde `≠` est OBLIGATOIRE : sans lui, chaque mesure déclencherait un rendu, qui
+       remesurerait — boucle infinie.
+     · Repli sans ResizeObserver : la hauteur reste le cran demandé, donc l'ancien
+       comportement (une unité peut être coupée), jamais un widget cassé. */
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [snap, setSnap] = useState<number | null>(null);
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = snapHeight(el, maxHeight);
+      /* TOLÉRANCE D'UN PIXEL, et ce n'est pas de la coquetterie : rabattre la hauteur fait
+         apparaître ou disparaître l'ascenseur, ce qui change la largeur utile, donc peut
+         changer le nombre de colonnes de la grille de tuiles, donc les hauteurs mesurées.
+         Deux valeurs qui alterneraient à un pixel près relanceraient un rendu à chaque
+         mesure — une boucle sans fin, invisible à l'œil mais qui mange le processeur.
+         `scrollbarGutter: "stable"` (plus bas) retire la cause principale, ce seuil couvre
+         le reste (arrondis sub-pixel du zoom navigateur). */
+      setSnap((prev) => (prev != null && Math.abs(prev - h) <= 1 ? prev : h));
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    scrollUnits(el).forEach((u) => ro.observe(u));
+    return () => ro.disconnect();
+  });
   return (
-    <div className="slb-scrolly" style={{ overflowY: "auto", maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
+    <div ref={bodyRef} className="slb-scrolly"
+      /* `scrollbarGutter: "stable"` réserve la place de l'ascenseur en permanence : la
+         largeur utile ne change donc plus selon qu'il est là ou non, et la mesure de
+         rabattement ne peut plus osciller entre deux mises en page (cf. `measure`). */
+      style={{ position: "relative", overflowY: "auto", scrollbarGutter: "stable", maxHeight: snap ?? maxHeight, scrollbarWidth: "thin", scrollbarColor: `${T.line2} transparent` }}>
       {/* Le filet de séparation entre lignes était une règle injectée
           (`.slb-row + .slb-row`) : il est posé ici, en ligne, autour de chaque
           enfant — un seul endroit pour toutes les listes du bloc. */}
@@ -2663,9 +2771,13 @@ function ScrollBody({ children }: { children?: ReactNode }) {
       ⚠️ 2026-08-07 — LE MODE « PERSONNALISER » A ÉTÉ SUPPRIMÉ. Il n'y a plus qu'un
       seul régime : tout geste (déplacer, redimensionner, régler, retirer) s'applique
       et s'écrit EN DIRECT. Ce contexte est donc fourni en permanence, et c'est lui qui
-      porte désormais TOUT ce qui se réglait dans l'ancien menu ⋮ d'édition — position
-      comprise (`onMoveUp` / `onMoveDown`), qui reste le seul chemin CLAVIER et TACTILE
-      pour réordonner (le DnD HTML5 ne fonctionne pas au doigt). --- */
+      porte ce qui se réglait dans l'ancien menu ⋮ d'édition : titre, teinte, contenu,
+      encombrement, retrait.
+      ⚠️ LA POSITION N'EN FAIT PAS PARTIE (choix du 2026-08-07, demandé) : réordonner se
+      fait en GLISSANT l'en-tête d'une carte, et rien d'autre. Conséquence connue et
+      acceptée : il n'y a donc PLUS de chemin de réordonnancement au clavier ni au doigt,
+      le glisser-déposer HTML5 ne répondant pas au tactile. Ne pas remettre de
+      « Monter / Descendre » ici sans revenir sur cet arbitrage. --- */
 type WidgetOptions = {
   cfg: any;
   /** Formulaire propre au TYPE. Absent = ce type n'a pas de réglages ; le panneau
@@ -2680,16 +2792,6 @@ type WidgetOptions = {
   wide: boolean;
   size: WidgetSize;
   onSave: (next: { title: string; tint: string; cfg: any; wide: boolean; size: WidgetSize }) => void;
-  /** Position de CETTE instance dans la grille, et les deux gestes qui la changent.
-   *  ⚠️ APPLIQUÉS EN DIRECT, contrairement au reste du panneau (titre, couleur,
-   *  encombrement, contenu) qui reste un brouillon jusqu'à « Enregistrer ». Un
-   *  déplacement ne se prévisualise pas dans une modale : il n'a de sens qu'appliqué
-   *  à la grille, sous les yeux. Les bornes (`index`, `total`) désactivent le geste
-   *  impossible plutôt que de le laisser cliquable sans effet. */
-  index: number;
-  total: number;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
   /** Retire le widget de l'accueil. Écriture IMMÉDIATE, comme tout le reste depuis la
    *  suppression du mode « Personnaliser » — d'où la confirmation en deux temps dans la
    *  modale : ici, un clic de trop retire vraiment le widget. */
@@ -2870,8 +2972,8 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
    colonne étroite avec un ascenseur, et on perdait de vue ce qu'on modifiait.
 
    Désormais : une modale centrée, en DEUX COLONNES sur écran large.
-   · « Apparence » (titre, couleur, encombrement, position) — commun à TOUS les types,
-     y compris ceux qui n'ont pas de formulaire ;
+   · « Apparence » (titre, couleur, encombrement) — commun à TOUS les types, y compris
+     ceux qui n'ont pas de formulaire ;
    · « Contenu » — le formulaire du type (`opts.Form`), qui a enfin la largeur de
      ses `<select>` et de ses lignes de filtres.
    Sur écran étroit, les deux colonnes se replient l'une sous l'autre (`flexWrap`),
@@ -2880,10 +2982,8 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
    Ce qui NE change pas, et ne doit pas changer : les RÉGLAGES restent un BROUILLON.
    Rien n'est appliqué avant « Enregistrer », et « Annuler » jette tout. C'est ce qui
    rend l'exploration des réglages sans risque.
-   ⚠️ DEUX EXCEPTIONS, et elles sont assumées : « Monter / Descendre » et « Retirer »
-   agissent EN DIRECT. Un déplacement n'a de sens qu'appliqué à la grille (le prévoir
-   dans une modale ne montrerait rien), et un retrait doit être franc — d'où sa
-   confirmation en deux temps. Le libellé du pied le dit à l'écran.
+   ⚠️ UNE EXCEPTION, et elle est assumée : « Retirer » agit EN DIRECT. Un retrait doit
+   être franc — d'où sa confirmation en deux temps juste avant.
 
    ⚠️ Fermeture par clic sur le VOILE (`e.target === e.currentTarget`) et par Échap,
    et non par `useDismissOnOutside` : ce formulaire est plein de `<select>`, dont la
@@ -3030,36 +3130,26 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                     <button style={seg(draftWide)} onClick={() => setDraftWide(true)} aria-pressed={draftWide}>Pleine</button>
                   </div>
                   <span style={{ ...lbl, marginTop: "10px" }}>Hauteur</span>
+                  {/* Quatre crans depuis le 2026-08-07. « XL » plutôt que « Très grand » :
+                      quatre segments se partagent 250 px, et un libellé de deux mots y
+                      passerait à la ligne ou serait tronqué. L'`aria-label` porte le nom
+                      complet — ce qui est lu à voix haute n'a pas cette contrainte. */}
                   <div style={{ display: "flex", gap: "6px" }}>
-                    {(["sm", "md", "lg"] as const).map((s) => (
-                      <button key={s} style={seg(draftSize === s)} onClick={() => setDraftSize(s)} aria-pressed={draftSize === s}>
-                        {s === "sm" ? "Petit" : s === "md" ? "Moyen" : "Grand"}
-                      </button>
-                    ))}
+                    {(["sm", "md", "lg", "xl"] as const).map((s) => {
+                      const nom = s === "sm" ? "Petit" : s === "md" ? "Moyen" : s === "lg" ? "Grand" : "Très grand";
+                      return (
+                        <button key={s} style={seg(draftSize === s)} onClick={() => setDraftSize(s)}
+                          aria-pressed={draftSize === s} aria-label={`Hauteur ${nom}`}>
+                          {s === "xl" ? "XL" : nom}
+                        </button>
+                      );
+                    })}
                   </div>
 
-                  {/* ── POSITION ── le chemin CLAVIER et TACTILE du réordonnancement, et
-                      le SEUL depuis la suppression du mode « Personnaliser » (le
-                      glisser-déposer HTML5 ne fonctionne pas au doigt).
-                      ⚠️ EN DIRECT, contrairement au reste de cette colonne : la modale
-                      reste ouverte, la grille bouge derrière, et les boutons se
-                      désactivent d'eux-mêmes aux extrémités (`opts.index` est rafraîchi
-                      à chaque rendu). Enchaîner trois clics pour remonter de trois rangs
-                      doit rester possible sans refermer le panneau. */}
-                  <span style={{ ...lbl, marginTop: "13px" }}>Position <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600, color: T.ink4 }}>· appliquée aussitôt</span></span>
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    <button className="slb-menu-item" style={{ ...seg(false), display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
-                      onClick={opts.onMoveUp} disabled={opts.index === 0} aria-label={`Monter — ${title}`}>
-                      <ChevronUp aria-hidden style={{ width: 14, height: 14 }} />Monter
-                    </button>
-                    <button className="slb-menu-item" style={{ ...seg(false), display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "5px" }}
-                      onClick={opts.onMoveDown} disabled={opts.index === opts.total - 1} aria-label={`Descendre — ${title}`}>
-                      <ChevronDown aria-hidden style={{ width: 14, height: 14 }} />Descendre
-                    </button>
-                  </div>
-                  <div style={{ margin: "6px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
-                    Position {opts.index + 1} sur {opts.total} · à la souris, glissez l'en-tête de la carte.
-                  </div>
+                  {/* ⚠️ PAS DE « POSITION » ICI (retirée le 2026-08-07, demandé) : on
+                      réordonne en glissant l'en-tête d'une carte. Voir la note de
+                      `WidgetOptions` (§8) pour ce que cet arbitrage coûte au clavier et au
+                      tactile, avant de la réintroduire. */}
                 </div>
 
                 {/* ── CONTENU (formulaire du type) ────────────────────────────── */}
@@ -3095,11 +3185,14 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                   </button>
                 )
               )}
-              {!confirmRemove && (
-                <span style={{ flex: 1, minWidth: 0, fontSize: "11px", fontWeight: 500, color: T.ink4 }}>
-                  Rien n'est appliqué avant « Enregistrer ».
-                </span>
-              )}
+              {/* ESPACEUR, et rien de plus : il pousse « Annuler » et « Enregistrer » à
+                  droite, loin du « Retirer ». La phrase « Rien n'est appliqué avant
+                  Enregistrer » a été RETIRÉE le 2026-08-07 (demandé) — la règle vaut
+                  toujours, elle n'a simplement pas à être écrite sous chaque widget : deux
+                  boutons nommés « Annuler » et « Enregistrer » la disent déjà.
+                  ⚠️ Ne pas supprimer ce span en croyant nettoyer du vide : sans lui, le pied
+                  se tasse à gauche et « Retirer » touche « Enregistrer ». */}
+              {!confirmRemove && <span style={{ flex: 1, minWidth: 0 }} />}
               <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
               <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
                 <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
@@ -3561,7 +3654,7 @@ function OutilsTab() {
 
 /* --- SunLib sur LinkedIn — les embeds Elfsight sont désormais des WIDGETS du
       tableau de bord (voir LinkedinCard / LinkedinBannerCard au §10), chargés
-      par le loader partagé useElfsightPlatform. Plus de section fixe : ils
+      par le composant partagé `ElfsightWidget`. Plus de section fixe : ils
       s'affichent, se réordonnent et se suppriment comme les autres widgets. --- */
 
 /* ============================================================================
@@ -5962,8 +6055,18 @@ const SAV_METRICS: SavMetric[] = [
      La remettre = ré-ajouter cette entrée ici (le seuil vit dans le bloc SAV,
      `priority()`, p >= 8) ; les utilisateurs qui l'avaient cochée la retrouveraient,
      puisque le stockage n'a jamais été « réparé ». */
-  { key: "vieux", label: `Alerte — ouverts > ${SAV_VIEUX_J} j`, kind: "alert",
-    count: (k) => k.vieux, text: (n) => `${n} ouvert${n > 1 ? "s" : ""} > ${SAV_VIEUX_J} j`, icon: Clock },
+  /* ⚠️ Plus d'alerte « ouverts > 60 j » non plus — RETIRÉE le 2026-08-07, sur demande :
+     un bandeau en tête de widget qui annonce « 3 ouverts > 60 j » n'appelle aucun geste
+     depuis l'accueil (le dossier se traite dans le bloc SAV), et il occupait la première
+     ligne, juste sous le grand chiffre. Même sort que « priorité élevée » ci-dessus, et
+     par le même chemin : l'entrée quitte le registre, `coerceSavCfg` écarte alors sa clé
+     des `cfg.show` déjà enregistrées, et elle disparaît des widgets qui l'affichaient.
+     Le CALCUL reste (`savKpis().vieux`, seuil `SAV_VIEUX_J`) : remettre l'alerte ne
+     demande que de ré-ajouter les deux lignes supprimées ici, et ceux qui l'avaient
+     cochée la retrouveraient — le document n'est jamais « réparé ».
+     ⚠️ Il n'y a donc PLUS AUCUNE métrique `kind: "alert"` déclarée. Son rendu (§ `picked`)
+     est conservé : c'est une famille du registre, pas du code sur-mesure, et la prochaine
+     alerte n'aura qu'à se déclarer. */
   { key: "dossiers", label: "Dossiers au total", kind: "stat", icon: ClipboardList,
     value: (k) => `${k.dossiers}`,
     sub: (k) => `${k.ouverts} ouvert${k.ouverts > 1 ? "s" : ""} · ${k.clos} clos ou résolu${k.clos > 1 ? "s" : ""}` },
@@ -6015,7 +6118,7 @@ const SAV_METRICS: SavMetric[] = [
    ⚠️ Les deux métriques de qualité n'y sont PAS : elles s'ajoutent d'un clic, mais
    les ajouter d'office changerait ce que voient les utilisateurs qui ont déjà réglé
    leur widget. */
-const SAV_SHOW_DEFAULT = ["ouverts", "vieux", "taux", "ancienneteMoy", "interventions", "coutTiers", "causes", "qualite"];
+const SAV_SHOW_DEFAULT = ["ouverts", "taux", "ancienneteMoy", "interventions", "coutTiers", "causes", "qualite"];
 
 /** `layout` : deux présentations des MÊMES valeurs. Les LIGNES sont denses, lisibles
  *  dans une colonne étroite ; les TUILES reprennent la lecture d'un coup d'œil du
@@ -6122,7 +6225,10 @@ function KpiTiles({ tiles, zone }: { tiles: Tile[]; zone: string }) {
       {tiles.map((t) => {
         const Icon = t.icon;
         return (
-          <div key={t.key} style={{ padding: "15px 17px 16px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
+          /* `slb-unit` : frontière de rabattement du corps scrollable (cf. `snapHeight`,
+             §8). Les tuiles d'une même rangée ont la même hauteur — la grille étire ses
+             items —, donc la frontière d'une tuile est celle de toute sa rangée. */
+          <div key={t.key} className="slb-unit" style={{ padding: "15px 17px 16px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
             <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
               {Icon && <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />}
               {/* Libellé tronqué sur UNE ligne : deux lignes de titre désaligneraient les
@@ -6245,7 +6351,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
           ) : (
             <div>
               {stats.map((m) => (
-                <div key={m.key} style={row}>
+                <div key={m.key} className="slb-unit" style={row}>
                   <span style={lbl}>{m.label}</span>
                   <span style={val}>{m.value?.(k)}</span>
                 </div>
@@ -6256,7 +6362,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
           {/* 3 — les premières causes. Barres en <div> : aucune librairie de graphes
               n'est autorisée dans le bloc (même contrainte que le bloc SAV). */}
           {on.has("causes") && (
-            <div style={{ paddingBottom: "8px" }}>
+            <div className="slb-unit" style={{ paddingBottom: "8px" }}>
               <div style={secLbl}>Principales causes</div>
               {k.causes.length ? k.causes.map((c) => (
                 <div key={c.key} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "5px 16px" }}>
@@ -6275,7 +6381,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
           {/* 4 — qualité des données. Ambre et non rouge : c'est une saisie à
               compléter, pas une panne. Section muette quand tout est propre. */}
           {on.has("qualite") && k.aCorriger > 0 && (
-            <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "11px 16px" }}>
+            <div className="slb-unit" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "11px 16px" }}>
               <Badge variant="warn" dot>{k.aCorriger}</Badge>
               <span style={{ fontSize: "12.5px", fontWeight: 500, color: T.ink2 }}>
                 dossier{k.aCorriger > 1 ? "s" : ""} à corriger — dates, installateur, fabricant ou coût tiers
@@ -6321,253 +6427,105 @@ const NOTES_PRO_CFG: InstanceCfg = cfgOfSource("notesPro", { title: "Dernières 
 // Widget « data » créé de zéro depuis la galerie : liste des dossiers Abonné.
 const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
 
-/* --- Widgets LinkedIn (embeds Elfsight). platform.js est chargé UNE seule fois
-      (nouveau domaine static.elfsight.com) ; il observe le DOM et monte chaque
-      <div class="elfsight-app-…"> automatiquement, y compris après un remount
-      (réordonner, repose depuis la galerie). Aucune clé ni API exposée côté client.
-      NB : un <script> écrit en JSX ne s'exécute pas → on l'ajoute au document. --- */
-/* Runtime Elfsight. Elfsight sert le MÊME runtime sous deux URLs — ses codes
-   d'intégration donnent tantôt `elfsightcdn.com/platform.js` (le plus récent),
-   tantôt `static.elfsight.com/platform/platform.js` : les deux fonctionnent, et
-   un seul chargement monte TOUS les `.elfsight-app-…` de la page, quel que soit
-   le widget. Inutile donc d'en charger deux si les snippets diffèrent. */
-/* ⚠️ URL ALIGNÉE le 2026-08-05 sur celle qui fonctionne RÉELLEMENT dans un bloc
-   « Custom Code » de cette app :
-       <script src="https://static.elfsight.com/platform/platform.js" async></script>
-   Le bloc chargeait `elfsightcdn.com/platform.js`. Les deux servent le même runtime,
-   mais une seule des deux est PROUVÉE fonctionnelle ici — et si une CSP ou un filtrage
-   liste des hôtes, ce détail décide de tout. On copie donc le snippet vérifié plutôt que
-   la variante « la plus récente » de la documentation. */
-const ELFSIGHT_PLATFORM = "https://static.elfsight.com/platform/platform.js";
+/* --- EMBEDS ELFSIGHT — ISOLÉS DANS UNE IFRAME `srcDoc` ------------------------
+   ⚠️⚠️ POURQUOI UNE IFRAME, ET NON LE SNIPPET DANS CE DOCUMENT : parce que le montage
+   direct NE FONCTIONNE PAS ICI, quelle qu'ait été l'implémentation. Trois versions s'y
+   sont succédé — script chargé une fois, seconde chance avec re-scan, réinjection à
+   chaque montage — et le conteneur restait vide dans l'app publiée.
 
-/* ÉTAT DU RUNTIME, partagé par les trois widgets. Il ne sert pas à décider quoi
-   charger (un seul platform.js suffit, la garde ci-dessous s'en occupe) mais à
-   DIAGNOSTIQUER : un conteneur vide a deux causes opposées, et sans savoir si le
-   script est arrivé on ne peut pas les distinguer.
-     · "failed"  → le script n'a pas été chargé. CSP de l'app Softr qui n'autorise
-                   pas elfsightcdn.com, ou bloqueur de contenu. Le runtime n'a
-                   jamais tourné, donc AUCUN widget ne peut monter.
-     · "ready"   → le runtime est là mais n'a rien monté : c'est Elfsight qui refuse
-                   de servir ce widget sur CE domaine (liste de domaines du compte),
-                   ou l'identifiant de widget est inconnu.
-   Un état module-level plutôt qu'un contexte : le script est un singleton de la
-   PAGE, pas un état d'arbre React — il survit aux remontages de widgets. */
-type PlatformState = "unknown" | "loading" | "ready" | "failed";
-let platformState: PlatformState = "unknown";
-const platformListeners = new Set<() => void>();
-function setPlatformState(next: PlatformState) {
-  if (platformState === next) return;
-  platformState = next;
-  platformListeners.forEach((l) => l());
-}
+   CE QUE LE TEST DU 2026-08-07 A PROUVÉ, en production, dans un bloc Softr séparé : le
+   MÊME identifiant de widget, servi par le MÊME CDN, s'affiche dès qu'il vit dans une
+   iframe `srcdoc`. ✅ CONFIRMÉ LE MÊME JOUR DANS CE BLOC : les embeds s'affichent. Ne pas
+   revenir au montage direct — c'est un chemin déjà parcouru trois fois, en vain. Ce résultat innocente trois suspects d'un coup :
+     · le widget et le compte Elfsight — c'est le même identifiant qui monte ;
+     · l'URL du runtime — c'est la même (`elfsightcdn.com/platform.js`) ;
+     · la CSP — un document `srcdoc` HÉRITE de la politique de la page parente, donc si
+       le script est servi là, il l'était aussi avant. La piste CSP relevée le 2026-08-05
+       est définitivement close.
+   Reste la seule différence : LE DOCUMENT. Le conteneur rendu par React dans le bloc
+   n'est pas vu par `platform.js` — shadow DOM du bloc `vibe code` selon toute
+   vraisemblance (le runtime scanne `document`, qui ne traverse pas une racine d'ombre),
+   ou remontages React qui défont le montage. On ne corrige donc PAS la cause : on
+   l'ISOLE. Le snippet reçoit un document neuf, à lui, où il retrouve les conditions
+   exactes du bloc « Custom Code » qui fonctionne.
 
-const ELFSIGHT_SEL = 'script[src*="elfsightcdn.com/platform"], script[src*="elfsight.com/platform"]';
+   ⚠️ LA HAUTEUR NE PEUT PAS SUIVRE LE CONTENU : une iframe ne se dimensionne pas sur son
+   document (documents distincts, et `postMessage` supposerait une page complice — ce que la
+   page Elfsight n'est pas). Trop bas, le contenu est COUPÉ ; trop haut, la carte porte une
+   bande vide.
+   ⚠️ C'EST DONC LE RÉGLAGE DE HAUTEUR DE LA CARTE QUI COMMANDE (2026-08-07, demandé) :
+   l'iframe prend la hauteur servie par `WidgetHeightCtx`, celle que règlent les segments du
+   ⋮ et la poignée du bas. Avant, elle valait 420 px en dur — et régler la carte ne faisait
+   RIEN sur ces trois widgets, ce qui n'avait aucune logique à l'écran. Un fil LinkedIn
+   demande le cran « XL » (860 px, ajouté le même jour) ; une barre d'annonces se contente de
+   « Petit ». La prop `height` reste, pour forcer une valeur hors grille.
+   Le tassement de la grille (§11) suit tout seul, il mesure la hauteur réelle. --- */
 
-function injectPlatform() {
-  const s = document.createElement("script");
-  s.src = ELFSIGHT_PLATFORM;
-  s.async = true;
-  // Une CSP qui refuse le script ET un bloqueur de contenu déclenchent tous deux
-  // `error` sur l'élément : d'où « n'a pas pu être chargé », sans départager les
-  // deux — c'est la console du navigateur qui le dira.
-  s.onload = () => setPlatformState("ready");
-  s.onerror = () => setPlatformState("failed");
-  setPlatformState("loading");
-  document.body.appendChild(s);
-}
+/* --- MASQUER UN TEXTE VENU D'ELFSIGHT (2026-08-07) ------------------------------
+   La bannière affiche un en-tête « SunLib sur LinkedIn » qui vient des RÉGLAGES DU WIDGET
+   côté Elfsight, pas de ce fichier. Depuis que l'embed vit dans une iframe `srcDoc`, ce
+   document est le NÔTRE : on peut donc y intervenir, ce qui était impossible avant.
 
-/* SECONDE CHANCE, une seule fois pour toute la page.
-   Hypothèse que ce mécanisme couvre : `platform.js` monte les `.elfsight-app-…`
-   présents QUAND IL S'EXÉCUTE. Or les widgets de ce bloc sont rendus par React APRÈS
-   la lecture des préférences de layout (§11) — donc potentiellement après le scan. La
-   garde « un seul script » interdisait alors toute nouvelle chance : le conteneur
-   restait vide définitivement, sans erreur.
-   Retirer le script puis le réinjecter force une nouvelle exécution, donc un nouveau
-   scan, avec les conteneurs désormais en place.
-   ⚠️ Honnêteté sur les limites : si `platform.js` se protège contre une double
-   exécution par un drapeau global, cette relance ne changera rien. C'est une
-   tentative bornée, pas une garantie — et bornée à UNE fois, parce qu'une boucle de
-   réinjection sur une page qui ne montera jamais rien serait pire que le cadre vide. */
-let platformRetried = false;
-function retryElfsightPlatform(): boolean {
-  if (platformRetried) return false;
-  platformRetried = true;
-  document.querySelectorAll(ELFSIGHT_SEL).forEach((el) => el.remove());
-  injectPlatform();
-  return true;
-}
+   ⚠️ LE CIBLAGE SE FAIT SUR LE TEXTE EXACT, jamais sur un sélecteur : la structure DOM
+   d'Elfsight n'est pas un contrat (classes générées, susceptibles de changer à chaque mise
+   à jour de leur runtime), et une règle du genre `[class*="title"] { display: none }`
+   masquerait aussi bien le titre du webinaire — c'est-à-dire le contenu qu'on veut voir.
+   ⚠️ Seul le nœud le PLUS PROFOND qui porte ce texte est masqué. Sans ce tri, on masquerait
+   un ancêtre — au pire la racine du widget, qui « contient » elle aussi ce texte : la
+   bannière disparaîtrait entièrement.
+   ⚠️ Un `MutationObserver` est nécessaire : le runtime monte son contenu bien après le
+   chargement du document, et il le remonte parfois (redimensionnement, rafraîchissement).
 
-function useElfsightPlatform(): PlatformState {
-  const [, bump] = useState(0);
-  useEffect(() => {
-    const l = () => bump((n) => n + 1);
-    platformListeners.add(l);
-    return () => { platformListeners.delete(l); };
-  }, []);
-  useEffect(() => {
-    // Un seul platform.js suffit pour TOUS les widgets Elfsight du compte.
-    // ⚠️ Si le script est déjà là sans venir de nous (remontage, injection Softr),
-    // on ne peut pas savoir s'il a abouti : l'état reste "unknown" et le message
-    // de diagnostic redevient prudent au lieu d'accuser une cause au hasard.
-    if (document.querySelector(ELFSIGHT_SEL)) return;
-    injectPlatform();
-  }, []);
-  return platformState;
-}
+   LA VOIE PROPRE RESTE CÔTÉ ELFSIGHT : décocher l'affichage du titre dans l'éditeur du
+   widget rend tout ce mécanisme inutile — et le jour où c'est fait, retirer la prop
+   `hideLabel` de l'appelant suffit à le désactiver. --- */
+const elfsightHideScript = (label: string): string =>
+  "<script>(function(){var T=" + JSON.stringify(label) + ";"
+  + "function scrub(){var m=[].filter.call(document.querySelectorAll('*'),function(n){"
+  + "return n.textContent&&n.textContent.trim()===T;});"
+  + "m.forEach(function(n){if(!m.some(function(o){return o!==n&&n.contains(o);}))"
+  + "n.style.display='none';});}"
+  + "scrub();new MutationObserver(scrub).observe(document.documentElement,"
+  + "{childList:true,subtree:true,characterData:true});})();<\/script>";
 
-/* --- Embed Elfsight avec DIAGNOSTIC. Dans le bloc Softr, l'embed restait vide et
-   silencieux ; corrections successives :
-   · si rien n'est monté au bout de quelques secondes, on affiche un état guidant
-     au lieu d'un cadre vide ;
-   · le message NOMME la cause au lieu d'en lister trois, en s'appuyant sur l'état
-     du runtime (`useElfsightPlatform`). Un conteneur vide parce que le script est
-     bloqué et un conteneur vide parce qu'Elfsight refuse le domaine demandent des
-     corrections opposées, dans deux consoles différentes.
+/** Document autonome servi à l'iframe : le snippet officiel, et rien d'autre — plus, si
+ *  `hideLabel` est fourni, le script de masquage ci-dessus.
+ *  ⚠️ `<\/script>` avec le SLASH ÉCHAPPÉ, obligatoire : écrite `</script>` en clair, cette
+ *  chaîne fermerait prématurément le script qui l'entoure dès que le bundle est servi
+ *  inline (c'est le cas du bloc collé dans Softr). Le `\/` ne change rien à la valeur
+ *  produite, seulement au texte du source. */
+const elfsightDoc = (widgetId: string, hideLabel?: string): string =>
+  '<!doctype html><html><body style="margin:0">'
+  + '<script src="https://elfsightcdn.com/platform.js" async><\/script>'
+  + `<div class="elfsight-app-${widgetId}"></div>`
+  + (hideLabel ? elfsightHideScript(hideLabel) : "")
+  + "</body></html>";
 
-   ⚠️ CE QUI A ÉTÉ CORRIGÉ LE 2026-08-05 : ce commentaire affirmait qu'un embed ne
-   PEUT PAS fonctionner en local, « Elfsight n'autorisant que les domaines déclarés
-   dans le compte ». C'est FAUX en pratique — les widgets montent bien sous
-   `npm run dev`. La conséquence était mauvaise : le message d'aperçu local déclarait
-   la panne normale et invitait à ne pas chercher, alors qu'un échec sur un domaine
-   Softr (`*.preview.softr.app` par exemple) reste, lui, une vraie anomalie à
-   instruire. On ne prétend donc plus deviner ce qu'Elfsight autorise.
-
-   ⚠️⚠️ PISTE PRINCIPALE (2026-08-05), pas encore une certitude — À LIRE AVANT DE
-   TOUCHER À CE CODE. Sur `sunlibcrm2.preview.softr.app`, la console refuse un script
-   tiers sur une directive qui n'autorise AUCUN domaine externe :
-
-       Loading the script 'https://static.cloudflareinsights.com/beacon.min.js/…'
-       violates the following Content Security Policy directive:
-       "script-src 'self' 'unsafe-inline'"
-
-   Ce que cela prouve : une CSP stricte s'applique, et elle bloquerait Elfsight de la
-   même façon. Ce que cela NE prouve PAS : que ce soit la cause de CE symptôme — cette
-   erreur nomme le beacon Cloudflare de Softr, pas Elfsight.
-
-   ⚠️ FAIT QUI COMPLIQUE LE TABLEAU : le MÊME snippet Elfsight fonctionne dans un bloc
-   « Custom Code » de cette app. Deux lectures possibles, et elles n'ont pas la même
-   conclusion :
-     a) la CSP stricte est celle de l'IFRAME DU BLOC vibe code, pas celle de la page —
-        le Custom Code s'exécute dans le document Softr, le bloc dans son iframe, deux
-        documents donc deux politiques. Dans ce cas Elfsight est inatteignable ICI par
-        construction, et seule Softr peut le changer ;
-     b) la CSP n'est pas en cause pour Elfsight, et le blocage a une autre origine —
-        l'URL du runtime en faisait partie (voir ELFSIGHT_PLATFORM, corrigée depuis).
-   LE TEST QUI TRANCHE : chercher dans la console une erreur CSP nommant `elfsight`.
-   Présente ⇒ (a). Absente ⇒ (b), et le diagnostic est à reprendre.
-
-   Reste vrai dans les deux cas : `npm run dev` fonctionne parce que Vite ne pose
-   aucune CSP — le local ne teste JAMAIS ce mécanisme, et un embed qui marche en local
-   ne prouve que la justesse du code et de l'identifiant de widget. Et si (a) se
-   confirme, aucun code de ce bloc n'y remédiera : une CSP est appliquée par le
-   navigateur. La correction serait chez Softr — autoriser `static.elfsight.com` et
-   `elfsightcdn.com` dans le `script-src` servi à l'iframe des blocs vibe code.
-   ⚠️ MÊME VERROU POSSIBLE POUR L'ONGLET OUTILS : ses cinq iframes dépendent de
-   `frame-src`. L'erreur ci-dessus ne montre que `script-src`, donc `frame-src` reste
-   inconnu — mais si la CSP porte un `default-src 'self'`, `frame-src` retombe dessus
-   et les apps Vercel seront bloquées de la même façon. À vérifier en ouvrant un
-   outil sur le domaine publié. --- */
-/* Domaine RÉEL de la page qui exécute le bloc, et non une valeur codée en dur : le
-   diagnostic ci-dessous nommait « sunlibcrm2.softr.app » même quand il tournait sur
-   localhost, ce qui envoyait chercher une panne de CSP là où il n'y en avait pas.
-   ⚠️ `sunlibcrm2.preview.softr.app` (l'aperçu de l'éditeur) et `sunlibcrm2.softr.app`
-   (l'app publiée) sont DEUX domaines distincts : une liste d'autorisations ou une CSP
-   peut connaître l'un sans connaître l'autre. D'où l'affichage de l'hôte exact. */
-const pageHost = (): string => (typeof window === "undefined" ? "" : window.location.hostname);
-const isLocalHost = (h: string): boolean => h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "";
-
-/* --- DIAGNOSTIC AUTO-PORTANT. Ces faits ne sont PAS lisibles depuis la console de la
-   page : le bloc vit dans son iframe, donc `document.querySelector('.elfsight-app-…')`
-   tapé au niveau « top » renvoie null et l'on conclut à tort que rien n'est rendu. Le
-   bloc les rapporte donc lui-même, dans son état d'échec.
-   ⚠️ Le motif de recherche des globales est `/elfsight|eapps/i` et SURTOUT PAS
-   `/elf|eapp/i` : ce dernier matche `self` (s-elf), une propriété standard de window,
-   et fait croire à la présence d'un runtime qui n'est pas là. --- */
-function elfsightFacts(host: HTMLElement | null): string {
-  if (typeof window === "undefined") return "";
-  const frame = window.parent !== window ? "iframe" : "page";
-  const globals = Object.keys(window).filter((k) => /elfsight|eapps/i.test(k));
-  const nodes = document.querySelectorAll('[class*="elfsight-app-"]').length;
-  const scripts = document.querySelectorAll(ELFSIGHT_SEL).length;
-  return [
-    `contexte : ${frame} (${window.location.hostname})`,
-    `conteneurs dans ce document : ${nodes}`,
-    `enfants du conteneur : ${host ? host.childElementCount : "?"}`,
-    `balises script du runtime : ${scripts}`,
-    `globales Elfsight : ${globals.length ? globals.join(", ") : "aucune"}`,
-  ].join(" · ");
-}
-
-function ElfsightEmbed({ appClass, label }: { appClass: string; label: string }) {
-  const platform = useElfsightPlatform();
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const [stalled, setStalled] = useState(false);
-  /* Deux temps avant de déclarer l'échec : on constate, on retente UNE fois (nouveau
-     scan du runtime, cf. retryElfsightPlatform), on reconstate. Annoncer une panne sans
-     avoir retenté ferait porter au widget un diagnostic qui n'est pas encore établi. */
-  useEffect(() => {
-    let t2 = 0;
-    const vide = () => !!hostRef.current && hostRef.current.childElementCount === 0;
-    const t1 = window.setTimeout(() => {
-      if (!vide()) return;
-      const retente = retryElfsightPlatform();
-      // Sans seconde chance disponible (déjà consommée par un autre widget), inutile
-      // d'attendre davantage : on conclut tout de suite.
-      if (!retente) { setStalled(true); return; }
-      t2 = window.setTimeout(() => { if (vide()) setStalled(true); }, 6000);
-    }, 5000);
-    return () => { window.clearTimeout(t1); if (t2) window.clearTimeout(t2); };
-  }, []);
-  const host = pageHost();
-  const local = isLocalHost(host);
+/** Un embed Elfsight. `widgetId` est l'identifiant NU (sans le préfixe `elfsight-app-`),
+ *  pour qu'un appelant ne puisse pas se tromper de forme de classe.
+ *  `loading="lazy"` : la grille en porte jusqu'à trois, inutile de charger trois runtimes
+ *  pour des cartes hors écran. Contrairement à `data-elfsight-app-lazy` — retiré en son
+ *  temps pour cette raison même — le différé est ici porté par le NAVIGATEUR, qui charge
+ *  le document dès que l'iframe approche du viewport, sans dépendre du runtime. */
+function ElfsightWidget({ widgetId, height, title = "Contenu SunLib", hideLabel }: {
+  widgetId: string;
+  /** Force une hauteur en pixels. Omise — le cas normal — la hauteur est celle RÉGLÉE sur
+   *  la carte (⋮ « Hauteur », ou la poignée du bas). */
+  height?: number;
+  title?: string;
+  /** Texte à masquer DANS le contenu Elfsight (cf. `elfsightHideScript`). À n'utiliser que
+   *  pour un en-tête réglé côté Elfsight qu'on ne peut pas décocher là-bas. */
+  hideLabel?: string;
+}) {
+  /* Même canal que le corps scrollable des autres widgets : ce que l'utilisateur règle sur
+     la carte arrive ici. Hors grille (aucun fournisseur au-dessus), le contexte rend son
+     défaut — la hauteur du cran « Moyen ». */
+  const reglee = useContext(WidgetHeightCtx);
+  const h = height ?? reglee;
   return (
     <div style={{ padding: "10px 16px 16px" }}>
-      {/* PAS de `data-elfsight-app-lazy`, et l'aller-retour du 2026-08-05 vaut d'être
-          consigné : il a été remis pour coller au snippet « Custom Code » vérifié, puis
-          RETIRÉ de nouveau — le remettre n'a rien débloqué et il ajoute une dépendance à
-          la VISIBILITÉ. Or ces widgets vivent dans une grille scrollable : hors écran, le
-          montage différé n'est jamais déclenché, et notre détecteur conclut à l'échec
-          alors que le widget attend simplement d'être vu. Dans un Custom Code posé en
-          pleine page, ce piège ne se voit pas — d'où le snippet trompeur. */}
-      <div ref={hostRef} className={appClass} />
-      {stalled && (
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", padding: "12px 14px", borderRadius: T.rMd, border: `1px solid ${T.line}`, background: T.surface2 }}>
-          <XCircle aria-hidden style={{ width: 16, height: 16, color: T.ink4, flex: "none", marginTop: 1 }} />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: T.ink2 }}>{label} indisponible</div>
-            {/* Le message suit l'ÉTAT DU RUNTIME : script jamais chargé, chargé mais
-                stérile, ou indéterminé. Trois corrections différentes — envoyer
-                quelqu'un vérifier une CSP quand le script est arrivé sans encombre
-                lui fait perdre l'après-midi. */}
-            <div style={{ marginTop: 2, fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
-              {platform === "failed" ? (
-                <>Le runtime <code>static.elfsight.com/platform/platform.js</code> n'a pas pu être chargé sur <code>{host || "cet hôte"}</code>.
-                  La cause est <strong>en amont d'Elfsight</strong>. Piste principale : la CSP servie à l'iframe de ce bloc refuse les
-                  scripts tiers (<code>script-src 'self' 'unsafe-inline'</code> relevé sur l'aperçu le 2026-08-05).
-                  Le même snippet fonctionne dans un bloc « Custom Code », qui s'exécute hors de cette iframe.
-                  À confirmer par une erreur CSP nommant <code>elfsight</code> dans la console.</>
-              ) : platform === "ready" ? (
-                <>Le runtime Elfsight s'est chargé mais n'a monté aucun widget : ce n'est donc <strong>ni la CSP ni un bloqueur</strong>.
-                  Le domaine <code>{host || "cet hôte"}</code> et le compte Elfsight sont hors de cause — le même runtime y sert
-                  d'autres widgets depuis un bloc « Custom Code ». Restent deux pistes : l'<strong>identifiant de ce widget</strong>
-                  (les autres blocs en utilisent d'autres, valides), et le fait que ce conteneur soit rendu par React
-                  <strong> dans l'iframe du bloc</strong>, où le runtime ne le voit peut-être pas.</>
-              ) : (
-                <>L'embed n'a pas démarré sur <code>{host || "cet hôte"}</code> et l'état du runtime est indéterminé
-                  (<code>platform.js</code> était déjà présent, chargé par autre chose que ce bloc).
-                  La console du navigateur tranche : script refusé ⇒ CSP ou bloqueur ; script servi ⇒ domaine non autorisé côté Elfsight.</>
-              )}
-              {local && <> Cet échec en local n'est pas attendu : les widgets montent normalement sous <code>npm run dev</code>.</>}
-            </div>
-            {/* Les faits, mesurés DANS le bon document. Ils répondent d'un coup d'œil aux
-                questions qui font perdre le plus de temps : sommes-nous dans l'iframe, le
-                conteneur existe-t-il, le runtime s'est-il vraiment exécuté. */}
-            <div style={{ marginTop: 6, fontSize: "11px", fontWeight: 500, color: T.ink4, fontFamily: "ui-monospace, monospace" }}>
-              {elfsightFacts(hostRef.current)}
-            </div>
-          </div>
-        </div>
-      )}
+      <iframe title={title} loading="lazy" srcDoc={elfsightDoc(widgetId, hideLabel)}
+        style={{ display: "block", width: "100%", height: h, border: 0 }} />
     </div>
   );
 }
@@ -6584,7 +6542,7 @@ function LinkedinCard() {
   return (
     <Widget icon={Newspaper} title="SunLib sur LinkedIn" sub="Dernières publications">
       {/* ▼ EMBED Elfsight — feed LinkedIn ▼ */}
-      <ElfsightEmbed appClass="elfsight-app-2df6db63-fd6e-498a-8a61-a97803d9d96f" label="Fil LinkedIn" />
+      <ElfsightWidget widgetId="2df6db63-fd6e-498a-8a61-a97803d9d96f" />
     </Widget>
   );
 }
@@ -6596,8 +6554,12 @@ function LinkedinCard() {
 function LinkedinBannerCard() {
   return (
     <Widget icon={Megaphone} title="À la une SunLib" sub="Webinaires et annonces">
-      {/* ▼ EMBED Elfsight — bannière (contenu piloté depuis Elfsight) ▼ */}
-      <ElfsightEmbed appClass="elfsight-app-488a28ed-f4b6-4f5b-af44-c16613885c98" label="Bannière" />
+      {/* ▼ EMBED Elfsight — bannière (contenu piloté depuis Elfsight) ▼
+          `hideLabel` : la bannière porte un en-tête « SunLib sur LinkedIn » réglé côté
+          Elfsight, qui n'a rien à faire sous un titre de carte « À la une SunLib » — et qui
+          était en plus le doublon signalé le 2026-08-04. Le retirer dans l'éditeur du
+          widget Elfsight rendrait cette prop inutile. */}
+      <ElfsightWidget widgetId="488a28ed-f4b6-4f5b-af44-c16613885c98" hideLabel="SunLib sur LinkedIn" />
     </Widget>
   );
 }
@@ -6608,7 +6570,7 @@ function AnnoncesCard() {
   return (
     <Widget icon={Sparkles} title="Annonces SunLib" sub="Informations internes">
       {/* ▼ EMBED Elfsight — barre d'annonces ▼ */}
-      <ElfsightEmbed appClass="elfsight-app-8f372b94-937a-4aa2-8762-0e56f6515ac7" label="Barre d'annonces" />
+      <ElfsightWidget widgetId="8f372b94-937a-4aa2-8762-0e56f6515ac7" />
     </Widget>
   );
 }
@@ -8387,8 +8349,11 @@ const DEFAULT_INSTANCES: Instance[] = [
   { id: "taches", type: "taches", cfg: {}, w: "half", h: "md" },
   { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: "md" },
   { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: "md" },
-  { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: "md" },
-  { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: "md" },
+  /* ⚠️ Les embeds Elfsight sont posés HAUT (2026-08-07) : ils ne défilent pas — une iframe
+     coupe ce qui dépasse au lieu de le rendre atteignable. Le fil LinkedIn a besoin du cran
+     « XL » pour montrer plus d'une publication ; la bannière tient en « Grand ». */
+  { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: "xl" },
+  { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: "lg" },
   /* ⚠️ POUR LE TEST — cette ligne fait apparaître la synthèse SAV UNE FOIS chez
      tout le monde (puis elle reste supprimable définitivement, cf. `seed()`).
      La RETIRER si le widget ne doit être qu'un modèle de la galerie : il y est déjà
@@ -8544,8 +8509,10 @@ const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
 const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string; shape: ShapeKind; desc: string }[] = [
   { type: "notifs", group: "abonnes", shape: "list", desc: "Les nouveaux dossiers abonnés notifiés, leur statut, l'état lu / non lu et un accès à la fiche." },
   { type: "taches", group: "taches", shape: "list", desc: "Vos tâches prospects et partenaires, avec leur échéance et la case « Fait »." },
-  { type: "linkedin", group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
-  { type: "linkedinBanner", h: "sm", group: "comm", shape: "embed", desc: "La bannière « À la une » : webinaires et annonces." },
+  /* Hauteurs de pose accordées au contenu réel de chaque embed : il ne défile pas, donc
+     ce qui dépasse est perdu jusqu'à ce qu'on agrandisse la carte à la main. */
+  { type: "linkedin", h: "xl", group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
+  { type: "linkedinBanner", h: "lg", group: "comm", shape: "embed", desc: "La bannière « À la une » : webinaires et annonces." },
   { type: "annonces", h: "sm", group: "comm", shape: "embed", desc: "La barre d'annonces internes." },
   // Posé en "lg" : la synthèse SAV a quatre sections, elle scrolle en "md".
   { type: "sav", h: "lg", group: "sav", shape: "tiles", desc: "Les chiffres clés du SAV, en tuiles ou en lignes, à choisir." },
@@ -8830,7 +8797,7 @@ function coerceInstance(raw: unknown, seen: Set<string>): Instance | null {
     id, type,
     cfg: o.cfg ?? {},                                            // BRUTE : jamais « réparée » en stockage
     w: o.w === "full" ? "full" : "half",                         // clamp
-    h: o.h === "sm" || o.h === "lg" ? o.h : "md",                // clamp ("md" par défaut)
+    h: o.h === "sm" || o.h === "lg" || o.h === "xl" ? o.h : "md",   // clamp ("md" par défaut)
     ...(typeof o.preset === "string" && o.preset ? { preset: o.preset } : {}),
     /* Titre personnalisé : borné et débarrassé de ses espaces, et OMIS s'il ne reste
        rien — un `title: ""` stocké ne dirait pas autre chose que son absence, autant
@@ -8917,7 +8884,7 @@ function migrateV1(v1: any, knownTypes: readonly string[] = TYPE_KEYS): Layout {
       const inst: Instance = {
         id, type: id, cfg: {},
         w: !forceHalf && Array.isArray(v1?.wide) && v1.wide.includes(id) ? "full" : "half",
-        h: size === "sm" || size === "lg" ? size : "md",
+        h: size === "sm" || size === "lg" || size === "xl" ? size : "md",
       };
       if (!valid.has(id)) parked.push(inst); else dest.push(inst);
     }
@@ -8940,11 +8907,11 @@ function reorder<T>(list: T[], from: number, to: number): T[] {
 }
 
 /** Monte (dir -1) ou descend (dir +1) une instance visible. PURE. Bord → no-op. */
-function moveWidget(layout: Layout, id: string, dir: -1 | 1): Layout {
-  const from = idxOf(layout.items, id);
-  if (from < 0) return layout;
-  return { ...layout, items: reorder(layout.items, from, from + dir) };
-}
+/* `moveWidget` (déplacement d'UN cran, par id) a été SUPPRIMÉE le 2026-08-07 avec les
+   boutons « Monter / Descendre » du ⋮ : le réordonnancement ne passe plus que par le
+   glisser-déposer, qui travaille sur des INDEX (`reorder`, juste au-dessus) et n'a jamais
+   eu besoin de cette fonction. Elle est facile à réécrire (trois lignes autour de
+   `reorder`) si un chemin clavier revient un jour. */
 
 /* `hideWidget` / `showWidget` ont été SUPPRIMÉES (2026-08-03) : il n'y a plus de
    masquage, seulement `removeInstance`. Ne pas les réintroduire sans revenir sur
@@ -9304,8 +9271,6 @@ function Dashboard() {
   const innerRefs = useRef(new Map<string, HTMLElement>());
   const flipPrev = useRef(new Map<string, DOMRect>());
   const flipSig = useRef("");
-  // Laissez-passer d'UN changement sans animation (cf. la note dans le FLIP ci-dessous).
-  const noFlip = useRef(false);
   useLayoutEffect(() => {
     const sig = `${shown.items.map((it) => `${it.id}:${it.w}:${it.h}`).join(",")}|${loading}`;
     const changed = sig !== flipSig.current;
@@ -9321,13 +9286,7 @@ function Dashboard() {
        impression de tremblement où l'on ne distingue plus ce qu'on règle. Sans
        animation, le changement est instantané et NET — on voit ce qu'on fait. */
     const resizing = !!resizeRef.current || !!sizeRef.current;
-    /* ⚠️ NI PENDANT UN DÉPLACEMENT DEMANDÉ DEPUIS LA MODALE ⋮ (`noFlip`). Le panneau de
-       réglages est en `position: fixed` mais vit DANS la carte : un `fixed` se rattache au
-       premier ancêtre TRANSFORMÉ, donc il suivrait le `translate()` + `scale()` du FLIP —
-       la modale glisserait et se déformerait pendant 340 ms avant de se recaler, alors que
-       c'est justement d'elle qu'on vient de cliquer « Monter ». Sans animation, la grille
-       se réordonne d'un coup sous un panneau qui ne bouge pas. */
-    if (changed && !reduce && !resizing && !noFlip.current) {
+    if (changed && !reduce && !resizing) {
       wrapRefs.current.forEach((el, id) => {
         const p = prev.get(id), n = next.get(id);
         if (!p || !n) return;
@@ -9351,10 +9310,6 @@ function Dashboard() {
         });
       });
     }
-    /* Le laissez-passer ne vaut que pour LE changement qu'il accompagne : on le rend dès
-       qu'il a servi, sinon le déplacement suivant (au glisser-déposer, celui-là) perdrait
-       son animation. */
-    if (changed) noFlip.current = false;
     flipPrev.current = next;
   });
 
@@ -9424,15 +9379,6 @@ function Dashboard() {
    *  galerie, mais avec les réglages par défaut). */
   const persistRemove = (id: string) => void runSave(removeInstance(current, id), true);
 
-  /** Déplacement depuis le ⋮ (chemin clavier et tactile) — même fonction pure que le
-   *  DnD, et même écriture immédiate et silencieuse. `id` = id d'INSTANCE.
-   *  ⚠️ Le calcul part de `current` et non d'un état local : deux clics d'affilée
-   *  doivent s'enchaîner sur le layout DÉJÀ déplacé (le rendu qui suit `persist` est
-   *  synchrone côté état, cf. `persist` qui pose `setLayout(next)` en premier). */
-  const onMove = (id: string, dir: -1 | 1) => {
-    noFlip.current = true;                  // la modale du ⋮ ne doit pas suivre le FLIP
-    void runSave(moveWidget(current, id, dir), true);
-  };
   /* Ajout depuis la galerie : écrit IMMÉDIATEMENT. Silencieux si tout va bien, toast en
      cas d'échec (`runSave`) — poser un widget est un geste courant, il n'a pas à
      s'annoncer. */
@@ -9555,14 +9501,14 @@ function Dashboard() {
   };
 
   /* Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
-     plus grand, vers le haut = plus petit (sm → md → lg).
+     plus grand, vers le haut = plus petit (sm → md → lg → xl).
      ⚠️ C'ÉTAIT LA PRINCIPALE SOURCE DE TREMBLEMENT : le cran se calculait en
      `Math.round(dy / 70)` depuis l'origine du geste, donc à mi-chemin d'un cran
      (35 px) le moindre frémissement de la main faisait basculer la taille dans un
      sens puis dans l'autre, en boucle. Même hystérésis que pour la largeur : un cran
      est franchi, l'origine est recalée, il faut refaire 70 px pour le suivant. */
   const SIZE_STEP = 70;
-  const SIZE_STEPS: WidgetSize[] = ["sm", "md", "lg"];
+  const SIZE_STEPS: WidgetSize[] = ["sm", "md", "lg", "xl"];
   const sizeRef = useRef<{ id: string; startY: number; idx: number } | null>(null);
   const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
@@ -9733,8 +9679,7 @@ function Dashboard() {
                       « Apparence »). */}
                   <WidgetOptionsCtx.Provider
                     value={{ cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
-                      wide, size, index: i, total: shown.items.length,
-                      onMoveUp: () => onMove(id, -1), onMoveDown: () => onMove(id, 1),
+                      wide, size,
                       onSave: ({ title, tint, cfg: c, wide: w, size: s }) => persistOptions(id, title, tint, c, w, s),
                       onRemove: () => persistRemove(id) }}>
                     {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
@@ -9785,7 +9730,7 @@ function Dashboard() {
                 ))}
                 <span className="slb-rzv" aria-hidden
                   onPointerDown={onSizeDown(id)} onPointerMove={onSizeMove} onPointerUp={onSizeUp} onPointerCancel={onSizeUp}
-                  title="Glisser pour régler la hauteur (petit / moyen / grand)"
+                  title="Glisser pour régler la hauteur (petit / moyen / grand / XL)"
                   /* `bottom: 2` place la poignée ENTIÈREMENT sous la carte, dans la
                      gouttière : à `DASH_GAP - 3` elle empiétait de 11 px sur le bas du corps
                      et interceptait le « Voir plus » des listes. */

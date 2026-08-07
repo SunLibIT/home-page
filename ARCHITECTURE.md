@@ -23,8 +23,9 @@
 > s'applique et s'écrit **en direct** —, **un seul bouton** dans la barre (« Ajouter un
 > widget »), et **aucune annulation globale**. Ce qui protège : écriture optimiste, échec
 > toujours annoncé avec « Réessayer », confirmation sur le retrait. Le réordonnancement au
-> **clavier et au doigt** vit désormais dans la modale ⋮ (« Position : Monter / Descendre »),
-> appliqué aussitôt. Les sections ci-dessous n'ont pas été réécrites une à une : en cas de
+> **clavier et au doigt** n'existe PLUS DU TOUT : les boutons « Monter / Descendre » du ⋮ ont
+> été retirés le 2026-08-07 (demandé), le glisser-déposer par l'en-tête étant désormais le seul
+> chemin de réordonnancement. Les sections ci-dessous n'ont pas été réécrites une à une : en cas de
 > doute, **le code fait foi**.
 >
 > Reste à faire : connecter **`notifC`** (« Notification Center ») pour que l'état lu / non lu
@@ -165,26 +166,38 @@ Un widget à **deux sources** (`TachesCard`, `NotifsCard`) imbrique simplement d
 Un widget dont la source n'est pas connectée reçoit le mock (aperçu) ou une liste vide (live) —
 son état vide guidant s'affiche alors, sans qu'aucun `useRecords` ne soit appelé.
 **Les trois embeds Elfsight** (`linkedin` = fil LinkedIn, `linkedinBanner` = bannière « À la une »,
-`annonces` = barre d'annonces) passent par `ElfsightEmbed` :
+`annonces` = barre d'annonces) passent par **`ElfsightWidget`** (refonte du 2026-08-07 ;
+`ElfsightEmbed`, `useElfsightPlatform` et le diagnostic `elfsightFacts` ont été supprimés) :
 
-- `useElfsightPlatform()` injecte le runtime **une seule fois** — un seul `platform.js` monte tous
-  les `.elfsight-app-…` de la page (un `<script>` écrit en JSX ne s'exécuterait pas). Elfsight sert
-  le même runtime sous deux URLs (`elfsightcdn.com/platform.js` et
-  `static.elfsight.com/platform/platform.js`) : ses codes d'intégration donnent tantôt l'une, tantôt
-  l'autre, les deux marchent, inutile d'en charger deux.
-- **Pas de `data-elfsight-app-lazy`** : le montage différé dépend de la visibilité, fragile dans une
-  iframe.
-- Si le conteneur est toujours vide au bout de 6 s, un **état de repli** s'affiche au lieu d'un cadre
-  vide. Depuis le 2026-08-05 il **nomme** la cause au lieu d'en lister trois, en s'appuyant sur
-  `onload`/`onerror` du runtime : script refusé ⇒ CSP ou bloqueur ; script servi mais stérile ⇒
-  domaine non autorisé côté Elfsight ; script déjà présent ⇒ état indéterminé, assumé comme tel.
-- ⛔ **Le Fil LinkedIn ne monte pas dans le bloc, diagnostic non clos (2026-08-05)** : le runtime **se
-  charge** (`onload`), donc CSP et bloqueurs sont écartés ; le domaine et le compte Elfsight aussi,
-  puisqu'un bloc « Custom Code » y sert un autre widget. La CSP `script-src 'self' 'unsafe-inline'`
-  relevée en aperçu était un **faux indice** — l'erreur nommait le beacon Cloudflare, pas Elfsight.
-  Deux différences ont été corrigées depuis (URL du runtime alignée sur `static.elfsight.com`,
-  `data-elfsight-app-lazy` remis). Restent l'**identifiant du widget** et le **contexte iframe/React** :
-  le test d'isolation (poser la Barre d'annonces, dont l'id est prouvé) est décrit dans README §D.
+⚠️⚠️ **LE MONTAGE DIRECT A ÉTÉ ABANDONNÉ le 2026-08-07** : les embeds vivent désormais dans une
+**iframe `srcDoc`** qui contient le snippet officiel, et rien d'autre. ✅ **Vérifié dans le bloc le
+2026-08-07 — les embeds s'affichent.** Ne pas retenter le montage direct.
+
+- **Props** : `widgetId` (l'identifiant NU, sans le préfixe `elfsight-app-`), `height` (défaut
+  `ELFSIGHT_HEIGHT` = 420) et `title`. L'iframe est en `width: 100%`, `border: 0`,
+  `loading="lazy"`.
+- **Pourquoi** : trois implémentations du montage direct ont échoué (script chargé une fois, seconde
+  chance avec re-scan, réinjection à chaque montage). Le test de production du 2026-08-07 — même
+  identifiant, même CDN, dans un bloc séparé — montre que le widget s'affiche **dès qu'il a son
+  propre document**.
+- **Ce que ce test innocente** : le widget et le compte Elfsight (même id), l'URL du runtime (même
+  CDN) et **la CSP** — un document `srcdoc` hérite de la politique du parent, donc le script y était
+  déjà autorisé. La piste CSP du 2026-08-05 est **close**.
+- **Cause résiduelle, non corrigée mais isolée** : le document de l'app. `platform.js` scanne
+  `document` et ne voit pas le conteneur rendu par React dans le bloc — shadow DOM du bloc
+  `vibe code` selon toute vraisemblance, ou remontages React. On ne la corrige pas ; l'iframe la
+  contourne.
+- ⚠️ **Hauteur FIXE** (une iframe ne se dimensionne pas sur son contenu, et `postMessage`
+  supposerait une page complice). Si le contenu de la bannière change côté Elfsight, ajuster
+  `ELFSIGHT_HEIGHT` ou passer `height` sur l'appel. Ces widgets n'utilisant pas `ScrollBody`, le
+  réglage de hauteur de la carte **commande la hauteur de l'iframe** depuis le 2026-08-07 (avant,
+  elle valait 420 px en dur et le réglage ne faisait rien) ; le tassement, lui, suit tout seul.
+- ⚠️ Dans le template du document, la balise fermante s'écrit `<\/script>` (**slash échappé**) :
+  écrite en clair, elle fermerait prématurément le script qui l'entoure quand le bundle est servi
+  inline, ce qui est le cas du bloc collé dans Softr.
+- **Plus de repli, plus de diagnostic** : les états intermédiaires (runtime chargé / stérile /
+  indéterminé) n'existent plus, l'iframe se charge ou non. Ne pas remettre de diagnostic dans
+  l'interface.
 - Les titres affichés sont **neutres** (« À la une SunLib », « Annonces SunLib ») : le contenu de ces
   bannières change côté Elfsight, et ce ne sont pas des embeds LinkedIn. Les clés de type, elles,
   restent figées (`linkedinBanner`).
@@ -523,7 +536,7 @@ actions et la création se testent sans base.
 
 | Contexte | Quand | Effet |
 |---|---|---|
-| ~~`WidgetChromeCtx`~~ | **SUPPRIMÉ le 2026-08-07** | avec le mode Personnaliser : plus de poignée `GripVertical`, plus de `WidgetEditMenu`, plus de corps inerte. Monter/Descendre sont passés dans `WidgetOptionsCtx` (modale ⋮, appliqués en direct) |
+| ~~`WidgetChromeCtx`~~ | **SUPPRIMÉ le 2026-08-07** | avec le mode Personnaliser : plus de poignée `GripVertical`, plus de `WidgetEditMenu`, plus de corps inerte. Monter/Descendre ont disparu avec lui le 2026-08-07 : réordonnancement au glisser-déposer uniquement |
 | `WidgetOptionsCtx` non-null | mode normal, **tous les types** | bouton ⋮ → `WidgetOptionsMenu` : champ **Titre** (commun) + le formulaire du type s'il en a un, brouillon local, « Annuler » / « Enregistrer » |
 | **`WidgetTitleCtx`** | **les deux modes** | titre personnalisé de l'instance, appliqué **par-dessus** la prop `title` |
 | **`WidgetTintCtx`** | **les deux modes** | teinte de l'instance : fond de l'en-tête, encre du titre, pastille d'icône |
@@ -618,7 +631,8 @@ Le geste reste **doublé** par le mode Personnaliser, seule voie accessible au c
   ligne** par `ScrollBody`. L'ancienne variable CSS `--slb-wh`, lue par une règle injectée, **ne
   s'appliquait pas dans le bloc Softr** : les widgets s'étiraient sans jamais scroller. La classe
   `slb-scrolly` ne sert plus qu'à habiller la barre de défilement.
-  Poignée du bas (pointer, un cran tous les 70 px) + segments « Petit / Moyen / Grand ».
+  Poignée du bas (pointer, un cran tous les 70 px) + segments « Petit / Moyen / Grand / XL »
+  (168 / 340 / 560 / **860** px ; le 4ᵉ cran date du 2026-08-07).
 - ⚠️ **Le nombre de colonnes est mesuré en JS** (`ResizeObserver` sur la grille → `twoCols`), pas
   par une media query ni une container query : dans l'iframe Softr, la fenêtre est large mais le
   **bloc** est étroit, et rien ne garantit qu'une règle injectée atteigne le bloc.
