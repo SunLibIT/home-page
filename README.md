@@ -58,10 +58,13 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    section s'appelait « Outils » avant que les outils aient leur onglet.
 5. **Tableau de bord** (onglet Accueil) — grille de widgets **indépendants, redimensionnables et
    déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui).
-   **Hauteur rabattue sur le contenu (2026-08-07)** : les crans valent 168 / 340 / 560 px,
-   mais le corps d'un widget est ramené à la **dernière frontière d'élément qui tient dans le
-   cran** — une ligne de liste, une rangée de tuiles. Un cran ne coupe donc plus une tuile en
-   deux (symptôme observé sur « Pilotage SAV » en petit). Au moins un élément est toujours
+   **Hauteur en PIXELS, rabattue sur le contenu (2026-08-07)** : la hauteur d'un widget est
+   un nombre (120 à 1600 px, arrondi au pas de 4 px de la grille) et non plus un cran parmi
+   quatre — les anciennes clés `sm` / `md` / `lg` / `xl` sont traduites à la lecture
+   (168 / 340 / 560 / 860), donc aucune disposition enregistrée ne change d'apparence. Le
+   corps est ramené à la **dernière frontière d'élément qui tient dans la hauteur demandée** —
+   une ligne de liste, une rangée de tuiles. Une hauteur ne coupe donc plus une tuile en deux
+   (symptôme observé sur « Pilotage SAV » en petit). Au moins un élément est toujours
    montré, même s'il dépasse le cran ; un widget sans élément répétitif (pense-bête, embed)
    garde son cran au pixel. Les unités sont **déclarées** (`.slb-row`, `.slb-unit`), jamais
    devinées :
@@ -104,9 +107,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **⋮ Réglages du widget** (2026-08-06) — une **modale** en deux colonnes (*Apparence* :
      titre, couleur ; *Contenu* : les réglages du type), et non plus un panneau de 292 px.
      Elle porte aussi le **retrait du widget** (confirmation en deux temps) et son
-     **encombrement** (largeur moitié / pleine, hauteur petit / moyen / grand / **XL** —
-     ce 4ᵉ cran, 860 px, a été ajouté le 2026-08-07 : les trois d'origine plafonnaient à
-     560 px, trop court pour un embed qui ne défile pas). **Pas de
+     **encombrement** (largeur moitié / pleine, et la **hauteur en pixels** : un champ
+     numérique — de 120 à 1600 — plus quatre repères cliquables Petit / Moyen / Grand / XL qui
+     posent 168 / 340 / 560 / 860. La poignée sous la carte règle la même valeur, en continu).
+     **Pas de
      réglage de position** (2026-08-07) : on réordonne en glissant l'en-tête d'une carte,
      et rien d'autre. ⚠️ Conséquence acceptée : il n'existe donc **aucun chemin de
      réordonnancement au clavier ni au doigt**, le glisser-déposer HTML5 ne répondant pas

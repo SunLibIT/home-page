@@ -1683,7 +1683,7 @@ type CreateFormDesc = {
    partielle : elle est passée par `coerceCfg` à la pose, donc les manques sont
    comblés par le descripteur. Elle est COPIÉE dans l'instance (jamais référencée) :
    l'instance est autoportante et survit aux évolutions du catalogue. */
-type PresetDesc = { label: string; icon?: string; h?: WidgetSize; cfg: Record<string, unknown> };
+type PresetDesc = { label: string; icon?: string; h?: WidgetHeight; cfg: Record<string, unknown> };
 
 type SourceDesc = {
   key: SourceKey;
@@ -1819,7 +1819,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       { label: "Dossiers incomplets", icon: "ClipboardList",
         cfg: { title: "Dossiers incomplets",
                query: { filter: [{ field: "statut", op: "contains", value: "incomplet" }] } } },
-      { label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: "sm",
+      { label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: 168,
         cfg: { title: "Dossiers du mois",
                view: { kind: "kpi", agg: "count", dateField: "creeLe", compareDays: 30 } } },
       { label: "Tableau des dossiers", icon: "LayoutGrid",
@@ -2150,7 +2150,7 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       { label: "Dossiers SAV prioritaires", icon: "Ticket",
         cfg: { title: "SAV — priorité élevée", unit: "dossier",
                query: { filter: [{ field: "priorite", op: "gt", value: "7" }], sort: { by: "priorite", dir: "desc" } } } },
-      { label: "Coût tiers SAV (indicateur)", icon: "BarChart3", h: "sm",
+      { label: "Coût tiers SAV (indicateur)", icon: "BarChart3", h: 168,
         cfg: { title: "Coût tiers SAV", view: { kind: "kpi", agg: "sum", field: "cout" } } },
       { label: "Tableau des dossiers SAV", icon: "LayoutGrid",
         cfg: { view: { kind: "table", columns: ["ticket", "client", "statut", "priorite", "debut"] } } },
@@ -2602,19 +2602,46 @@ function EmptyState({ icon: Icon, title, hint, dense }: { icon: LucideIcon; titl
   );
 }
 
-/* Taille (hauteur) d'un widget, réglable par sa poignée du bas ou son ⋮. Défaut "md".
-   ⚠️ LES CLÉS SONT UN CONTRAT DE PERSISTANCE : elles sont stockées dans le layout de chaque
-   utilisateur (`Instance.h`). On peut changer une VALEUR en pixels librement — la carte
-   grandit ou rétrécit —, jamais renommer une clé.
-   ⚠️ `xl` a été AJOUTÉ le 2026-08-07 : les trois cran d'origine plafonnaient à 560 px, trop
-   court pour un embed qui ne défile pas (le fil LinkedIn en iframe était coupé, cf.
-   `ElfsightWidget`). Les valeurs des trois autres n'ont PAS bougé : les relever aurait
-   changé l'apparence de tous les accueils déjà réglés.
-   ⚠️ Toute nouvelle clé doit être ajoutée AUX DEUX ENDROITS qui valident `h` à la lecture
-   (`normalizeLayout` et la migration v1) — sinon elle serait ramenée à "md" au chargement
-   suivant, et le réglage se perdrait sans un mot. */
-type WidgetSize = "sm" | "md" | "lg" | "xl";
-const WIDGET_HEIGHTS: Record<WidgetSize, number> = { sm: 168, md: 340, lg: 560, xl: 860 };
+/* --- HAUTEUR D'UN WIDGET : UN NOMBRE DE PIXELS -------------------------------
+   ⚠️⚠️ 2026-08-07 — LES CRANS NOMMÉS ONT ÉTÉ SUPPRIMÉS (`"sm" | "md" | "lg" | "xl"`, quatre
+   valeurs figées). Ils ne donnaient pas assez de choix : entre 560 et 860 px il n'y avait
+   rien, et un embed qui ne défile pas (le fil LinkedIn en iframe) tombait toujours entre
+   deux — coupé d'un côté, entouré de vide de l'autre. `Instance.h` porte désormais une
+   HAUTEUR EN PIXELS, réglable au pixel près (arrondie au pas de la grille).
+
+   COMPATIBILITÉ : les layouts déjà enregistrés portent une CHAÎNE. `coerceHeight` les
+   traduit à la lecture (168 / 340 / 560 / 860, les valeurs qu'elles désignaient), donc
+   AUCUNE disposition ne change d'apparence et rien n'est à migrer en base — le document est
+   réécrit en pixels au prochain geste, pas avant.
+   ⚠️ NE PAS « nettoyer » `LEGACY_HEIGHTS` : un utilisateur qui n'a pas retouché sa
+   disposition depuis des mois a encore des clés dans son document.
+
+   L'arrondi se fait sur `DASH_ROW` (4 px), la granularité des lignes implicites de la
+   grille : une hauteur qui tombe entre deux lignes serait de toute façon ramenée là par le
+   tassement, autant que la valeur stockée dise la vérité. --- */
+type WidgetHeight = number;
+const H_MIN = 120;        // en dessous, l'en-tête et le pied mangent tout le corps
+const H_MAX = 1600;       // au-delà, la carte dépasse tous les écrans du parc
+const H_DEFAULT = 340;    // ce que valait "md", le cran par défaut historique
+/** Repères proposés dans le ⋮ — des raccourcis, pas des paliers : la valeur reste libre. */
+const H_PRESETS: { label: string; px: number }[] = [
+  { label: "Petit", px: 168 }, { label: "Moyen", px: 340 },
+  { label: "Grand", px: 560 }, { label: "XL", px: 860 },
+];
+/** Anciennes clés de cran → pixels. Lecture seule, jamais réécrit sous cette forme. */
+const LEGACY_HEIGHTS: Record<string, number> = { sm: 168, md: 340, lg: 560, xl: 860 };
+/** Toute hauteur qui entre dans le layout passe par ici : bornée, arrondie, et tolérante
+ *  aux anciennes clés comme aux saisies en cours de frappe (un champ vide donne le défaut,
+ *  pas 0 — une carte de 0 px serait invisible et paraîtrait supprimée).
+ *  ⚠️ `DASH_ROW` est déclaré PLUS BAS dans le fichier : légal, parce que cette fonction ne le
+ *  lit qu'à l'APPEL (lecture du layout, geste de poignée), longtemps après l'évaluation du
+ *  module. Ne pas l'appeler depuis une constante de niveau module — ce serait une TDZ. */
+function coerceHeight(raw: unknown): WidgetHeight {
+  if (typeof raw === "string" && raw in LEGACY_HEIGHTS) return LEGACY_HEIGHTS[raw];
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return H_DEFAULT;
+  return Math.max(H_MIN, Math.min(H_MAX, Math.round(n / DASH_ROW) * DASH_ROW));
+}
 
 /* --- GRILLE DU TABLEAU DE BORD — géométrie du TASSEMENT (masonry) -------------
    Avant, la grille était une grille CSS ordinaire : chaque rangée prenait la
@@ -2643,7 +2670,7 @@ const DASH_ROW = 4;    // granularité des lignes implicites : le résidu ≤ 3 
    variable CSS `--slb-wh` lue par une règle injectée ne s'appliquait pas dans le
    bloc Softr, et les widgets s'étiraient alors sans jamais scroller. La classe
    `slb-scrolly` reste, mais seulement pour l'habillage de la scrollbar. --- */
-const WidgetHeightCtx = createContext<number>(WIDGET_HEIGHTS.md);
+const WidgetHeightCtx = createContext<number>(H_DEFAULT);
 
 /* --- ARRONDI AU DERNIER ÉLÉMENT ENTIER (« snap », 2026-08-07) -------------------
    Les crans de hauteur sont des PIXELS (168 / 340 / 560) et le contenu, lui, a sa
@@ -2790,8 +2817,8 @@ type WidgetOptions = {
   /** Encombrement de CETTE instance, réglable depuis le ⋮ depuis le 2026-08-06 (les
    *  poignées de bord font la même chose à la souris, cf. §11). */
   wide: boolean;
-  size: WidgetSize;
-  onSave: (next: { title: string; tint: string; cfg: any; wide: boolean; size: WidgetSize }) => void;
+  height: WidgetHeight;
+  onSave: (next: { title: string; tint: string; cfg: any; wide: boolean; height: WidgetHeight }) => void;
   /** Retire le widget de l'accueil. Écriture IMMÉDIATE, comme tout le reste depuis la
    *  suppression du mode « Personnaliser » — d'où la confirmation en deux temps dans la
    *  modale : ici, un clic de trop retire vraiment le widget. */
@@ -3002,15 +3029,15 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
      seul clic, juste à côté de « Enregistrer », finirait par partir tout seul. */
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [draftWide, setDraftWide] = useState(opts.wide);
-  const [draftSize, setDraftSize] = useState<WidgetSize>(opts.size);
+  const [draftHeight, setDraftHeight] = useState<WidgetHeight>(opts.height);
   // Brouillons toujours frais à l'ouverture (cfg, titre, teinte, encombrement ET
   // confirmation remise à zéro).
   const start = () => {
     setDraft(opts.cfg); setDraftTitle(opts.title); setDraftTint(opts.tint);
-    setDraftWide(opts.wide); setDraftSize(opts.size); setConfirmRemove(false); setOpen(true);
+    setDraftWide(opts.wide); setDraftHeight(opts.height); setConfirmRemove(false); setOpen(true);
   };
   const save = () => {
-    opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft, wide: draftWide, size: draftSize });
+    opts.onSave({ title: draftTitle, tint: draftTint, cfg: draft, wide: draftWide, height: draftHeight });
     setOpen(false);
   };
   useEffect(() => {
@@ -3129,21 +3156,31 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                     <button style={seg(!draftWide)} onClick={() => setDraftWide(false)} aria-pressed={!draftWide}>Moitié</button>
                     <button style={seg(draftWide)} onClick={() => setDraftWide(true)} aria-pressed={draftWide}>Pleine</button>
                   </div>
-                  <span style={{ ...lbl, marginTop: "10px" }}>Hauteur</span>
-                  {/* Quatre crans depuis le 2026-08-07. « XL » plutôt que « Très grand » :
-                      quatre segments se partagent 250 px, et un libellé de deux mots y
-                      passerait à la ligne ou serait tronqué. L'`aria-label` porte le nom
-                      complet — ce qui est lu à voix haute n'a pas cette contrainte. */}
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    {(["sm", "md", "lg", "xl"] as const).map((s) => {
-                      const nom = s === "sm" ? "Petit" : s === "md" ? "Moyen" : s === "lg" ? "Grand" : "Très grand";
-                      return (
-                        <button key={s} style={seg(draftSize === s)} onClick={() => setDraftSize(s)}
-                          aria-pressed={draftSize === s} aria-label={`Hauteur ${nom}`}>
-                          {s === "xl" ? "XL" : nom}
-                        </button>
-                      );
-                    })}
+                  {/* HAUTEUR EN PIXELS depuis le 2026-08-07 : le champ fait foi, les quatre
+                      boutons ne sont que des repères pour aller vite (ils POSENT une valeur,
+                      ils ne la contraignent pas). Le champ accepte donc n'importe quoi entre
+                      `H_MIN` et `H_MAX`, et la poignée du bas de la carte règle la même
+                      valeur à la souris.
+                      ⚠️ La saisie n'est PAS coercée à la frappe : taper « 8 » pour arriver à
+                      « 860 » deviendrait impossible si chaque touche ramenait le nombre dans
+                      les bornes. C'est `setWidgetHeight` qui borne, à l'écriture. */}
+                  <span style={{ ...lbl, marginTop: "10px" }} id="slb-w-h">Hauteur du corps</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+                    <input type="number" min={H_MIN} max={H_MAX} step={DASH_ROW} style={{ ...field, width: 92 }}
+                      value={draftHeight} aria-labelledby="slb-w-h"
+                      onChange={(e) => setDraftHeight(Number(e.target.value))} />
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: T.ink4 }}>px</span>
+                  </div>
+                  <div style={{ display: "flex", gap: "6px", marginTop: "6px" }}>
+                    {H_PRESETS.map((h) => (
+                      <button key={h.px} style={seg(draftHeight === h.px)} onClick={() => setDraftHeight(h.px)}
+                        aria-pressed={draftHeight === h.px} aria-label={`Hauteur ${h.label}, ${h.px} pixels`}>
+                        {h.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ margin: "5px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
+                    De {H_MIN} à {H_MAX} px. La poignée sous la carte règle la même valeur.
                   </div>
 
                   {/* ⚠️ PAS DE « POSITION » ICI (retirée le 2026-08-07, demandé) : on
@@ -8317,7 +8354,7 @@ type WidgetWidth = "half" | "full";
 /*  `tint` : CLÉ de teinte (`WIDGET_TINTS`), jamais une couleur — le document ne stocke
  *  aucune valeur de style, donc la charte peut évoluer sans migration, et une clé
  *  inconnue retombe simplement sur « aucune ». Facultative, comme `title`. */
-type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetSize; preset?: string; title?: string; tint?: string };
+type Instance = { id: string; type: string; cfg: unknown; w: WidgetWidth; h: WidgetHeight; preset?: string; title?: string; tint?: string };
 
 /** Longueur maximale d'un titre personnalisé. L'en-tête d'une carte est étroit : au-delà
  *  le texte serait tronqué à l'écran, autant le borner à la saisie. */
@@ -8345,20 +8382,20 @@ const LAYOUT_VERSION = 2;
 /* Instances livrées par défaut. Ajouter une entrée = le widget apparaît UNE fois
    chez tout le monde (puis reste supprimable définitivement, cf. seed()). */
 const DEFAULT_INSTANCES: Instance[] = [
-  { id: "notifs", type: "notifs", cfg: {}, w: "half", h: "md" },
-  { id: "taches", type: "taches", cfg: {}, w: "half", h: "md" },
-  { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: "md" },
-  { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: "md" },
+  { id: "notifs", type: "notifs", cfg: {}, w: "half", h: 340 },
+  { id: "taches", type: "taches", cfg: {}, w: "half", h: 340 },
+  { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: 340 },
+  { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: 340 },
   /* ⚠️ Les embeds Elfsight sont posés HAUT (2026-08-07) : ils ne défilent pas — une iframe
      coupe ce qui dépasse au lieu de le rendre atteignable. Le fil LinkedIn a besoin du cran
      « XL » pour montrer plus d'une publication ; la bannière tient en « Grand ». */
-  { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: "xl" },
-  { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: "lg" },
+  { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: 860 },
+  { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: 560 },
   /* ⚠️ POUR LE TEST — cette ligne fait apparaître la synthèse SAV UNE FOIS chez
      tout le monde (puis elle reste supprimable définitivement, cf. `seed()`).
      La RETIRER si le widget ne doit être qu'un modèle de la galerie : il y est déjà
      par CUSTOM_TYPES, donc chacun le pose s'il en a l'usage. */
-  { id: "sav", type: "sav", cfg: {}, w: "half", h: "lg" },
+  { id: "sav", type: "sav", cfg: {}, w: "half", h: 560 },
 ];
 
 /* --- GALERIE « Ajouter un widget » : les modèles qu'on peut poser sur la grille.
@@ -8371,7 +8408,7 @@ const DEFAULT_INSTANCES: Instance[] = [
    Brancher une source la fait donc apparaître ici sans une ligne de code de plus.
    La cfg d'un preset est COPIÉE dans l'instance à la pose : l'instance est
    autoportante et ne bougera plus si le preset évolue. --- */
-type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetSize; group: string; shape: ShapeKind; desc: string };
+type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; type: WidgetTypeKey; cfg: () => unknown; h?: WidgetHeight; group: string; shape: ShapeKind; desc: string };
 
 /* ── MINIATURES DE LA GALERIE ─────────────────────────────────────────────────
    Une maquette DESSINÉE par archétype de rendu, et non le widget réel en réduction.
@@ -8506,30 +8543,30 @@ const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
 
 /* Types sur-mesure proposés dans la galerie, avec leur hauteur de départ (une barre
    d'annonces n'a pas besoin d'un widget de 340 px) et leur groupe de galerie. */
-const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetSize; group: string; shape: ShapeKind; desc: string }[] = [
+const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetHeight; group: string; shape: ShapeKind; desc: string }[] = [
   { type: "notifs", group: "abonnes", shape: "list", desc: "Les nouveaux dossiers abonnés notifiés, leur statut, l'état lu / non lu et un accès à la fiche." },
   { type: "taches", group: "taches", shape: "list", desc: "Vos tâches prospects et partenaires, avec leur échéance et la case « Fait »." },
   /* Hauteurs de pose accordées au contenu réel de chaque embed : il ne défile pas, donc
      ce qui dépasse est perdu jusqu'à ce qu'on agrandisse la carte à la main. */
-  { type: "linkedin", h: "xl", group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
-  { type: "linkedinBanner", h: "lg", group: "comm", shape: "embed", desc: "La bannière « À la une » : webinaires et annonces." },
-  { type: "annonces", h: "sm", group: "comm", shape: "embed", desc: "La barre d'annonces internes." },
+  { type: "linkedin", h: 860, group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
+  { type: "linkedinBanner", h: 560, group: "comm", shape: "embed", desc: "La bannière « À la une » : webinaires et annonces." },
+  { type: "annonces", h: 168, group: "comm", shape: "embed", desc: "La barre d'annonces internes." },
   // Posé en "lg" : la synthèse SAV a quatre sections, elle scrolle en "md".
-  { type: "sav", h: "lg", group: "sav", shape: "tiles", desc: "Les chiffres clés du SAV, en tuiles ou en lignes, à choisir." },
+  { type: "sav", h: 560, group: "sav", shape: "tiles", desc: "Les chiffres clés du SAV, en tuiles ou en lignes, à choisir." },
   // Le podium a besoin de hauteur : avatars, montants et marches s'empilent.
-  { type: "podium", h: "lg", group: "perf", shape: "podium", desc: "Les trois premiers commerciaux par CAPEX signé." },
+  { type: "podium", h: 560, group: "perf", shape: "podium", desc: "Les trois premiers commerciaux par CAPEX signé." },
   // Le classement est un TABLEAU de dix colonnes : à poser en pleine largeur et haut.
-  { type: "classementCom", h: "lg", group: "perf", shape: "table", desc: "Le tableau complet : CAPEX, tendance, taux de pose, délai, courbe sur 12 mois." },
+  { type: "classementCom", h: 560, group: "perf", shape: "table", desc: "Le tableau complet : CAPEX, tendance, taux de pose, délai, courbe sur 12 mois." },
   // À poser en pleine largeur comme le classement commercial : six colonnes et deux
   // graphiques ne tiennent pas dans une demi-carte.
-  { type: "classementInst", h: "lg", group: "perf", shape: "table", desc: "Le classement des partenaires : signés, CAPEX, puissance, taux de pose et courbe sur 12 mois." },
+  { type: "classementInst", h: 560, group: "perf", shape: "table", desc: "Le classement des partenaires : signés, CAPEX, puissance, taux de pose et courbe sur 12 mois." },
   // Une rangée de tuiles : basse, mais large — cinq tuiles ne tiennent pas en demi-largeur.
-  { type: "comIndics", h: "sm", group: "perf", shape: "tiles", desc: "Contrats, CAPEX, installateurs actifs et pipeline à signer." },
+  { type: "comIndics", h: 168, group: "perf", shape: "tiles", desc: "Contrats, CAPEX, installateurs actifs et pipeline à signer." },
   // Utilitaires : l'horloge n'a aucune raison d'être haute.
   // Exceptions : les tuiles sont basses et larges, le registre est un tableau.
-  { type: "excIndics", h: "md", group: "exceptions", shape: "tiles", desc: "Volume des exceptions, couverture du parc et intensité par dossier." },
-  { type: "excRegistre", h: "lg", group: "exceptions", shape: "table", desc: "Le registre ligne par ligne : périmètre, catégorie, service, valideur, statut." },
-  { type: "horloge", h: "sm", group: "outils", shape: "clock", desc: "L'heure et la date du jour. Ne lit aucune donnée." },
+  { type: "excIndics", h: 340, group: "exceptions", shape: "tiles", desc: "Volume des exceptions, couverture du parc et intensité par dossier." },
+  { type: "excRegistre", h: 560, group: "exceptions", shape: "table", desc: "Le registre ligne par ligne : périmètre, catégorie, service, valideur, statut." },
+  { type: "horloge", h: 168, group: "outils", shape: "clock", desc: "L'heure et la date du jour. Ne lit aucune donnée." },
   { type: "memo", group: "outils", shape: "text", desc: "Un pense-bête personnel, avec gras, italique et puces." },
   { type: "checklist", group: "outils", shape: "check", desc: "Une liste à cocher, visible de vous seul." },
 ];
@@ -8797,7 +8834,7 @@ function coerceInstance(raw: unknown, seen: Set<string>): Instance | null {
     id, type,
     cfg: o.cfg ?? {},                                            // BRUTE : jamais « réparée » en stockage
     w: o.w === "full" ? "full" : "half",                         // clamp
-    h: o.h === "sm" || o.h === "lg" || o.h === "xl" ? o.h : "md",   // clamp ("md" par défaut)
+    h: coerceHeight(o.h),                     // pixels ; une ancienne clé est traduite
     ...(typeof o.preset === "string" && o.preset ? { preset: o.preset } : {}),
     /* Titre personnalisé : borné et débarrassé de ses espaces, et OMIS s'il ne reste
        rien — un `title: ""` stocké ne dirait pas autre chose que son absence, autant
@@ -8884,7 +8921,7 @@ function migrateV1(v1: any, knownTypes: readonly string[] = TYPE_KEYS): Layout {
       const inst: Instance = {
         id, type: id, cfg: {},
         w: !forceHalf && Array.isArray(v1?.wide) && v1.wide.includes(id) ? "full" : "half",
-        h: size === "sm" || size === "lg" || size === "xl" ? size : "md",
+        h: coerceHeight(size),
       };
       if (!valid.has(id)) parked.push(inst); else dest.push(inst);
     }
@@ -8927,8 +8964,13 @@ function setWidgetWide(layout: Layout, id: string, value: boolean): Layout {
 
 /** Règle la HAUTEUR d'une instance visible. PURE. ("md" est désormais stocké
  *  explicitement — plus de valeur implicite à reconstituer.) */
-function setWidgetSize(layout: Layout, id: string, h: WidgetSize): Layout {
+function setWidgetHeight(layout: Layout, id: string, raw: WidgetHeight): Layout {
   const i = idxOf(layout.items, id);
+  /* ⚠️ LA BORNE EST ICI, au point d'écriture, et non chez les appelants : ils sont trois
+     (le champ du ⋮, la poignée du bas, la pose depuis la galerie) et l'un d'eux finirait par
+     l'oublier. Une hauteur hors bornes se verrait tout de suite ; une hauteur de 0 px, en
+     revanche, se lirait comme un widget disparu. */
+  const h = coerceHeight(raw);
   if (i < 0 || layout.items[i].h === h) return layout;
   return { ...layout, items: layout.items.map((it) => (it.id === id ? { ...it, h } : it)) };
 }
@@ -8962,7 +9004,7 @@ const usedPresets = (layout: Layout): Set<string> =>
  *  UN SEUL EXEMPLAIRE PAR MODÈLE : si la clé est déjà posée, no-op. Le garde est ICI
  *  et pas seulement dans la galerie — un bouton grisé est un confort, pas une règle,
  *  et la règle doit tenir même si l'UI change. */
-function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetSize = "md", preset?: string): Layout {
+function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetHeight = H_DEFAULT, preset?: string): Layout {
   const key = preset ?? type;
   if (usedPresets(layout).has(key)) return layout;
   const inst: Instance = { id: newInstanceId(takenIds(layout)), type, cfg, w: "half", h, ...(preset ? { preset } : {}) };
@@ -9233,10 +9275,10 @@ function Dashboard() {
      transforms des ancêtres — les hauteurs mesurées seraient fausses à chaque
      réordonnancement. `offsetHeight` ignore les transforms. */
   const [spans, setSpans] = useState<Record<string, number>>({});
-  const spanOf = (h: WidgetSize, hasFooter = true): number =>
+  const spanOf = (h: WidgetHeight, hasFooter = true): number =>
     // Repli avant la première mesure (et si ResizeObserver manque) : en-tête ~52 px,
     // pied ~49 px. Évite un saut de mise en page au premier rendu.
-    Math.ceil((WIDGET_HEIGHTS[h] + 52 + (hasFooter ? 49 : 0) + DASH_GAP) / DASH_ROW);
+    Math.ceil((h + 52 + (hasFooter ? 49 : 0) + DASH_GAP) / DASH_ROW);
   // Galerie d'ajout : une feuille modale, seul bouton de la barre du tableau de bord.
   const [gallery, setGallery] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -9362,13 +9404,13 @@ function Dashboard() {
   /** Enregistre TITRE, TEINTE et cfg en UNE écriture : le panneau ⋮ les édite ensemble,
    *  et deux `runSave` successifs se marcheraient dessus (le second partirait de
    *  `current`, encore inchangé, et perdrait le premier). */
-  const persistOptions = (id: string, title: string, tint: string, cfg: unknown, wide: boolean, size: WidgetSize) => {
+  const persistOptions = (id: string, title: string, tint: string, cfg: unknown, wide: boolean, height: WidgetHeight) => {
     const withCfg = { ...current, items: current.items.map((it) => (it.id === id ? { ...it, cfg } : it)) };
     /* Une SEULE écriture pour les cinq réglages du panneau. Les fonctions pures se
        composent sur le layout intermédiaire : chaîner des `runSave` repartirait chaque
        fois de `current`, encore inchangé, et ne garderait que le dernier. */
     const withLook = setInstanceLook(withCfg, id, title, tint);
-    void runSave(setWidgetSize(setWidgetWide(withLook, id, wide), id, size));
+    void runSave(setWidgetHeight(setWidgetWide(withLook, id, wide), id, height));
   };
 
   /** Retire une instance depuis son ⋮. Écriture immédiate, comme tout le reste.
@@ -9382,7 +9424,7 @@ function Dashboard() {
   /* Ajout depuis la galerie : écrit IMMÉDIATEMENT. Silencieux si tout va bien, toast en
      cas d'échec (`runSave`) — poser un widget est un geste courant, il n'a pas à
      s'annoncer. */
-  const onAdd = (p: Preset) => void runSave(addInstance(current, p.type, p.cfg(), p.h ?? "md", p.key), true);
+  const onAdd = (p: Preset) => void runSave(addInstance(current, p.type, p.cfg(), p.h ?? H_DEFAULT, p.key), true);
   // Modèles déjà sur la grille — la galerie les grise (un seul exemplaire par modèle).
   const posed = usedPresets(shown);
 
@@ -9500,37 +9542,33 @@ function Dashboard() {
     commitLive();
   };
 
-  /* Redimensionnement en HAUTEUR (poignée du bas) — pointer. Tirer vers le bas =
-     plus grand, vers le haut = plus petit (sm → md → lg → xl).
-     ⚠️ C'ÉTAIT LA PRINCIPALE SOURCE DE TREMBLEMENT : le cran se calculait en
-     `Math.round(dy / 70)` depuis l'origine du geste, donc à mi-chemin d'un cran
-     (35 px) le moindre frémissement de la main faisait basculer la taille dans un
-     sens puis dans l'autre, en boucle. Même hystérésis que pour la largeur : un cran
-     est franchi, l'origine est recalée, il faut refaire 70 px pour le suivant. */
-  const SIZE_STEP = 70;
-  const SIZE_STEPS: WidgetSize[] = ["sm", "md", "lg", "xl"];
-  const sizeRef = useRef<{ id: string; startY: number; idx: number } | null>(null);
+  /* Redimensionnement en HAUTEUR (poignée du bas) — pointer. La carte SUIT LA SOURIS :
+     depuis le 2026-08-07 la hauteur est un nombre de pixels, plus un cran parmi quatre.
+     ⚠️ CE QUI DISPARAÎT AVEC LES CRANS, et c'est un soulagement : l'HYSTÉRÉSIS. Le cran se
+     calculait en `Math.round(dy / 70)`, si bien qu'à mi-chemin (35 px) le moindre
+     frémissement de la main faisait basculer la taille dans un sens puis dans l'autre, en
+     boucle — c'était LA source du tremblement rapporté. Il fallait donc recaler l'origine à
+     chaque bascule. Un réglage continu n'a pas ce problème par construction : la hauteur est
+     une fonction MONOTONE de la position du pointeur (`startH + dy`), donc un tremblement
+     de 1 px déplace de 1 px et rien ne peut osciller.
+     ⚠️ Le pas visible reste `DASH_ROW` (4 px) : c'est `coerceHeight` qui arrondit, dans
+     `setWidgetHeight`. En dessous, on paierait un rendu par pixel parcouru pour un changement
+     invisible. */
+  const sizeRef = useRef<{ id: string; startY: number; startH: number } | null>(null);
   const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    /* ⚠️ La hauteur de départ se lit dans le layout AFFICHÉ (`shown`) : c'est le seul
-       qui tient compte d'un aperçu en cours, sans quoi une seconde poussée dans le même
-       geste repartirait du cran d'origine et sauterait une taille. */
-    const h = shown.items[idxOf(shown.items, id)]?.h ?? "md";
-    sizeRef.current = { id, startY: e.clientY, idx: SIZE_STEPS.indexOf(h) };
+    /* ⚠️ La hauteur de départ se lit dans le layout AFFICHÉ (`shown`) : c'est le seul qui
+       tienne compte d'un aperçu en cours, sans quoi un second geste repartirait de la
+       hauteur enregistrée et la carte sauterait sous le curseur. */
+    const h = shown.items[idxOf(shown.items, id)]?.h ?? H_DEFAULT;
+    sizeRef.current = { id, startY: e.clientY, startH: h };
     freezeHeight();
   };
   const onSizeMove = (e: ReactPointerEvent<HTMLElement>) => {
     const r = sizeRef.current; if (!r) return;
     if (e.buttons === 0) { onSizeUp(e); return; }   // même garde que pour la largeur
-    const dy = e.clientY - r.startY;
-    if (Math.abs(dy) < SIZE_STEP) return;
-    const dir = dy > 0 ? 1 : -1;
-    const idx = Math.max(0, Math.min(SIZE_STEPS.length - 1, r.idx + dir));
-    r.startY += SIZE_STEP * dir;                     // recalage → hystérésis
-    if (idx === r.idx) return;                       // déjà au bout : rien à changer
-    r.idx = idx;
-    applyLive((d) => setWidgetSize(d, r.id, SIZE_STEPS[idx]));
+    applyLive((d) => setWidgetHeight(d, r.id, r.startH + (e.clientY - r.startY)));
   };
   const onSizeUp = (e: ReactPointerEvent<HTMLElement>) => {
     if (!sizeRef.current) return;
@@ -9652,7 +9690,7 @@ function Dashboard() {
                    poignées de redimensionnement sont en `absolute` et existent aussi hors
                    édition — sans repère de position sur le wrapper, elles se placeraient
                    par rapport au premier ancêtre positionné, donc n'importe où. */
-                style={{ ["--slb-wh" as any]: `${WIDGET_HEIGHTS[size]}px`, position: "relative", gridColumn: wide ? "1 / -1" : undefined,
+                style={{ ["--slb-wh" as any]: `${size}px`, position: "relative", gridColumn: wide ? "1 / -1" : undefined,
                   /* TASSEMENT : le widget occupe autant de lignes fines que sa hauteur
                      mesurée l'exige (repli `spanOf` avant la première mesure), et son
                      espacement bas est DANS le span — cf. la note sur DASH_GAP. */
@@ -9679,8 +9717,8 @@ function Dashboard() {
                       « Apparence »). */}
                   <WidgetOptionsCtx.Provider
                     value={{ cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
-                      wide, size,
-                      onSave: ({ title, tint, cfg: c, wide: w, size: s }) => persistOptions(id, title, tint, c, w, s),
+                      wide, height: size,
+                      onSave: ({ title, tint, cfg: c, wide: w, height: h }) => persistOptions(id, title, tint, c, w, h),
                       onRemove: () => persistRemove(id) }}>
                     {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
                         toujours ouverte — il n'y a plus qu'un seul écrivain. */}
@@ -9690,7 +9728,7 @@ function Dashboard() {
                         <WidgetTitleCtx.Provider value={inst.title ?? ""}>
                           <WidgetTintCtx.Provider value={inst.tint ?? ""}>
                             {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
-                            <WidgetHeightCtx.Provider value={WIDGET_HEIGHTS[size]}>
+                            <WidgetHeightCtx.Provider value={size}>
                               <Render id={id} cfg={cfg} />
                             </WidgetHeightCtx.Provider>
                           </WidgetTintCtx.Provider>
@@ -9730,7 +9768,7 @@ function Dashboard() {
                 ))}
                 <span className="slb-rzv" aria-hidden
                   onPointerDown={onSizeDown(id)} onPointerMove={onSizeMove} onPointerUp={onSizeUp} onPointerCancel={onSizeUp}
-                  title="Glisser pour régler la hauteur (petit / moyen / grand / XL)"
+                  title="Glisser pour régler la hauteur"
                   /* `bottom: 2` place la poignée ENTIÈREMENT sous la carte, dans la
                      gouttière : à `DASH_GAP - 3` elle empiétait de 11 px sur le bas du corps
                      et interceptait le « Voir plus » des listes. */

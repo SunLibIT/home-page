@@ -631,8 +631,12 @@ Le geste reste **doublé** par le mode Personnaliser, seule voie accessible au c
   ligne** par `ScrollBody`. L'ancienne variable CSS `--slb-wh`, lue par une règle injectée, **ne
   s'appliquait pas dans le bloc Softr** : les widgets s'étiraient sans jamais scroller. La classe
   `slb-scrolly` ne sert plus qu'à habiller la barre de défilement.
-  Poignée du bas (pointer, un cran tous les 70 px) + segments « Petit / Moyen / Grand / XL »
-  (168 / 340 / 560 / **860** px ; le 4ᵉ cran date du 2026-08-07).
+  Poignée du bas (pointer, **réglage continu** : la carte suit la souris, arrondi au pas de
+  4 px) + un **champ en pixels** dans le ⋮ et quatre repères cliquables (168 / 340 / 560 /
+  860). ⚠️ Depuis le 2026-08-07 la hauteur est un NOMBRE, plus un cran nommé : l'hystérésis
+  qui évitait l'oscillation entre deux crans a disparu avec eux — une hauteur continue est
+  une fonction monotone de la position du pointeur, rien ne peut osciller. Les anciennes clés
+  restent lues (`LEGACY_HEIGHTS`) et ne sont jamais réécrites sous cette forme.
 - ⚠️ **Le nombre de colonnes est mesuré en JS** (`ResizeObserver` sur la grille → `twoCols`), pas
   par une media query ni une container query : dans l'iframe Softr, la fenêtre est large mais le
   **bloc** est étroit, et rien ne garantit qu'une règle injectée atteigne le bloc.
