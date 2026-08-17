@@ -2991,6 +2991,59 @@ function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
   return ref;
 }
 
+/* --- MODALE OUVERTE : LE FOND NE DÉFILE PLUS ------------------------------------
+   Bug observé le 2026-08-17 sur « Ajouter un widget » : la feuille s'ouvre bien, mais
+   la molette fait d'abord défiler la PAGE DERRIÈRE, et la galerie ne bouge qu'ensuite.
+   Deux mécanismes se cumulaient, et il faut les deux correctifs :
+
+     1. CHAÎNAGE (`scroll chaining`). La molette sur le voile, l'en-tête ou les
+        pastilles ne vise aucun conteneur défilant : le navigateur remonte alors au
+        DOCUMENT, et — le bloc vivant dans une IFRAME — poursuit dans la page Softr
+        quand le document de l'iframe est au bout. D'où `overflow:hidden` (le document
+        du bloc ne défile plus tant que la modale est là) ET `overscroll-behavior:none`
+        sur la racine : sans ce second réglage, un document non défilable transmet
+        quand même la molette au cadre parent, et on ne peut rien faire depuis
+        l'iframe pour arrêter la page Softr elle-même (documents distincts).
+     2. Le corps de la galerie était plafonné à 340 px par `.slb-scrolly`
+        (`max-height: var(--slb-wh, 340px)`, prévu pour le corps d'un WIDGET) : la
+        feuille n'occupait pas ses 86 %, ce qui donnait une petite zone défilante
+        entourée de beaucoup de vide « inerte ». Corrigé au point d'appel.
+
+   ⚠️ On restaure les valeurs EXACTES relevées à l'ouverture (chaînes vides comprises),
+   pas des valeurs supposées : deux modales peuvent se superposer (fiche ouverte
+   au-dessus d'un widget), et écrire « auto » en sortie casserait un style hérité de la
+   feuille de l'app.
+   ⚠️ Chrome conserve le `scrollTop` quand `overflow` passe à `hidden` : la page ne
+   remonte donc pas en haut à l'ouverture de la modale. --- */
+function useModalScrollLock(active = true) {
+  useEffect(() => {
+    if (!active) return;
+    const cibles = [document.documentElement, document.body].filter(Boolean) as HTMLElement[];
+    const avant = cibles.map((el) => ({
+      el,
+      overflow: el.style.getPropertyValue("overflow"),
+      chain: el.style.getPropertyValue("overscroll-behavior"),
+    }));
+    for (const el of cibles) {
+      el.style.setProperty("overflow", "hidden");
+      el.style.setProperty("overscroll-behavior", "none");
+    }
+    return () => {
+      for (const { el, overflow, chain } of avant) {
+        if (overflow) el.style.setProperty("overflow", overflow); else el.style.removeProperty("overflow");
+        if (chain) el.style.setProperty("overscroll-behavior", chain); else el.style.removeProperty("overscroll-behavior");
+      }
+    };
+  }, [active]);
+}
+
+/** Corps défilant d'une modale. `overscroll-behavior: contain` : arrivé en bas de la
+ *  liste, la molette S'ARRÊTE là au lieu de repartir sur le fond — c'est le second
+ *  symptôme du même bug, celui qu'on ne voit qu'après avoir tout déroulé.
+ *  `minHeight: 0` : sans lui, un item de flex refuse de rétrécir sous la hauteur de son
+ *  contenu et débordait de la feuille au lieu de défiler. */
+const MODAL_BODY: CSSProperties = { overflowY: "auto", minHeight: 0, overscrollBehavior: "contain", scrollbarWidth: "thin" };
+
 /* --- Menu ⋮ d'un widget : ouvre le formulaire d'options. Édition LOCALE (brouillon)
       jusqu'à « Enregistrer » — on n'écrit jamais en base à chaque frappe. Fermeture
       Échap / clic sur le voile. --- */
@@ -3032,6 +3085,7 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
      seul clic, juste à côté de « Enregistrer », finirait par partir tout seul. */
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [draftWide, setDraftWide] = useState(opts.wide);
+  useModalScrollLock(open);            // modale ouverte → le fond ne défile plus
   // Brouillons toujours frais à l'ouverture (cfg, titre, teinte, largeur ET confirmation
   // remise à zéro).
   const start = () => {
@@ -3102,7 +3156,7 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
               </button>
             </div>
 
-            <div style={{ overflowY: "auto", padding: "16px 18px", scrollbarWidth: "thin" }}>
+            <div style={{ ...MODAL_BODY, padding: "16px 18px" }}>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "14px", alignItems: "flex-start" }}>
                 {/* ── APPARENCE ───────────────────────────────────────────────── */}
                 <div style={secApparence}>
@@ -4720,6 +4774,7 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
   ficheHref?: string;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  useModalScrollLock();                             // la fiche est montée = elle est ouverte
   useEffect(() => {
     closeRef.current?.focus();                      // le clavier entre DANS la modale
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -4771,7 +4826,7 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
 
         {/* Corps : tous les champs du descripteur. Les `longtext` passent en pleine
             largeur (une note de trois lignes dans une colonne de 34 % est illisible). */}
-        <div style={{ overflowY: "auto", padding: "6px 18px 16px", scrollbarWidth: "thin" }}>
+        <div style={{ ...MODAL_BODY, padding: "6px 18px 16px" }}>
           {aliases.map((a) => {
             const f = desc.fields[a];
             const long = f.kind === "longtext";
@@ -8634,6 +8689,7 @@ function WidgetGallery({ posed, onAdd, onClose }: {
   const [q, setQ] = useState("");
   const [groupe, setGroupe] = useState("");     // "" = tous
   const champRef = useRef<HTMLInputElement | null>(null);
+  useModalScrollLock();                         // la galerie est montée = elle est ouverte
 
   /* Le champ prend le focus à l'ouverture : la galerie s'utilise au clavier, on tape
      trois lettres et on valide. Échap ferme — c'est le réflexe attendu d'une feuille. */
@@ -8713,8 +8769,11 @@ function WidgetGallery({ posed, onAdd, onClose }: {
           </div>
         </div>
 
-        {/* Corps : la grille de cartes, seule zone qui défile. */}
-        <div className="slb-scrolly" style={{ overflowY: "auto", padding: "16px 18px 20px", background: T.surface2 }}>
+        {/* Corps : la grille de cartes, seule zone qui défile. `maxHeight: none` ANNULE le
+            plafond de 340 px de `.slb-scrolly` (fait pour le corps d'un widget, pas pour
+            une feuille) — sans lui la galerie ne défilait que sur 340 px, le reste de la
+            feuille restant vide. La classe n'est gardée que pour l'ascenseur fin. */}
+        <div className="slb-scrolly" style={{ ...MODAL_BODY, maxHeight: "none", padding: "16px 18px 20px", background: T.surface2 }}>
           {!visibles.length ? (
             <EmptyState icon={LayoutGrid} title="Aucun widget ne correspond"
               hint={terme ? `Rien pour « ${q.trim()} ». Essayez un autre mot, ou changez de famille.` : "Cette famille est vide."} />

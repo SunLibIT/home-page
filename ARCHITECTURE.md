@@ -816,6 +816,19 @@ quel dépliant chercher, et un libellé plus une icône ne disent pas **à quoi 
   ⚠️ `position: fixed` **dans une iframe** se réfère au viewport de l'**iframe** : la feuille couvre
   le bloc, jamais l'app autour — c'est voulu, et c'est déjà le cas du toast. D'où `maxHeight: 86%`
   et un corps défilant, pour qu'aucune carte ne finisse hors de portée si le bloc est très haut.
+- **Le fond ne défile plus quand une modale est ouverte** (`useModalScrollLock`, 2026-08-17). Bug
+  observé : la molette faisait défiler **la page derrière** avant la galerie. Deux causes cumulées,
+  deux correctifs indissociables. (1) `overflow: hidden` **et** `overscroll-behavior: none` sur
+  `<html>`/`<body>` : la molette sur le voile ou l'en-tête ne vise aucun conteneur défilant, elle
+  remonte au document, et — bloc en **iframe** — poursuit dans la page Softr ; un document non
+  défilable transmet quand même la molette au cadre parent sans `overscroll-behavior`, et depuis
+  l'iframe on ne peut pas arrêter la page Softr elle-même (documents distincts). Les valeurs exactes
+  relevées à l'ouverture sont restaurées à la fermeture (deux modales peuvent se superposer).
+  (2) `overscroll-behavior: contain` sur le corps (`MODAL_BODY`) : arrivé en bas de la liste, la
+  molette s'arrête là au lieu de repartir sur le fond. Le hook sert aussi à `WidgetOptionsMenu` et
+  `RecordDialog`, qui avaient le même défaut. ⚠️ Le corps de la galerie était en plus plafonné à
+  340 px par `.slb-scrolly` (`max-height: var(--slb-wh, 340px)`, prévu pour le corps d'un **widget**) :
+  d'où `maxHeight: "none"` au point d'appel — sans lui la feuille n'occupait pas ses 86 %.
 - **Recherche** sur le libellé **et** la description, insensible aux accents (« a signer » trouve
   « À signer ») : personne ne tape les accents dans un champ de recherche. Le nombre de résultats est
   affiché — sans lui, une recherche vide ressemble à un écran cassé.
