@@ -12,6 +12,10 @@
    LinkedIn) ; « Outils » = une grille de boutons qui ouvre chaque outil IN PAGE (le
    départ en nouvel onglet reste prévu pour une app non iframable, cf. `OUTILS`).
 
+   Les données métier passent par un CACHE D'INSTANTANÉS (§6-ter) : au retour sur la page,
+   les widgets affichent les lignes de la dernière lecture complète pendant que la relecture
+   tourne, et le chip du héro dit d'où viennent les chiffres et les rafraîchit.
+
    Primitives (T, StyleInjector, Badge, TabBar, cartes) copiées du kit visuel
    de référence (partenaire-detail-inpage / abo-detail-inpage) — NE PAS les
    réécrire. Écarts documentés inline :
@@ -79,7 +83,7 @@ import {
   Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
-  Save, X, Newspaper, Megaphone, Sparkles, Trophy,
+  Save, X, Newspaper, Megaphone, Sparkles, Trophy, RefreshCw,
   // ⚠️ `Filter` est renommé : le fichier a déjà un TYPE `Filter` (§9-bis, les filtres
   //    d'une cfg). Importer l'icône sous son nom d'origine masquerait le type.
   Wrench, ExternalLink, Search, Filter as FilterIcon,
@@ -173,8 +177,11 @@ const PAGE_RECORD_PARAM = "recordId";
 /** Outils externes. Même règle : "" = adresse inconnue → tuile inerte. */
 const TOOLS = {
   /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE, donc
-     EMBARQUÉE depuis le 2026-08-05 : elle s'ouvre in-page dans l'onglet « Outils ». */
-  calculette: "https://sunlib-simulation-economique.vercel.app/",
+     EMBARQUÉE depuis le 2026-08-05 : elle s'ouvre in-page dans l'onglet « Outils ».
+     ⚠️ ADRESSE CHANGÉE LE 2026-08-18 : `sunlib-simulation-economique.vercel.app` →
+     `calculette-abonnement.vercel.app` (nouveau déploiement). L'ancienne peut encore
+     répondre : si la tuile affiche une version périmée, c'est qu'un cache la sert. */
+  calculette: "https://calculette-abonnement.vercel.app/",
   /* Plus d'entrée « Sellsy » : la tuile « Services Sellsy » a été RETIRÉE des Outils le
      2026-08-04 (demande explicite). La remettre = une entrée ici + une dans
      QUICK_LINKS (§7) ; l'icône `Briefcase` est toujours importée, elle sert à la map
@@ -385,6 +392,11 @@ function StyleInjector() {
       .slb-rzh:hover > span, .slb-rzh:active > span, .slb-rzv:hover > span, .slb-rzv:active > span{ opacity:1; }
       @keyframes slb-skel{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
       .slb-skel{ animation:slb-skel 1.3s ease-in-out infinite; }
+      /* Rotation du chip de fraîcheur pendant une relecture. DÉCORATIVE au sens de §2 :
+         si la feuille ne s'applique pas dans le bloc Softr, l'icône reste fixe et c'est
+         le TEXTE du chip qui dit « Actualisation… ». */
+      @keyframes slb-spin{ to{ transform:rotate(360deg) } }
+      .slb-spin{ animation:slb-spin 1s linear infinite; }
 
       /* Podium CAPEX : la marche survolée se soulève, sa pastille et son numéro
          grossissent un peu. Purement DÉCORATIF, donc légitime en feuille de style —
@@ -2212,6 +2224,271 @@ const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
 const variantOf = (desc: SourceDesc, alias: string | undefined, value: string): BadgeVariant =>
   (alias ? desc.fields[alias]?.variants?.[value] : undefined) ?? statusVariant(value);
 
+/* ============================================================================
+   6-ter. CACHE D'INSTANTANÉS — pourquoi la page n'est plus jamais vide
+   ----------------------------------------------------------------------------
+   LE PROBLÈME. La page d'accueil est la page la plus visitée du CRM, et elle
+   repartait de zéro à CHAQUE visite : la navigation Softr recharge l'iframe, donc
+   le cache mémoire de `useRecords` est perdu. Or les onze sources qui agrègent
+   DRAINENT leur pagination page par page (`useDrainPages`) — jusqu'à `COM_MAX_PAGES`
+   allers-retours EN SÉRIE sur `abonnes` (1 774 lignes), `notifC` (2 142), `sav`
+   (~771). Pendant ces secondes-là, la page n'affichait que des squelettes, puis des
+   chiffres qui montaient.
+
+   LE CONTRAT. « Stale-while-revalidate » : on sert le dernier instantané complet
+   TOUT DE SUITE, on relit en fond, on remplace quand la relecture est TERMINÉE. La
+   base reste la source de vérité — l'instantané n'est qu'un point de départ.
+
+   DEUX RÈGLES QUI NE SONT PAS DES DÉTAILS, et qui portent toute la justesse :
+   1. On ne SERT l'instantané que tant que la lecture est en cours (`loading ||
+      draining`). Dès qu'elle est finie, le live fait autorité MÊME S'IL REND ZÉRO
+      LIGNE — sans quoi une table vidée ou un filtre restrictif afficherait
+      éternellement des lignes qui n'existent plus.
+   2. On n'ÉCRIT l'instantané que sur une lecture COMPLÈTE (`!loading && !draining`).
+      Écrire à mi-drainage figerait un agrégat faux, crédible et silencieux —
+      exactement le défaut que `draining` a été créé pour signaler, et qui a déjà
+      coûté cher au bloc SAV. Un instantané à moitié lu est pire que pas d'instantané.
+
+   LIMITE CONNUE, assumée : l'instantané est écrit UNE FOIS par montage, à la fin de
+   la lecture. Une écriture faite ensuite depuis la page (cocher « Fait », marquer une
+   notification vue) n'y est donc pas reportée : à la visite suivante, la ligne
+   réapparaît dans son ancien état pendant la seconde que dure la relecture. C'est le
+   prix du direct, et la relecture le corrige toujours.
+
+   STOCKAGE : localStorage, comme le cache de disposition (§11) — synchrone, donc
+   l'affichage est réellement instantané, et `try/catch` partout : quota plein, mode
+   privé, iframe au stockage bloqué, tout doit dégrader sans casser la page.
+   ⚠️ Ce cache contient des données CRM NOMINATIVES. D'où la clé par e-mail et la
+   purge des entrées d'un autre utilisateur au montage (postes partagés).
+   ============================================================================ */
+const SNAP_PREFIX = "slb-home-snap";
+/* Horodatage de la dernière écriture, TOUTES sources confondues : c'est lui qui
+   alimente le chip « Données du … » du héro, lequel n'a pas à connaître les sources. */
+const SNAP_STAMP = `${SNAP_PREFIX}-at`;
+/* Relever cette version INVALIDE tout le parc de caches d'un coup. À faire le jour où
+   la FORME d'une ligne change (et non son contenu) — le hash du select, lui, ne couvre
+   que l'ajout, le retrait ou le renommage d'un alias. */
+const SNAP_VERSION = 1;
+/* Budget par entrée, en CARACTÈRES (localStorage stocke en UTF-16 : ~2 octets pièce).
+   ⚠️ CALIBRÉ SUR LES SOURCES RÉELLES, et il a fallu s'y reprendre : à 400 000, les deux
+   tables les plus lourdes — `notifC` (2 142 lignes × 9 champs) et `abonnes` (1 774 × 13)
+   — dépassaient le plafond et n'étaient donc JAMAIS mises en cache. C'est-à-dire
+   exactement les deux qui coûtent 120 requêtes en série : le cache aurait soulagé tout
+   sauf ce qui fait mal.
+   900 000 les couvre. Le plafond n'en reste pas moins indispensable : il empêche UNE
+   source de manger le quota entier, et c'est `evictOldest` qui arbitre le reste.
+   ⚠️ Ces tailles sont ESTIMÉES, pas mesurées en production : le poids réel des entrées
+   est à relever dans l'inspecteur (Application → Local Storage) à la première recette.
+   La trace console ci-dessous donne le chiffre exact le jour où une source est refusée. */
+const SNAP_MAX_CHARS = 900_000;
+/* Les sources « liste » n'affichent que les N plus récents : garder 80 lignes suffit à
+   remplir n'importe lequel de leurs widgets. Les sources DRAINÉES, elles, sont gardées
+   entières — c'est tout leur intérêt, un agrégat tronqué serait faux. */
+const SNAP_ROWS_LIST = 80;
+const SNAP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+type Snapshot = { v: number; at: number; rows: Row[] };
+
+/* Hash djb2 des CLÉS du select : si un alias est ajouté, retiré ou renommé, la clé
+   change et l'ancienne entrée est ignorée au lieu de servir des lignes dont les champs
+   ne correspondent plus à ce que le widget attend. */
+function snapSig(select: Record<string, string>): string {
+  let h = 5381;
+  for (const k of Object.keys(select).sort())
+    for (let i = 0; i < k.length; i++) h = ((h * 33) ^ k.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+/* `mode` : deux consommateurs de la MÊME source ne lisent pas la même chose — un widget
+   liste tire une page, un widget qui agrège draine tout. Ils ne doivent donc pas
+   partager une entrée, sinon l'agrégat se servirait des 80 lignes de la liste. */
+const snapKey = (email: string, source: SourceKey, drain: boolean, sig: string): string =>
+  `${SNAP_PREFIX}:${email}:${source}:${drain ? "full" : "page"}:${sig}`;
+
+function readSnapshot(key: string): Snapshot | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as Snapshot;
+    if (!s || s.v !== SNAP_VERSION || !Array.isArray(s.rows)) return null;
+    if (!s.at || Date.now() - s.at > SNAP_MAX_AGE_MS) return null;
+    return s;
+  } catch { return null; }
+}
+
+/* Une trace par clé, pas une par render : c'est un relevé de calibrage, pas du bruit. */
+const snapTooBig = new Set<string>();
+/** Écrit l'instantané. Rend `true` s'il a été retenu — `false` s'il dépasse le budget
+ *  (la source repartira en squelette à la prochaine visite, et la console le dit une
+ *  fois : c'est le relevé qui permettra de recalibrer SNAP_MAX_CHARS). */
+function writeSnapshot(key: string, rows: Row[]): boolean {
+  let payload: string;
+  try {
+    payload = JSON.stringify({ v: SNAP_VERSION, at: Date.now(), rows });
+  } catch { return false; }
+  if (payload.length > SNAP_MAX_CHARS) {
+    try { window.localStorage.removeItem(key); } catch { /* rien à retirer */ }
+    if (!snapTooBig.has(key)) {
+      snapTooBig.add(key);
+      console.info(`[SunLib] instantané NON gardé (${Math.round(payload.length / 1000)} k caractères > ${SNAP_MAX_CHARS / 1000} k) : ${key}`);
+    }
+    return false;
+  }
+  /* QUOTA PLEIN — on n'abandonne pas du premier coup : localStorage est partagé avec la
+     disposition et, un jour, avec ce que d'autres blocs y écriront. On évince le plus
+     ANCIEN instantané et on réessaie. Sans cela, le premier remplissage du quota gèlerait
+     le cache dans l'état où il se trouve, et l'ordre de montage des widgets déciderait
+     silencieusement qui a droit au cache et qui n'y a pas droit.
+     Quatre essais : au-delà, ce n'est plus une question de place. */
+  for (let essai = 0; essai < 4; essai++) {
+    try {
+      window.localStorage.setItem(key, payload);
+      window.localStorage.setItem(SNAP_STAMP, String(Date.now()));
+      return true;
+    } catch {
+      if (!evictOldest(key)) return false;   // plus rien à évincer, ou stockage indisponible
+    }
+  }
+  return false;
+}
+
+/** Supprime l'instantané le PLUS ANCIEN (jamais `sauf`, celui qu'on essaie d'écrire).
+ *  Les entrées illisibles ou périmées partent en premier — `readSnapshot` les date à 0.
+ *  Rend `false` s'il n'y avait plus rien à évincer : c'est la condition d'arrêt. */
+function evictOldest(sauf: string): boolean {
+  try {
+    let vieux = "", quand = Infinity;
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k || k === sauf || !k.startsWith(`${SNAP_PREFIX}:`)) continue;
+      const at = readSnapshot(k)?.at ?? 0;
+      if (at < quand) { quand = at; vieux = k; }
+    }
+    if (!vieux) return false;
+    window.localStorage.removeItem(vieux);
+    return true;
+  } catch { return false; }
+}
+
+const readSnapStamp = (): number => {
+  try { return Number(window.localStorage.getItem(SNAP_STAMP)) || 0; } catch { return 0; }
+};
+
+/** Âge lisible d'un instantané, tourné pour se coller à « Chiffres … » : « de l'instant »,
+ *  « d'il y a 12 min », « du 17/08 à 18:04 » au-delà de la journée. Au-delà d'une heure on
+ *  cesse de compter en minutes — personne ne lit « il y a 143 min ». */
+function snapAge(at?: number): string {
+  if (!at) return "de la dernière visite";
+  const min = Math.round((Date.now() - at) / 60000);
+  if (min < 1) return "de l'instant";
+  if (min < 60) return `d'il y a ${min} min`;
+  if (min < 24 * 60) return `d'il y a ${Math.round(min / 60)} h`;
+  const d = new Date(at);
+  return `du ${d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+/** Purge au montage : les entrées d'un AUTRE utilisateur (poste partagé), celles d'une
+ *  version périmée, et celles qui ont plus de 7 jours. Appelée une fois par `Block()`. */
+function purgeSnapshots(email: string): void {
+  try {
+    const morts: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k || !k.startsWith(`${SNAP_PREFIX}:`)) continue;
+      if (!email || !k.startsWith(`${SNAP_PREFIX}:${email}:`)) { morts.push(k); continue; }
+      if (!readSnapshot(k)) morts.push(k);          // version ou âge : readSnapshot tranche
+    }
+    morts.forEach((k) => window.localStorage.removeItem(k));
+  } catch { /* stockage inaccessible : rien à purger */ }
+}
+
+/* --- LE SIGNAL DE RAFRAÎCHISSEMENT ------------------------------------------------
+   `nonce` sert de CLÉ de remontage aux adapters (cf. `SourceFeed`) : l'incrémenter
+   démonte puis remonte chaque source, ce qui relance `useRecords`. C'est le seul
+   mécanisme qui ne dépende d'AUCUNE hypothèse sur l'API Softr.
+   ⚠️ Si Softr s'appuie sur react-query avec un `staleTime` long, un remontage pourrait
+   resservir le cache mémoire sans requête. D'où le `refetch()` de secours appelé par
+   `useDrainPages` quand le montage fait suite à un rafraîchissement EXPLICITE
+   (`nonce > 0`) — jamais au premier montage, où la requête part de toute façon.
+
+   `markStale` : les sources qui servent un instantané s'y inscrivent, ce qui donne au
+   héro un état global honnête (« actualisation… » vs « à jour ») sans qu'il ait à
+   connaître les widgets. --- */
+type RefreshApi = {
+  nonce: number;
+  refresh: () => void;
+  /** Inscription/retrait d'une source qui sert un instantané (clé = clé de cache). */
+  markStale: (key: string, on: boolean) => void;
+  /** Au moins une source affiche un instantané en attendant sa relecture. */
+  busy: boolean;
+};
+const RefreshCtx = createContext<RefreshApi>({
+  nonce: 0, refresh: () => {}, markStale: () => {}, busy: false,
+});
+
+/* La DATE des chiffres n'est volontairement PAS dans cet état : elle vit dans
+   `SNAP_STAMP`, que le chip relit à chaque battement. La porter en état React
+   obligerait à la propager depuis chaque écriture de chaque source — pour une valeur
+   qu'un `getItem` donne gratuitement et toujours à jour. */
+function useRefreshState(): RefreshApi {
+  const [nonce, setNonce] = useState(0);
+  const [stales, setStales] = useState<string[]>([]);
+  /* Rendre `cur` INCHANGÉ quand il n'y a rien à changer : `filter` rend toujours un
+     nouveau tableau, et un nouveau tableau re-rend tout le bloc — pour rien, à chaque
+     démontage d'une source qui n'était pas inscrite. */
+  const markStale = (key: string, on: boolean) =>
+    setStales((cur) =>
+      on ? (cur.includes(key) ? cur : [...cur, key])
+         : (cur.includes(key) ? cur.filter((k) => k !== key) : cur));
+  return { nonce, refresh: () => setNonce((n) => n + 1), markStale, busy: stales.length > 0 };
+}
+
+/** Jointure instantané ↔ live, appelée par CHAQUE adapter (§6-bis). Voir le contrat en
+ *  tête de section : sert le cache pendant la lecture, l'écrit à la fin, jamais pendant.
+ *  Sans e-mail (aperçu non connecté), ne lit ni n'écrit rien. */
+function useSnapshot(source: SourceKey, select: Record<string, string>, drain: boolean, live: SourceState): SourceState {
+  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
+  const key = email ? snapKey(email, source, drain, snapSig(select)) : "";
+  const { markStale } = useContext(RefreshCtx);
+
+  /* Lu UNE SEULE FOIS PAR CLÉ : l'instantané est un point de départ, pas un état vivant.
+     Le relire à chaque render le ferait réapparaître après qu'on l'a remplacé par le
+     frais. (Le fichier n'emploie pas `useMemo` — un ref dit la même chose.)
+     ⚠️ INDEXÉ PAR CLÉ, et ce n'est pas de la coquetterie : en production, Softr rend
+     souvent l'utilisateur au SECOND render (le premier n'a pas d'e-mail, cf. le `?.` de
+     tout le fichier). Un ref « lu une fois » aurait donc mémorisé `null` pour toujours,
+     et le cache n'aurait JAMAIS servi — en passant les tests, puisque le mock local rend
+     l'e-mail dès le premier render. */
+  const snapRef = useRef<{ key: string; snap: Snapshot | null }>({ key: "\u0000", snap: null });
+  if (snapRef.current.key !== key) snapRef.current = { key, snap: key ? readSnapshot(key) : null };
+  const snap = snapRef.current.snap;
+
+  const reading = live.loading || !!live.draining;
+  const serving = !!snap && reading;
+
+  /* Écriture : une fois par clé, à la fin de la lecture. Indexé par clé pour la même
+     raison que la lecture — sinon une lecture terminée AVANT l'arrivée de l'e-mail
+     condamnerait la source à ne jamais rien écrire. */
+  const ecrit = useRef("");
+  useEffect(() => {
+    if (!key || reading || live.error || ecrit.current === key) return;
+    ecrit.current = key;
+    writeSnapshot(key, drain ? live.rows : live.rows.slice(0, SNAP_ROWS_LIST));
+  });
+
+  // Inscription au registre global (le chip du héro). Retrait garanti au démontage.
+  useEffect(() => {
+    if (!key) return;
+    markStale(key, serving);
+    return () => markStale(key, false);
+  }, [key, serving]);
+
+  if (!serving) return live;
+  /* `loading: false` — c'est TOUT le point : les widgets cessent d'afficher leur
+     squelette. `partial` / `draining` sont neutralisés : ils qualifient la lecture en
+     cours, pas l'instantané complet qu'on affiche à sa place. */
+  return { ...live, rows: snap!.rows, loading: false, partial: false, draining: false, stale: true, at: snap!.at };
+}
+
 /** `partial` : la lecture est INCOMPLÈTE — plafond de pages atteint alors qu'il en
  *  reste (voir `useDrainPages`). Facultatif parce que la plupart des sources lisent une
  *  seule page et n'ont rien à dire ; mais quand il vaut `true`, un widget qui AGRÈGE
@@ -2224,6 +2501,15 @@ type SourceState = {
    *  l'agrégat finira juste — il ne l'est pas encore. À annoncer (cf. `AggregateNote`) :
    *  un total qui monte en silence est indiscernable d'un total faux. */
   draining?: boolean;
+  /** Ce qui s'affiche vient du CACHE D'INSTANTANÉS (§6-ter), pas de la lecture en
+   *  cours : les lignes sont celles de la dernière lecture complète, la relecture est
+   *  en route. À DIRE — un chiffre d'hier présenté comme celui de maintenant est le
+   *  même défaut qu'un total partiel présenté comme un total. */
+  stale?: boolean;
+  /** Date (epoch ms) des lignes servies quand `stale` : c'est ce que le widget affiche
+   *  pour dater son instantané. Absent sur une lecture fraîche — il vaudrait
+   *  « maintenant », ce qui n'apprend rien. */
+  at?: number;
 };
 
 /* Ce qu'un adapter expose à un widget : les lignes, les états, et — seulement si
@@ -2258,7 +2544,7 @@ function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: 
   const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
   // Pas de `write` : « Abonnés » n'a pas de select d'écriture (choix, §6).
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("abonnes", SELECT_ABONNE, !!drain, { ...liveState(res), partial, draining }))}</>;
 }
 
 /* Source hors ligne (mock d'aperçu, ou source pas encore connectée). En APERÇU
@@ -2331,6 +2617,29 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
    documente un `count`, non vérifié contre Softr) : à tester un jour, pas à supposer. */
 const COM_MAX_PAGES = 120;
 
+/* ⚠️ EXPÉRIENCE À MENER SUR LA PAGE PUBLIÉE — LA TAILLE DE PAGE DE SOFTR.
+   C'est le levier le moins cher de tout le chantier de performance, et il n'a jamais été
+   vérifié : le mock de dev déclare un paramètre `count` sur `useRecords`, mais RIEN ne dit
+   que Softr l'honore. S'il le fait, les 120 allers-retours en série d'une source drainée
+   tombent à une trentaine — c'est-à-dire plus de gain que tout le cache d'instantanés.
+
+   COMMENT LA MENER, dans cet ordre, sur la page publiée et connecté :
+     1. `SOFTR_PAGE_SIZE = 100` et `TRACE_PAGES = true` ci-dessous, puis publier ;
+     2. ouvrir la console : chaque source drainée imprime « N pages, M lignes (~X par page) » ;
+     3. lire X. Resté à ~25 → Softr ignore `count` : REMETTRE `undefined`, et noter le
+        résultat NÉGATIF dans ARCHITECTURE.md §7-9 pour ne pas le retester dans six mois.
+        Passé à ~100 → généraliser `count` aux autres adapters drainés et RECALIBRER
+        `COM_MAX_PAGES` à la baisse (le plafond doit rester, seulement se resserrer) ;
+     4. dans tous les cas, remettre `TRACE_PAGES = false` : onze lignes de console à chaque
+        chargement, ce n'est plus un relevé, c'est du bruit.
+
+   ⚠️ Ne pas l'activer « pour voir » sans lire le point 3 : une taille de page changée
+   modifie ce que lisent les widgets NON drainés (« les N plus récents »). C'est pourquoi
+   `count` n'est branché que sur `parcAbo` — un COMPTEUR à un seul champ, dont aucun widget
+   ne dépend pour son contenu. */
+const SOFTR_PAGE_SIZE: number | undefined = undefined;
+const TRACE_PAGES: boolean = false;
+
 /* `enabled` : on ne draine QUE si le consommateur agrège. Une liste qui montre « les 12
    plus récents » n'a aucun besoin des 1 700 autres lignes, et les tirer coûterait des
    dizaines de requêtes pour rien. Mais dès qu'un widget COMPTE, SOMME ou MOYENNE, la
@@ -2344,6 +2653,19 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
   const hasNext = !!res?.hasNextPage;
   const fetching = !!res?.isFetchingNextPage;
   const canFetch = typeof res?.fetchNextPage === "function";
+
+  /* RAFRAÎCHISSEMENT EXPLICITE — le filet de sécurité du bouton du héro. Le remontage
+     par `key` (cf. `SourceFeed`) suffit si `useRecords` relance sa requête au montage ;
+     il ne suffit PAS si Softr garde un cache mémoire par-dessus (react-query et son
+     `staleTime`). On tire donc un `refetch()` — quand il existe — au premier montage qui
+     SUIT un rafraîchissement demandé. Jamais au tout premier (nonce 0) : la requête part
+     de toute façon, et on doublerait chaque lecture de la page.
+     ⚠️ Rien ne documente la présence de `refetch` sur l'objet rendu par Softr : le `?.`
+     est la garde, pas une coquetterie. Si la trace réseau ne montre rien repartir au
+     clic, c'est ICI qu'est le point à reprendre. */
+  const { nonce } = useContext(RefreshCtx);
+  useEffect(() => { if (nonce > 0) res?.refetch?.(); }, []);
+
   useEffect(() => {
     if (enabled && hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
   }, [enabled, hasNext, canFetch, fetching, nPages, maxPages]);
@@ -2366,15 +2688,19 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
      atteint : ce n'est pas du bruit de fonctionnement, c'est le relevé dont on a besoin
      le jour où le bandeau « Calcul partiel » réapparaît. */
   const dit = useRef(false);
+  /* `TRACE_PAGES` élargit l'émission à toute lecture TERMINÉE, et pas seulement tronquée :
+     c'est ce qui permet de mesurer la taille de page SANS attendre qu'un plafond saute
+     (cf. l'expérience documentée sur `SOFTR_PAGE_SIZE`). Faux en fonctionnement normal. */
+  const fini = enabled && !hasNext && nPages > 0;
   useEffect(() => {
-    if (!partial || dit.current) return;
+    if (dit.current || !(partial || (TRACE_PAGES && fini))) return;
     dit.current = true;
     const lignes = (res?.data?.pages ?? []).reduce((n: number, p: any) => n + (p?.items?.length ?? 0), 0);
-    console.info(
-      `[SunLib] lecture TRONQUÉE au plafond : ${nPages} pages, ${lignes} lignes` +
-      ` (~${Math.round(lignes / Math.max(1, nPages))} par page). Relever COM_MAX_PAGES.`,
-    );
-  }, [partial, nPages]);
+    const mesure = `${nPages} pages, ${lignes} lignes (~${Math.round(lignes / Math.max(1, nPages))} par page)`;
+    console.info(partial
+      ? `[SunLib] lecture TRONQUÉE au plafond : ${mesure}. Relever COM_MAX_PAGES.`
+      : `[SunLib] lecture complète : ${mesure}.`);
+  }, [partial, fini, nPages]);
 
   return { partial, draining };
 }
@@ -2384,15 +2710,19 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
 function ComKpiSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_COM, orderBy: q.desc("moisSignature") });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("comKpi", SELECT_COM, true, { ...liveState(res), partial, draining }))}</>;
 }
 
 /* Parc DOSSIERS : même datasource qu'`abonnes`, UN champ, pagination complète. C'est un
    COMPTEUR, pas une liste — d'où le select minimal. */
 function ParcAboSource({ children }: { children: SourceChildren }) {
-  const res = useRecords({ from: DS.abonnes, select: SELECT_PARC_ABO });
+  /* `count` : voir l'expérience documentée sur `SOFTR_PAGE_SIZE`. Sans valeur, l'objet est
+     identique à ce qu'il était — la lecture ne change donc pas tant que l'expérience n'est
+     pas lancée. Cette source est la bonne cobaye : un seul champ, et c'est un COMPTEUR,
+     donc aucun widget n'affiche ses lignes. */
+  const res = useRecords({ from: DS.abonnes, select: SELECT_PARC_ABO, ...(SOFTR_PAGE_SIZE ? { count: SOFTR_PAGE_SIZE } : {}) });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("parcAbo", SELECT_PARC_ABO, true, { ...liveState(res), partial, draining }))}</>;
 }
 
 /* Les deux périmètres du registre des exceptions, connectés le 2026-08-05. Paginés comme
@@ -2402,12 +2732,12 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
 function ExcAboSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("excAbo", SELECT_EXC_ABO, true, { ...liveState(res), partial, draining }))}</>;
 }
 function ExcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("excPart", SELECT_EXC_PART, true, { ...liveState(res), partial, draining }))}</>;
 }
 
 /* Parc partenaire ← « BDD Installateur », connectée le 2026-08-05. Paginée : c'est le
@@ -2415,7 +2745,7 @@ function ExcPartSource({ children }: { children: SourceChildren }) {
 function ParcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("parcPart", SELECT_PARC_PART, true, { ...liveState(res), partial, draining }))}</>;
 }
 
 function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
@@ -2426,7 +2756,7 @@ function NotesInsSource({ children, drain }: { children: SourceChildren; drain?:
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;                        // pas de session → aucune tentative
-  return <>{children({ ...liveState(res), partial, draining, write })}</>;
+  return <>{children({ ...useSnapshot("notesIns", SELECT_NOTE_INS, !!drain, { ...liveState(res), partial, draining }), write })}</>;
 }
 
 function NotesProSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
@@ -2437,7 +2767,7 @@ function NotesProSource({ children, drain }: { children: SourceChildren; drain?:
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), partial, draining, write })}</>;
+  return <>{children({ ...useSnapshot("notesPro", SELECT_NOTE_PRO, !!drain, { ...liveState(res), partial, draining }), write })}</>;
 }
 
 /* Tâches : `write` porte la PREMIÈRE écriture réelle du bloc — la case « Fait ».
@@ -2452,7 +2782,7 @@ function TachesPaSource({ children, drain }: { children: SourceChildren; drain?:
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), partial, draining, write })}</>;
+  return <>{children({ ...useSnapshot("tachesPa", SELECT_TACHE_PA, !!drain, { ...liveState(res), partial, draining }), write })}</>;
 }
 
 function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
@@ -2463,7 +2793,7 @@ function TachesPrSource({ children, drain }: { children: SourceChildren; drain?:
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...liveState(res), partial, draining, write })}</>;
+  return <>{children({ ...useSnapshot("tachesPr", SELECT_TACHE_PR, !!drain, { ...liveState(res), partial, draining }), write })}</>;
 }
 
 /* ⚠️⚠️ CAS « SAV », et c'est LE piège qui a été évité de justesse : le bloc
@@ -2497,7 +2827,7 @@ function TachesPrSource({ children, drain }: { children: SourceChildren; drain?:
 function SavSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children({ ...liveState(res), partial, draining })}</>;
+  return <>{children(useSnapshot("sav", SELECT_SAV, true, { ...liveState(res), partial, draining }))}</>;
 }
 /* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Connectée le
    2026-08-05 (id propre à CE bloc : onglet Chat, jamais celui d'un autre bloc — cf. la
@@ -2515,7 +2845,7 @@ function NotifCSource({ children, drain }: { children: SourceChildren; drain?: b
   const write = email ? {
     update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
   } : undefined;                       // pas de session → aucune tentative
-  return <>{children({ ...liveState(res), partial, draining, write })}</>;
+  return <>{children({ ...useSnapshot("notifC", SELECT_NOTIF_C, !!drain, { ...liveState(res), partial, draining }), write })}</>;
 }
 /* `drain` : à passer par TOUT consommateur qui agrège (compte, somme, moyenne, ou un
    compteur d'onglet). Les six sources « liste » ne tirent qu'une page par défaut, ce qui
@@ -2525,6 +2855,17 @@ function NotifCSource({ children, drain }: { children: SourceChildren; drain?: b
    ⚠️ Oublier `drain` sur un widget qui compte ne provoque aucune erreur — juste un
    chiffre faux, crédible et silencieux. C'est le bug qu'a connu Pilotage SAV. */
 function SourceFeed({ source, children, drain }: { source: SourceKey; children: SourceChildren; drain?: boolean }) {
+  /* `key={nonce}` sur un Fragment : le bouton « Rafraîchir » du héro incrémente le nonce,
+     ce qui DÉMONTE puis REMONTE l'adapter — donc `useRecords` repart de zéro. C'est le
+     seul mécanisme de rafraîchissement qui ne suppose RIEN de l'API Softr (le `refetch()`
+     de `useDrainPages` n'en est que le renfort). La page ne se vide pas pour autant :
+     `useSnapshot` relit son instantané au remontage et le sert pendant la relecture.
+     ⚠️ Le nonce doit être lu AVANT tout retour anticipé — c'est un hook. */
+  const { nonce } = useContext(RefreshCtx);
+  return <Fragment key={nonce}>{feedFor(source, children, drain)}</Fragment>;
+}
+
+function feedFor(source: SourceKey, children: SourceChildren, drain?: boolean) {
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
     case "abonnes":  return <AbonnesSource drain={drain}>{children}</AbonnesSource>;
@@ -3631,6 +3972,40 @@ function Sunburst({ height, still = false }: { height: string; still?: boolean }
   );
 }
 
+/* --- CHIP DE FRAÎCHEUR — le seul endroit de la page qui dise d'où viennent les chiffres,
+   et le seul bouton qui les rafraîchisse tous.
+   POURQUOI GLOBAL et non un bouton par carte : le cache est posé sous les SOURCES, pas
+   sous les widgets — une source alimente plusieurs cartes, et douze boutons diraient
+   douze fois la même chose. Le détail par carte existe déjà là où il compte :
+   `AggregateNote` date l'instantané des widgets qui agrègent.
+   ⚠️ C'est un vrai <button> : le rafraîchissement est une action, pas une décoration.
+   Il reste cliquable même quand tout est à jour — « je veux voir maintenant » est une
+   demande légitime, et c'est le seul recours si une lecture s'est mal passée. --- */
+function FreshnessChip({ style }: { style: CSSProperties }) {
+  const { busy, refresh } = useContext(RefreshCtx);
+  /* Battement d'une minute : sans lui, « il y a 2 min » resterait écrit une heure sur une
+     page laissée ouverte — et une date fausse sur un chiffre est pire que pas de date.
+     Une minute est exactement la résolution de ce que le chip affiche. */
+  const [, battre] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => battre((n) => n + 1), 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+  const at = readSnapStamp();
+  const texte = busy ? `Actualisation… · chiffres ${snapAge(at)}` : at ? `À jour · chiffres ${snapAge(at)}` : "Actualiser";
+  return (
+    <button type="button" onClick={refresh} title="Relire toutes les données"
+      style={{ ...style, fontFamily: "inherit", cursor: "pointer" }}>
+      {/* La rotation n'est pas décorative : elle dit qu'une lecture est EN COURS.
+          `slb-spin` est défini dans la feuille injectée (§2) ; si elle ne s'applique
+          pas dans le bloc Softr, l'icône reste fixe et le TEXTE porte l'information —
+          c'est pour ça qu'il change lui aussi. */}
+      <RefreshCw aria-hidden className={busy ? "slb-spin" : undefined} style={{ width: 14, height: 14 }} />
+      {texte}
+    </button>
+  );
+}
+
 function Hero({ firstName }: { firstName: string }) {
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const chip: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "7px", padding: "7px 13px", borderRadius: "999px", fontSize: "12.5px", fontWeight: 600, color: "#fff", backgroundColor: "rgba(255,255,255,.16)", border: "1px solid rgba(255,255,255,.38)", backdropFilter: "blur(4px)" };
@@ -3660,6 +4035,7 @@ function Hero({ firstName }: { firstName: string }) {
               nombre faux — un compteur à côté d'une cloche est cru sur parole. */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "20px" }}>
             <span style={chip}><Bell aria-hidden style={{ width: 14, height: 14 }} />Notifications</span>
+            <FreshnessChip style={chip} />
           </div>
         </div>
         {/* Les rayons sont tracés en blanc à la source : plus besoin du
@@ -4832,8 +5208,24 @@ function kpiCompute(rows: Row[], cfg: InstanceCfg, ident?: UserIdent): { value: 
        le total ne sera PAS complet. C'est une alerte, pas une attente.
    Rien à afficher quand la lecture est finie : un widget sain ne se commente pas. --- */
 function AggregateNote({ api, style }: { api: SourceState; style?: CSSProperties }) {
-  if (!api.draining && !api.partial) return null;
+  if (!api.stale && !api.draining && !api.partial) return null;
   const enCours = !!api.draining;
+  /* TROISIÈME ÉTAT (2026-08-18) — « Instantané ». Le chiffre affiché est COMPLET et
+     JUSTE, mais il date de la dernière visite : le cache d'instantanés (§6-ter) le sert
+     pendant que la relecture tourne. Il passe donc AVANT les deux autres, qui décrivent
+     une lecture en cours dont rien n'est encore affiché. Sans lui, un total d'hier
+     s'afficherait comme un total de maintenant — le même défaut qu'un total partiel
+     présenté comme un total. */
+  if (api.stale) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 16px 14px", ...style }}>
+        <Badge variant="neutral" dot>Instantané</Badge>
+        <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+          Chiffres {snapAge(api.at)} — mise à jour en cours.
+        </span>
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 16px 14px", ...style }}>
       <Badge variant={enCours ? "neutral" : "warn"} dot>{enCours ? "Calcul en cours" : "Calcul partiel"}</Badge>
@@ -7837,7 +8229,12 @@ function ExcIndicsWidget({ cfg, abo, part, parcA, parcP }: {
           <AggregateNote style={{ padding: "0 16px 14px" }}
             api={{ rows: [], loading: false, error: false,
               draining: !!abo.draining || !!part.draining,
-              partial: !!abo.partial || !!part.partial }} />
+              partial: !!abo.partial || !!part.partial,
+              /* Même règle pour l'instantané que pour les deux autres états : le total est
+                 daté dès qu'UNE de ses sources l'est, et à la date de la PLUS ANCIENNE —
+                 dater un total de son composant le plus frais serait le flatter. */
+              stale: !!abo.stale || !!part.stale,
+              at: [abo.at, part.at].filter((d): d is number => !!d).sort((a, b) => a - b)[0] }} />
         </div>
       )}
     </Widget>
@@ -10031,7 +10428,29 @@ export default function Block() {
   const rootRef = useRef<HTMLDivElement>(null);
   useHoverFX(rootRef);
 
+  /* CACHE D'INSTANTANÉS (§6-ter) — l'état de rafraîchissement est monté ICI, au-dessus
+     de tout, parce que le bouton vit dans le héro et les sources dans les widgets : ils
+     ne se croisent nulle part ailleurs. */
+  const refreshApi = useRefreshState();
+
+  /* Purge au montage, UNE fois : entrées d'un autre utilisateur (poste partagé),
+     d'une version périmée, ou vieilles de plus de sept jours. Ce cache contient des
+     données CRM nominatives — le ménage n'est pas de l'hygiène de quota, c'est la
+     contrepartie de les avoir écrites sur le disque du poste. */
+  /* ⚠️ On ATTEND que l'e-mail soit connu : Softr le rend souvent au second render, et
+     purger sans e-mail effacerait le cache de l'utilisateur courant à chaque
+     chargement — le cache n'aurait alors jamais servi à rien. Pas d'e-mail (aperçu non
+     connecté) = rien n'est écrit non plus, donc rien à purger. */
+  const email = asText(user?.email).trim().toLowerCase();
+  const purge = useRef("");
+  useEffect(() => {
+    if (!email || purge.current === email) return;
+    purge.current = email;
+    purgeSnapshots(email);
+  }, [email]);
+
   return (
+    <RefreshCtx.Provider value={refreshApi}>
     <div id="slb" ref={rootRef} style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
       {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
@@ -10061,5 +10480,6 @@ export default function Block() {
 
       </div>
     </div>
+    </RefreshCtx.Provider>
   );
 }

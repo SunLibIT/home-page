@@ -94,6 +94,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 5 | Helpers de formatage : `fmtDate`, `relDays`, `fmtRel`, `fmtDue`, `dueVariant`, `initials`, `avatarBg`, `firstNameOf` |
 | **6** | **Données** : `DS = datasource.define({…})`, tous les `SELECT_*`, types de vue, `flatten`/`flattenRows`, `mapNotif`/`mapTask`/`mapNote`/`isDone`, `MOCK_USER` + `MOCK_ROWS` (indexé par source) |
 | **6-bis** | **Couche SOURCES** : `SourceKey`, **descripteur `CATALOG`** (`SourceDesc`/`FieldDesc`), map `ICONS` + `iconOf`, `variantOf`, `isLive`/`liveState`/`offlineState`, adapters (`AbonnesSource`) et dispatch statique **`SourceFeed`** |
+| **6-ter** | **Cache d'INSTANTANÉS** (2026-08-18) : `snapSig`/`snapKey`, `readSnapshot`/`writeSnapshot`/`evictOldest`/`purgeSnapshots`, `snapAge`, `RefreshCtx`/`useRefreshState`, et **`useSnapshot`** — la jointure instantané ↔ live appelée par les 12 adapters. Détail complet en §4 |
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, les **4 contextes de widget** (`WidgetChromeCtx`, `WidgetOptionsCtx`, **`WidgetCfgCtx`**, **`WidgetGrabCtx`**) + `WidgetHeightCtx`, `useDismissOnOutside`/`hitsRect`, `WidgetEditMenu`, **`Widget`** (la coquille), `ScrollBody`, `PageNavBar`, `Hero`, **`topOrigin`/`softrPageUrl`**, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
@@ -1002,6 +1003,63 @@ La **BDD reste la source de vérité** : dès qu'elle répond avec une ligne, el
   par défaut en attendant, pour éviter le saut visuel).
 - **Aucun appel direct à l'API Airtable, aucune clé côté client.**
 
+### Le CACHE D'INSTANTANÉS — la donnée métier, pas la disposition (2026-08-18)
+
+À ne pas confondre avec le cache ci-dessus : celui-là garde la **disposition** d'un utilisateur,
+celui-ci garde les **lignes des tables**. Il vit en `Block.tsx` §6-ter.
+
+**Le problème.** La page d'accueil est la plus visitée du CRM et repartait de zéro à chaque
+visite : la navigation Softr recharge l'iframe, donc le cache mémoire de `useRecords` est perdu.
+Or onze sources **drainent** leur pagination page par page (`useDrainPages`) — jusqu'à
+`COM_MAX_PAGES = 120` allers-retours **en série** sur `abonnes` (1 774 lignes), `notifC` (2 142),
+`sav` (~771). Pendant ces secondes-là, la page était vide, puis affichait des chiffres qui montaient.
+
+**Le contrat — « stale-while-revalidate ».** On sert le dernier instantané complet tout de suite,
+on relit en fond, on remplace quand la relecture est **terminée**. La base reste la source de
+vérité ; l'instantané n'est qu'un point de départ.
+
+| | |
+|---|---|
+| **Clé** | `slb-home-snap:<email>:<source>:<full\|page>:<sig>` |
+| `<full\|page>` | l'adapter draine ou non — deux consommateurs de la même source ne lisent pas la même chose et ne partagent pas d'entrée |
+| `<sig>` | hash djb2 des **clés du `SELECT_*`** : un alias ajouté, retiré ou renommé invalide l'entrée |
+| **Valeur** | `{ v, at, rows }` — les `Row` déjà aplaties par `flattenRows` |
+| **Budget** | `SNAP_MAX_CHARS = 900 000` caractères par entrée ; au-delà, rien n'est écrit (trace console une fois) |
+| **Listes** | tronquées à `SNAP_ROWS_LIST = 80` lignes ; les sources drainées sont gardées **entières** |
+| **Quota plein** | `evictOldest` supprime l'instantané le plus ancien et réessaie (4 fois) |
+| **Purge** | au montage : autre e-mail, autre version, plus de 7 jours |
+| **Horodatage** | `slb-home-snap-at`, global, alimente le chip du héro |
+
+**Deux règles qui portent toute la justesse** — les toucher, c'est rouvrir le défaut du bloc SAV :
+
+1. On ne **sert** l'instantané que tant que la lecture est en cours (`loading || draining`). Dès
+   qu'elle est finie, le live fait autorité **même s'il rend zéro ligne** — sinon une table vidée
+   ou un filtre restrictif afficherait éternellement des lignes qui n'existent plus.
+2. On n'**écrit** l'instantané que sur une lecture **complète** (`!loading && !draining`). Écrire à
+   mi-drainage figerait un agrégat faux, crédible et silencieux.
+
+**Ce que ça change à l'écran.** `SourceState` gagne `stale` et `at`. Les widgets ne voient plus
+`loading: true` quand un instantané est servi (donc plus de squelette), et `AggregateNote` a un
+**troisième état**, « Instantané — chiffres d'il y a N min, mise à jour en cours », qui passe avant
+« Calcul en cours » et « Calcul partiel ». Le héro porte un **chip de fraîcheur** cliquable
+(`FreshnessChip`) : c'est le seul bouton « Rafraîchir » de la page, parce que le cache est posé
+sous les **sources**, pas sous les widgets.
+
+**Le rafraîchissement** passe par un `nonce` (`RefreshCtx`) porté en `key` sur un `Fragment` dans
+`SourceFeed` : l'incrémenter démonte et remonte les adapters, donc `useRecords` repart. C'est le
+seul mécanisme qui ne suppose rien de l'API Softr. En renfort, `useDrainPages` appelle
+`res.refetch?.()` au premier montage **qui suit** un rafraîchissement explicite — au cas où Softr
+garderait un cache mémoire (react-query, `staleTime`) que le remontage ne traverserait pas.
+
+**Limite connue, assumée** : l'instantané est écrit **une fois par montage**, à la fin de la
+lecture. Une écriture faite ensuite depuis la page (cocher « Fait », marquer une notification vue)
+n'y est pas reportée : à la visite suivante, la ligne réapparaît dans son ancien état pendant la
+seconde que dure la relecture.
+
+**⚠️ Données nominatives.** Ce cache contient des lignes du CRM sur le disque du poste. D'où la clé
+par e-mail et la purge des entrées d'un autre utilisateur au montage. Tout est en `try/catch` :
+quota plein, mode privé, iframe au stockage bloqué — la page fonctionne sans cache.
+
 ### Inspection et débogage
 
 La table étant sur Airtable, ses lignes sont directement **lisibles et modifiables** — dans la
@@ -1222,13 +1280,33 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
 8. ~~**`USE_MOCK` est global**~~ **résolu (phase 1)** : `USE_MOCK` reste l'interrupteur global, mais
    la granularité vient de `CATALOG[k].connected` — toute source non connectée sert son mock même
    avec `USE_MOCK = false` (`offlineState`), sans interrupteur supplémentaire.
-9. **Pagination : une seule source la fait.** Par défaut, `useRecords` ne rend que la **première
-   page** — `orderBy` décide donc **quelles** lignes sont lues, et tout agrégat (KPI, indicateurs
-   SAV) porte sur cette fenêtre. Seul **`comKpi`** vide la pagination (`useDrainPages`, plafond
-   `COM_MAX_PAGES = 40`), parce que le podium **agrège sur le parc** : sur un échantillon il
-   afficherait un classement faux avec des montants crédibles. Plafond atteint → `partial: true`,
-   que le widget **affiche** (« Calcul partiel »). Tout futur widget qui totalise doit suivre ce
-   chemin, et jamais se contenter d'une page en silence.
+9. **Pagination : le coût de la page d'accueil, et ce qui reste à faire.** Par défaut,
+   `useRecords` ne rend que la **première page** — `orderBy` décide donc **quelles** lignes sont
+   lues, et tout agrégat porterait sur cette fenêtre. **Onze sources drainent** désormais
+   (`useDrainPages`, plafond `COM_MAX_PAGES = 120`) : plafond atteint → `partial: true`, que le
+   widget **affiche** (« Calcul partiel »). Tout futur widget qui totalise doit suivre ce chemin,
+   et jamais se contenter d'une page en silence.
+
+   Le prix est un **drainage en série** : jusqu'à 120 allers-retours sur `abonnes` et `notifC`.
+   Le **cache d'instantanés** (§4) fait que ce coût ne se voit plus à l'écran — il ne le supprime
+   pas. Trois leviers restent, et deux d'entre eux ont été **examinés puis écartés, code en main** :
+
+   - **`count` (taille de page) — à TESTER, c'est le levier le moins cher.** Le mock déclare
+     `count?: number` sur `useRecords` mais **rien ne dit que Softr l'honore**. S'il le fait,
+     120 requêtes tombent à ~30. L'expérience est câblée et **désactivée** dans `Block.tsx`
+     (`SOFTR_PAGE_SIZE` + `TRACE_PAGES`, à côté de `COM_MAX_PAGES`) : le mode d'emploi complet est
+     dans le commentaire, elle se mène en deux publications. Résultat négatif → **le noter ici**,
+     pour ne pas la refaire dans six mois.
+   - **Filtrer `notifC` côté serveur : IMPOSSIBLE en l'état.** Le filtre « mes dossiers » ne compare
+     pas des e-mails : `ownerIsUser` rapproche un **nom** (« Frédéric Martin ») de la session par
+     mots, accents neutralisés, deux mots communs requis. Un `where` ne peut pas reproduire ça, et
+     surtout le filtre est un **réglage par widget** (`mesDossiers`) — la source doit donc servir
+     les lignes non filtrées. Débloqué le jour où la table portera **l'e-mail** du propriétaire ;
+     c'est déjà noté comme « la vraie solution » au-dessus d'`identWords`.
+   - **Fenêtrer `comKpi` sur les 24 derniers mois : NON, ça casserait un total.** `PODIUM_PERIODES`
+     contient **« Tout »**, qui agrège l'historique entier ; une fenêtre serveur rendrait ce choix
+     silencieusement faux — exactement le défaut que ce fichier passe son temps à prévenir. Idem
+     pour `parcAbo` / `parcPart`, qui sont des **compteurs de parc** : rien à y filtrer.
 10. ~~**`USE_MOCK` est encore à `true`**~~ **passé à `false` le 2026-08-04** : 6 des 7 sources
     lisent Airtable en direct. Reste `notifC`.
 11. ~~**Les menus ⋮ se referment au clic, sans exécuter l'action**~~ **corrigé le 2026-08-03.**

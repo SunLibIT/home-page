@@ -47,8 +47,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 
 1. **Héro** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée), **animé en boucle
    lente** via la Web Animations API, « Bienvenue {prénom} ! », date du jour, 1 chip
-   **« Notifications » sans compteur** (à implémenter), **sunburst SVG animé** à droite (le logo
-   rond distant, reconstruit pour pouvoir l'animer rayon par rayon).
+   **« Notifications » sans compteur** (à implémenter), un **chip de fraîcheur** cliquable
+   (« À jour · chiffres d'il y a 4 min » / « Actualisation… ») qui est le **seul bouton
+   Rafraîchir** de la page, **sunburst SVG animé** à droite (le logo rond distant, reconstruit
+   pour pouvoir l'animer rayon par rayon).
 2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
 3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
    grille qui reste visible). Cinq apps Vercel publiques embarquées : Calculette d'abonnement,
@@ -467,7 +469,7 @@ C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.
 l'espace garde ses adresses historiques (`/clients-list`).
 
 **✅ Plus aucune adresse manquante.** Outils externes, tous embarqués : Calculette d'abonnement
-(`sunlib-simulation-economique.vercel.app`), Map (`sunlib-carte-installateurs.vercel.app`), ERP
+(`calculette-abonnement.vercel.app`, **adresse changée le 2026-08-18**), Map (`sunlib-carte-installateurs.vercel.app`), ERP
 (`erp-sunlib.vercel.app`), Formulaire de contact (`formulairedecontact.vercel.app`), Bibliothèque
 (`documentation-interne.vercel.app`) — plus `simulateurGrille`
 (`simulateur-grille-v2.vercel.app`), présent au registre mais **masqué** côté tuile.
@@ -501,6 +503,24 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
   l'aperçu local ne peut pas le révéler (le mock rend tout d'un coup). Si « Calcul partiel »
   s'affiche alors que le parc fait moins de 4 000 dossiers, la taille de page est plus petite que
   prévu et il faut relever `COM_MAX_PAGES`.
+- **Recetter le cache d'instantanés** (2026-08-18, `Block.tsx` §6-ter — détail dans
+  `ARCHITECTURE.md` §4). Rien ne s'en voit en local : le mock rend tout d'un coup, donc aucun
+  instantané n'est jamais *servi*. Sur la page publiée, connecté :
+  1. **1re visite** : squelettes normaux, puis remplissage. Dans l'inspecteur
+     (Application → Local Storage), relever le **poids** des entrées `slb-home-snap:…` — c'est le
+     chiffre qui valide ou non `SNAP_MAX_CHARS = 900 000` (estimé, jamais mesuré en production).
+  2. **2e visite** (aller sur une autre page de l'espace, puis revenir) : la page doit être pleine
+     **immédiatement**, le chip afficher « Actualisation… », les widgets d'agrégat « Instantané ».
+  3. **Cliquer le chip** : vérifier dans l'onglet Réseau que des requêtes **repartent**. Si rien ne
+     part, le remontage par `key` ne suffit pas et c'est le `res.refetch?.()` de `useDrainPages`
+     qu'il faut reprendre.
+  4. **Contrôle de justesse** : comparer un agrégat servi depuis le cache, puis rafraîchi, avec le
+     bloc métier correspondant (dossiers SAV ouverts vs « Pilotage SAV »). Le cache ne doit jamais
+     figer un total partiel.
+  5. **Navigation privée** : la page doit fonctionner exactement comme avant, sans erreur console.
+- **Mener l'expérience `count`** (taille de page Softr) : `SOFTR_PAGE_SIZE` + `TRACE_PAGES` dans
+  `Block.tsx`, à côté de `COM_MAX_PAGES` — mode d'emploi dans le commentaire. C'est le levier de
+  performance le moins cher qui reste, et **il n'a jamais été testé**.
 
 ## 5. Règles Softr respectées
 
