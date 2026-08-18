@@ -332,7 +332,10 @@ function StyleInjector() {
       .slb-tabs::-webkit-scrollbar{ display:none; }
       .slb-row{ transition:background .15s ease; }
       .slb-row + .slb-row{ border-top:1px solid ${T.line}; }
-      .slb-row:hover{ background:${T.surface2}; }
+      /* La teinte d'un widget peut remplacer ce gris : la variable --slb-row-hover est
+         publiée par la carte teintée (§8). Le gris reste le défaut, listes sans teinte.
+         ⚠️ Pas de backtick dans ce commentaire : il vit DANS un template literal JS. */
+      .slb-row:hover{ background:var(--slb-row-hover, ${T.surface2}); }
       .slb-tab:hover{ color:${T.ink}; }
       .slb-nbtn{ transition:background .15s ease, color .15s ease; }
       .slb-nbtn:hover{ background:${T.neutral050} !important; color:${T.ink2} !important; }
@@ -459,7 +462,10 @@ type HoverRule = {
 const HOVER_RULES: HoverRule[] = [
   // Ligne de widget : fond au survol, et les actions de ligne apparaissent. `.slb-hact`
   // porte `opacity:0` EN LIGNE (sans quoi, feuille absente, elle serait toujours visible).
-  { sel: ".slb-row", trans: "background-color .15s ease", self: { "background-color": T.surface2 },
+  /* `var(--slb-row-hover, …)` et non la couleur en dur : une carte teintée publie sa propre
+     nuance (§8), et une valeur figée ici ramènerait du gris au milieu d'un widget coloré.
+     Le repli du `var()` garde le comportement d'origine partout ailleurs. */
+  { sel: ".slb-row", trans: "background-color .15s ease", self: { "background-color": `var(--slb-row-hover, ${T.surface2})` },
     kids: [{ sel: ".slb-hact", trans: "opacity .15s ease", on: { opacity: "1" } }] },
   { sel: ".slb-tab", trans: "color .16s ease", self: { color: T.ink } },
   { sel: ".slb-nbtn:not(.slb-nbtn-ok)", trans: "background-color .15s ease, color .15s ease",
@@ -2903,9 +2909,14 @@ const WidgetTitleCtx = createContext<string>("");
    restent modifiables d'un seul endroit le jour où la charte bouge ; et le document de
    disposition ne stocke pas de valeurs de style, donc rien à migrer.
 
-   La teinte habille l'EN-TÊTE et la pastille d'icône, pas le corps : sur un fond
-   coloré, une liste de statuts et de badges deviendrait un patchwork, et les couleurs
-   de sens (ambre « à compléter », rouge « panne ») perdraient leur force.
+   La teinte habille la CARTE — fond, bordure, encre du titre, pastille d'icône — et ce
+   qui, dans le corps, portait déjà une couleur de DÉCOR : le fond des lignes non vues et
+   le survol d'une ligne (`--slb-row-hover`, publiée par `Widget`). Ces deux-là suivaient
+   des couleurs figées, si bien qu'un widget rosé gardait des lignes teal et devenait gris
+   au passage de la souris — la teinte semblait ne pas s'appliquer.
+   Ce qu'elle ne touche PAS : les couleurs de SENS (badges de statut, alertes ambre ou
+   rouges) et les contenus délibérément blancs (tuiles de la synthèse SAV, zone de saisie
+   du pense-bête), qui ressortent alors comme des cartes posées dessus.
 
    ⚠️ AUCUN ROUGE, ni orange vif, dans cette palette. Ce sont les couleurs d'ALERTE de
    la charte : les proposer comme décor apprendrait à l'œil à les ignorer là où elles
@@ -3411,8 +3422,15 @@ function Widget({
      qui doivent garder leur force partout. La pastille `solar` d'un outil solaire
      l'emporte aussi sur la teinte : c'est un marqueur, pas une décoration. */
   const tint = tintOf(useContext(WidgetTintCtx));
+  /* `--slb-row-hover` : la nuance que prend une LIGNE au survol dans ce widget. Elle est
+     publiée ici, en variable CSS héritée, parce que le survol est posé ailleurs — feuille
+     §2 et moteur JS §2-bis — et que ni l'un ni l'autre ne connaît la teinte de l'instance.
+     Sans elle, survoler une ligne d'un widget rosé la repeignait en GRIS : la teinte
+     s'arrêtait au premier mouvement de souris. Le cast couvre les propriétés
+     personnalisées, que `CSSProperties` ne décrit pas. */
   const cardStyle: CSSProperties = tint.head
-    ? { ...CARD, backgroundColor: tint.head, border: `1px solid ${tint.pill || T.line}` }
+    ? { ...CARD, backgroundColor: tint.head, border: `1px solid ${tint.pill || T.line}`,
+        ...({ "--slb-row-hover": tint.pill || T.surface2 } as CSSProperties) }
     : CARD;
   const headStyle: CSSProperties = tint.head
     ? { ...WHEAD, borderBottom: `1px solid ${tint.pill || T.line}` }
@@ -4012,6 +4030,8 @@ function NotifsOptions({ cfg, onChange }: { cfg: NotifsCfg; onChange: (next: Not
 }
 
 function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: () => void; onOpen?: () => void }) {
+  // Teinte de l'instance : elle décide du fond des lignes non vues (voir plus bas).
+  const tint = tintOf(useContext(WidgetTintCtx));
   /* Titre : le nom de l'abonné ; à défaut le texte de l'événement, qui le contient
      souvent (« Nouveau abonné créé pour : Prénom Nom »). Les deux peuvent manquer sur
      une ligne mal rattachée — d'où le tiret cadratin plutôt qu'un vide. */
@@ -4033,9 +4053,17 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
     <div className="slb-row" {...clicProps}
       style={{ display: "flex", alignItems: "center", gap: "11px", padding: "11px 16px",
       cursor: onOpen ? "pointer" : undefined,
-      // Fond très légèrement teinté pour un dossier non vu — la pastille porte le sens,
-      // ceci n'est qu'un repère de balayage (la couleur ne dit jamais seule, charte).
-      background: cfg.marquage && nonLu ? T.brand050 : undefined }}>
+      /* Fond très légèrement teinté pour un dossier non vu — la pastille porte le sens,
+         ceci n'est qu'un repère de balayage (la couleur ne dit jamais seule, charte).
+         ⚠️ 2026-08-18 — IL SUIT LA TEINTE DU WIDGET. C'était `T.brand050` en dur, donc un
+         teal pâle qui restait teal quand la carte passait au rosé ou à la lavande : comme
+         cette liste ne contient QUE des lignes non vues, c'étaient TOUTES les lignes qui
+         ignoraient la couleur choisie. On prend la nuance soutenue de la teinte
+         (`tint.pill`, un cran au-dessus du fond de carte `tint.head`), et le teal d'origine
+         seulement en l'absence de teinte.
+         `backgroundColor` et non `background` : le moteur de survol (§2-bis) mémorise des
+         LONGHANDS, et un raccourci lui ferait effacer ce fond en sortant de la ligne. */
+      backgroundColor: cfg.marquage && nonLu ? (tint.head ? tint.pill || T.brand050 : T.brand050) : undefined }}>
       <Monogram name={title} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
@@ -4344,14 +4372,16 @@ function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires,
   ];
   const total = tab === "prospects" ? totalProspects - clos(prospects) : totalPartenaires - clos(partenaires);
   return (
+    /* ⚠️ PAS DE BOUTON « + » DANS L'EN-TÊTE (retiré le 2026-08-18, demandé). C'était un
+       `headActions` porteur d'un TODO : un bouton « Nouvelle tâche » qui n'ouvrait rien et
+       n'écrivait rien. Un geste inerte dans un en-tête coûte plus qu'il n'annonce — on le
+       clique, il ne se passe rien, et le widget passe pour cassé.
+       Le jour où la création de tâche est branchée, le chemin existe déjà et il est
+       générique : `create` sur le descripteur de source (§6-bis) fait apparaître le `+` de
+       `QuickCreate` tout seul, avec son formulaire — voir « Dossiers SAV ». Ne pas recoller
+       un bouton en dur ici. */
     <Widget icon={CalendarClock} title="Journal des tâches"
-      sub={mineAsked && identifiee ? "Mes tâches · prospects & partenaires" : "Prospects & partenaires"}
-      headActions={
-        // TODO : brancher la création de tâche
-        <button className="slb-nbtn" style={NBTN_SM} aria-label="Nouvelle tâche" title="Nouvelle tâche">
-          <Plus aria-hidden style={{ width: 15, height: 15 }} />
-        </button>
-      }>
+      sub={mineAsked && identifiee ? "Mes tâches · prospects & partenaires" : "Prospects & partenaires"}>
       {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le dit, au lieu de servir en silence
           les tâches de toute l'équipe sous un titre qui annonce les siennes. */}
       {mineAsked && !identifiee && (

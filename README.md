@@ -105,7 +105,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      `Fait` décoché **et** `Assignee` = personne connectée (sauté, et annoncé, si la session
      n'est pas identifiable). Chaque ligne porte un bouton **« Marquer comme faite »** qui
      écrit en base : la ligne part aussitôt, revient avec un message si l'écriture échoue,
-     et les pastilles suivent.
+     et les pastilles suivent. **⚠️ Plus de bouton « + » dans l'en-tête (retiré le
+     2026-08-18)** : il portait un TODO et n'ouvrait rien. Quand la création de tâche sera
+     branchée, elle passera par `create` sur le descripteur de source — le `+` de
+     `QuickCreate` et son formulaire apparaissent alors seuls, comme sur « Dossiers SAV ».
    - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques) —
      filtrées sur **leur propriétaire SunLib** depuis le 2026-08-07 (§4, ⚠️ deux prérequis
      Softr).
@@ -208,6 +211,18 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    (teal, vert, ambre) et 4 pastels, plus « Aucune ». Vider le titre rend celui d'origine ;
    « Aucune » rend la carte blanche. *(Ni rouge ni orange vif dans la palette : ce sont les couleurs d'alerte de la charte, et
    les banaliser en décor les affaiblirait là où elles comptent.)*
+
+   > 🐛 **Corrigé le 2026-08-18 — la teinte s'arrêtait aux lignes.** Sur « Nouveaux dossiers
+   > abonnés », changer la couleur repeignait la carte mais **pas les lignes** : leur fond
+   > « non vu » était `T.brand050` **en dur**, un teal qui restait teal sur un widget rosé — et
+   > comme cette liste ne contient que des lignes non vues, c'étaient **toutes** les lignes.
+   > Elles prennent maintenant la nuance soutenue de la teinte (`tint.pill`). Même cause pour
+   > le **survol** d'une ligne, qui ramenait du gris au milieu d'un widget coloré : il passe par
+   > `--slb-row-hover`, une variable CSS publiée par la carte teintée et lue par la feuille §2
+   > **comme par** le moteur de survol §2-bis — sans elle, ni l'un ni l'autre ne connaît la
+   > teinte de l'instance. Le gris reste le défaut des listes sans teinte.
+   > Ce que la teinte continue de **ne pas** toucher : les couleurs de **sens** (badges, alertes)
+   > et les contenus délibérément blancs (tuiles de la synthèse SAV, saisie du pense-bête).
 
    **Ajouter un widget** se fait depuis une **galerie en feuille modale** : recherche, filtres
    par famille, et une **miniature** par modèle qui montre sa forme avant de le poser. Toute la
