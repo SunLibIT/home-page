@@ -1140,6 +1140,13 @@ dans `Block.tsx` détaille les deux précautions à prendre (sens de case invers
   (Calculette d'abonnement, Tik&Lib, et You Sign dont l'URL manque encore). « Services Sellsy » a
   été **retiré** le 2026-08-04. Les adresses elles-mêmes sont dans le registre ci-dessous.
 
+  > ⚠️ **Périmé depuis** : les outils ont leur propre onglet (`OUTILS`) et `QUICK_LINKS` ne
+  > garde que les pages de l'espace. **You Sign et Tik&Lib ont été retirés le 2026-08-18**,
+  > adresses comprises ; **Map** (`sunlib-carte-installateurs.vercel.app`) et **ERP**
+  > (`erp-sunlib.vercel.app`) les remplacent, embarqués. Sont **masqués** (champ `hidden`,
+  > l'entrée et son adresse restent au registre) : **Simulateur Grille** dans les Outils et
+  > **Contact Partenaire** dans les Raccourcis. Le README est la référence à jour.
+
 ### Les adresses — un registre unique en tête de fichier (§0-bis)
 
 **Aucune URL n'est écrite ailleurs.** `PAGES` (slugs des pages de l'espace) et `TOOLS` (outils

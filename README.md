@@ -51,11 +51,16 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    rond distant, reconstruit pour pouvoir l'animer rayon par rayon).
 2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
 3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
-   grille qui reste visible), sauf **You Sign** qui part dans un nouvel onglet — app à login qui
-   refuse l'iframing. Cinq apps Vercel publiques embarquées : Simulateur Grille, Calculette
-   d'abonnement, Tik&Lib, Formulaire de contact, Bibliothèque.
+   grille qui reste visible). Cinq apps Vercel publiques embarquées : Calculette d'abonnement,
+   **Map** (carte des installateurs), **ERP**, Formulaire de contact, Bibliothèque.
+   **You Sign et Tik&Lib ont été retirés le 2026-08-18**, adresses comprises ; **Simulateur
+   Grille** est **masqué** (`hidden`) — l'entrée et son adresse restent au registre, seul
+   l'affichage est suspendu. Le départ en **nouvel onglet** (`url`) n'est plus utilisé par
+   aucune entrée mais reste supporté : une app à login refuse l'iframing et n'aurait qu'un
+   cadre blanc, elle devra passer par là.
 4. **Raccourcis** (onglet Accueil) — tuiles vers les pages de l'espace en `target="_top"`. Cette
-   section s'appelait « Outils » avant que les outils aient leur onglet.
+   section s'appelait « Outils » avant que les outils aient leur onglet. **Contact Partenaire est
+   masqué depuis le 2026-08-18** (même convention `hidden` : le slug reste au registre).
 5. **Tableau de bord** (onglet Accueil) — grille de widgets **indépendants, redimensionnables et
    déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui).
    **Hauteur en PIXELS, rabattue sur le contenu (2026-08-07)** : la hauteur d'un widget est
@@ -117,7 +122,19 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      défilement. Le geste s'écrit **une seule fois, au relâchement**. ⚠️ Le retrait est
      **écrit immédiatement** (pas de brouillon), d'où sa confirmation et le toast. La mention « Rien n'est appliqué avant
      Enregistrer » a été retirée du pied : deux boutons nommés « Annuler » et
-     « Enregistrer » le disent déjà. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
+     « Enregistrer » le disent déjà.
+     **2026-08-18 — la confirmation de retrait occupe désormais tout le pied** : « Annuler » et
+     « Enregistrer » s'effacent tant que la question est posée et reviennent à « Non ». Deux
+     sorties contradictoires ne sont plus offertes en même temps, et « Retirer / Non » tombe à
+     la place exacte des boutons masqués.
+     **⚠️ 2026-08-18 — la modale ne déplace plus son widget.** Elle est un descendant DOM de
+     l'en-tête, qui est la zone de préhension `draggable` ; `draggable` étant hérité par tout
+     le sous-arbre, un glissement amorcé dans la modale déplaçait la carte derrière le fond
+     flouté. La garde qui existait lisait `e.target` de `dragstart`, or cette cible est la
+     **source du glissement** — l'en-tête lui-même — jamais l'élément profond : elle ne pouvait
+     rien filtrer. L'origine du geste est donc mémorisée au `pointerdown` **en capture**, et
+     `onDragStart` décide sur elle. Un `data-slb-nodrag` sur le fond de la modale couvre ce
+     qu'aucun rôle ARIA ne désigne. Pas de portail : `react-dom` n'est pas importable ici. Le **choix de la vue** (liste / tableau / indicateur) a été **retiré** : la forme
      est décidée à la pose par le modèle de la galerie et ne change plus — un indicateur
      reste un indicateur. Pour une autre forme, on pose un autre widget.
    - **Tous les installateurs** (2026-08-06) — le classement du bloc KPI, en version resserrée :
@@ -195,6 +212,13 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    **Ajouter un widget** se fait depuis une **galerie en feuille modale** : recherche, filtres
    par famille, et une **miniature** par modèle qui montre sa forme avant de le poser. Toute la
    disposition — titres et couleurs compris — est **persistée par utilisateur**.
+
+   **2026-08-18 — le modèle « Dossiers du mois (indicateur) » a été retiré de la galerie** : il
+   comptait sur **30 jours glissants** (`creeLe`) sous un titre qui annonçait « du mois ».
+   Il est **masqué** (`hidden` sur son `PresetDesc`), pas effacé : la clé d'un preset est
+   `"<source>:<index de déclaration>"`, donc supprimer la ligne décalerait les presets suivants
+   et les widgets déjà posés pointeraient vers un autre modèle. ⚠️ Une instance **déjà posée**
+   continue de s'afficher (sa cfg est autoportante) — elle se retire au ⋮ du widget.
 
    **⚠️ 2026-08-07 — le mode « Personnaliser » a été SUPPRIMÉ.** La barre du tableau de bord ne
    porte plus qu'un bouton, **« Ajouter un widget »** ; « Réinitialiser », « Annuler » et
@@ -420,26 +444,31 @@ l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en p
 | `abonnes` | `abonn-s` | liste des abonnés |
 | `partenaires` | `clients-list` | ⚠️ le slug ne suit pas le vocabulaire du CRM |
 | `prospects` | `tous-les-prospects` | ⚠️ idem |
-| `contactPartenaire` | `contact-partenaire` | |
+| `contactPartenaire` | `contact-partenaire` | ⚠️ raccourci **masqué** le 2026-08-18 (slug conservé) |
 | `sav` | `sav` | Pilotage SAV |
 | `kpi` | `dashboard-kpi` | Tableau de bord KPI |
 
 C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.partenaires`) là où
 l'espace garde ses adresses historiques (`/clients-list`).
 
-**✅ Plus aucune adresse manquante.** Outils externes : You Sign (`yousign.app`), Calculette
-d'abonnement (`sunlib-simulation-economique.vercel.app`), Tik&Lib (`ticketing2-six.vercel.app`).
-« Services Sellsy » a été **retiré** des Outils le 2026-08-04.
+**✅ Plus aucune adresse manquante.** Outils externes, tous embarqués : Calculette d'abonnement
+(`sunlib-simulation-economique.vercel.app`), Map (`sunlib-carte-installateurs.vercel.app`), ERP
+(`erp-sunlib.vercel.app`), Formulaire de contact (`formulairedecontact.vercel.app`), Bibliothèque
+(`documentation-interne.vercel.app`) — plus `simulateurGrille`
+(`simulateur-grille-v2.vercel.app`), présent au registre mais **masqué** côté tuile.
+« Services Sellsy » a été **retiré** des Outils le 2026-08-04 ; **You Sign et Tik&Lib le
+2026-08-18**, leurs adresses supprimées du registre.
 
 Le mécanisme de repli reste en place pour la suite : une entrée vide est un **choix explicite**, la
 tuile s'affiche alors **désactivée** (mention « bientôt ») au lieu de promettre un clic qui ne mène
 nulle part.
 
 ⚠️ **Ne jamais coller dans ce registre une URL copiée depuis une barre d'adresse en cours de
-session.** Celle de You Sign avait été fournie sous la forme d'une page de connexion Auth0 portant
-un jeton (`auth.yousign.app/u/login/identifier?state=…`) : ces paramètres expirent, et le lien
-aurait mené à une erreur d'authentification. C'est la **racine** de l'app qui est enregistrée —
-elle redirige d'elle-même vers le login, et ne périme pas.
+session.** La règle vient de You Sign (retiré depuis) : son adresse avait été fournie sous la forme
+d'une page de connexion Auth0 portant un jeton
+(`auth.yousign.app/u/login/identifier?state=…`) — ces paramètres expirent, et le lien aurait mené
+à une erreur d'authentification. C'est toujours la **racine** d'une app qu'on enregistre : elle
+redirige d'elle-même vers le login, et ne périme pas.
 
 **Trois cibles, trois comportements** — et c'est le type de l'entrée qui décide, jamais le
 composant : une entrée de `PAGES` ouvre en **`_top`** (page de l'espace, on quitte l'accueil), une

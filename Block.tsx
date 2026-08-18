@@ -9,8 +9,8 @@
    teal, sticky au scroll) → contenu de l'onglet actif.
    Deux onglets : « Accueil » = raccourcis vers les pages de l'espace + TABLEAU DE BORD
    (widgets indépendants et compacts, scrollables individuellement, dont les deux feeds
-   LinkedIn) ; « Outils » = une grille de boutons qui ouvre chaque outil IN PAGE, sauf
-   You Sign (nouvel onglet, cf. `OUTILS`).
+   LinkedIn) ; « Outils » = une grille de boutons qui ouvre chaque outil IN PAGE (le
+   départ en nouvel onglet reste prévu pour une app non iframable, cf. `OUTILS`).
 
    Primitives (T, StyleInjector, Badge, TabBar, cartes) copiées du kit visuel
    de référence (partenaire-detail-inpage / abo-detail-inpage) — NE PAS les
@@ -83,6 +83,9 @@ import {
   // ⚠️ `Filter` est renommé : le fichier a déjà un TYPE `Filter` (§9-bis, les filtres
   //    d'une cfg). Importer l'icône sous son nom d'origine masquerait le type.
   Wrench, ExternalLink, Search, Filter as FilterIcon,
+  // ⚠️ `Map` est renommée : le nom `Map` est celui du constructeur natif JS, utilisé
+  //    ailleurs dans le fichier. L'importer tel quel le masquerait dans tout le module.
+  Map as MapIcon, Boxes,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -167,18 +170,8 @@ const PAGES = {
  *  confirmer en ouvrant une fiche depuis l'app et en lisant son URL. */
 const PAGE_RECORD_PARAM = "recordId";
 
-/** Outils externes (nouvel onglet). Même règle : "" = adresse inconnue → tuile inerte. */
+/** Outils externes. Même règle : "" = adresse inconnue → tuile inerte. */
 const TOOLS = {
-  /* You Sign — signature électronique.
-     ⚠️ C'est la RACINE de l'app, et c'est délibéré. L'URL fournie le 2026-08-04 était
-     une page de connexion Auth0 portant un JETON DE SESSION
-     (`auth.yousign.app/u/login/identifier?state=…&tid=…&cid=…`) : ces paramètres
-     expirent, donc figée dans un lien permanent elle aurait envoyé tout le monde sur
-     une erreur d'authentification au bout de quelques minutes. La racine redirige
-     d'elle-même vers ce même écran de connexion, puis vers le tableau de bord — et
-     elle ne périme pas. Règle générale pour ce registre : ne jamais y coller une URL
-     copiée depuis une barre d'adresse en cours de session. */
-  youSign: "https://yousign.app/",
   /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE, donc
      EMBARQUÉE depuis le 2026-08-05 : elle s'ouvre in-page dans l'onglet « Outils ». */
   calculette: "https://sunlib-simulation-economique.vercel.app/",
@@ -186,17 +179,32 @@ const TOOLS = {
      2026-08-04 (demande explicite). La remettre = une entrée ici + une dans
      QUICK_LINKS (§7) ; l'icône `Briefcase` est toujours importée, elle sert à la map
      ICONS. */
-  /* Tik&Lib — le ticketing (fourni le 2026-08-04). App Vercel PUBLIQUE, EMBARQUÉE
-     depuis le 2026-08-05 comme la calculette. */
-  tikLib: "https://ticketing2-six.vercel.app/",
+  /* Plus d'entrées « You Sign » ni « Tik&Lib » : les deux tuiles ont été RETIRÉES des
+     Outils le 2026-08-18 (demande explicite), et leurs adresses avec elles. Pour
+     mémoire si l'une revenait : Tik&Lib (`ticketing2-six.vercel.app`) était une app
+     Vercel PUBLIQUE donc embarquable (`embed`) ; You Sign non — app à login derrière
+     Auth0, qui refuse l'iframing (X-Frame-Options / CSP frame-ancestors) et n'aurait
+     rendu qu'un cadre blanc, d'où son `url` en nouvel onglet vers la RACINE
+     `yousign.app`. Et ne jamais recoller pour elle l'URL copiée en cours de session
+     (`auth.yousign.app/u/login/identifier?state=…&tid=…&cid=…`) : ces paramètres
+     expirent, là où la racine redirige d'elle-même vers l'écran de connexion sans
+     périmer. */
   /* Les autres apps Vercel PUBLIQUES embarquées en iframe (§7). Toutes les entrées de
-     ce registre sauf `youSign` sont désormais des sources d'iframe et non des liens :
-     c'est `OUTILS` (§7) qui tranche, via `embed` ou `url`.
+     ce registre sont désormais des sources d'iframe et non des liens : c'est `OUTILS`
+     (§7) qui tranche, via `embed` ou `url`.
      ⚠️ On ne navigue JAMAIS l'iframe DU BLOC lui-même, qui ferait disparaître le CRM
      autour : un outil s'affiche dans SA propre iframe, ou dans un nouvel onglet. */
   formulaireContact: "https://formulairedecontact.vercel.app/",
+  /* ⚠️ `simulateurGrille` reste ici alors que sa tuile est MASQUÉE (`hidden` dans
+     `OUTILS`, §7) : l'adresse est bonne, c'est l'affichage qui est suspendu. Ne pas la
+     supprimer — la rendre visible se fait en retirant le `hidden`, pas en recollant
+     une URL. */
   simulateurGrille: "https://simulateur-grille-v2.vercel.app/",
   bibliotheque: "https://documentation-interne.vercel.app/",
+  /* Carte des installateurs et ERP (fournis le 2026-08-18). Apps Vercel PUBLIQUES,
+     donc EMBARQUÉES comme les autres. */
+  carteInstallateurs: "https://sunlib-carte-installateurs.vercel.app/",
+  erp: "https://erp-sunlib.vercel.app/",
 } as const;
 
 function topOrigin(): string {
@@ -1683,7 +1691,17 @@ type CreateFormDesc = {
    partielle : elle est passée par `coerceCfg` à la pose, donc les manques sont
    comblés par le descripteur. Elle est COPIÉE dans l'instance (jamais référencée) :
    l'instance est autoportante et survit aux évolutions du catalogue. */
-type PresetDesc = { label: string; icon?: string; h?: WidgetHeight; cfg: Record<string, unknown> };
+type PresetDesc = {
+  label: string; icon?: string; h?: WidgetHeight; cfg: Record<string, unknown>;
+  /** `true` = modèle RETIRÉ de la galerie : plus posable, mais toujours DÉCLARÉ ici.
+   *  ⚠️ Ne jamais supprimer la ligne d'un preset qu'on retire, la masquer. La clé de
+   *  galerie est `"<source>:<index dans ce tableau>"` (cf. `presetsOf`), donc effacer une
+   *  entrée décale toutes les suivantes : les widgets déjà posés depuis les presets
+   *  d'après pointeraient vers un AUTRE modèle, et la galerie griserait le mauvais
+   *  (« un seul exemplaire par modèle » se tromperait de modèle). `hidden` garde l'index
+   *  et rend le geste réversible. */
+  hidden?: boolean;
+};
 
 type SourceDesc = {
   key: SourceKey;
@@ -1819,7 +1837,16 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       { label: "Dossiers incomplets", icon: "ClipboardList",
         cfg: { title: "Dossiers incomplets",
                query: { filter: [{ field: "statut", op: "contains", value: "incomplet" }] } } },
-      { label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: 168,
+      /* RETIRÉ DE LA GALERIE le 2026-08-18 (demandé : « ne fonctionne pas très bien »).
+         L'indicateur comptait les dossiers sur 30 JOURS GLISSANTS via `creeLe` alors que
+         son titre annonçait « du mois » — deux périmètres différents sous un seul libellé,
+         et un écart de période calculé sur une fenêtre que personne ne lisait comme telle.
+         Masqué, pas effacé : la ligne tient l'index 1 des presets d'`abonnes`, dont dépend
+         la clé « abonnes:2 » du tableau qui suit (cf. `hidden` sur `PresetDesc`).
+         ⚠️ Une instance DÉJÀ POSÉE sur un accueil continue de s'afficher : sa cfg est
+         autoportante et `coerceCfg` lit toujours `view.kind: "kpi"`. Elle se retire au ⋮
+         du widget, pas ici. */
+      { label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: 168, hidden: true,
         cfg: { title: "Dossiers du mois",
                view: { kind: "kpi", agg: "count", dateField: "creeLe", compareDays: 30 } } },
       { label: "Tableau des dossiers", icon: "LayoutGrid",
@@ -2538,52 +2565,77 @@ const NAV_TABS: NavTab[] = [
    un NOUVEL ONGLET. Les deux sont EXCLUSIFS et c'est `embed` qui décide : une entrée
    qui porterait les deux ignorerait `url`.
 
-   ⚠️ Pourquoi You Sign fait exception et n'est PAS embarqué : c'est une app à LOGIN,
-   servie derrière Auth0, et elle refuse l'iframing (X-Frame-Options / CSP
-   frame-ancestors). Embarquée, elle ne rendrait qu'un cadre blanc. Les cinq autres
-   sont des apps Vercel PUBLIQUES, sans login, donc iframables — c'est la seule
-   raison de la différence, pas une préférence d'ergonomie.
+   ⚠️ Les outils affichés sont tous `embed` : ce sont des apps Vercel PUBLIQUES,
+   sans login, donc iframables. `url` n'est plus employé par aucune entrée depuis le
+   retrait de You Sign (2026-08-18) mais reste SUPPORTÉ, et c'est délibéré : une app à
+   login (servie derrière un Auth0 ou équivalent) refuse l'iframing (X-Frame-Options /
+   CSP frame-ancestors) et ne rendrait qu'un cadre blanc — elle devra passer par `url`.
+   C'est la seule raison de la distinction, pas une préférence d'ergonomie.
 
    Les adresses viennent de §0-bis : "" signifie « pas encore d'adresse » → le bouton
    reste visible mais inerte, comme les tuiles de `QUICK_LINKS`. */
 type Outil = {
   id: string; label: string; icon: LucideIcon; desc: string;
   embed?: string; url?: string; solar?: boolean;
+  /** `true` = tuile MASQUÉE : l'entrée reste dans le registre (adresse, libellé, icône
+   *  conservés) mais ne s'affiche pas et ne peut pas s'ouvrir. C'est le geste réversible
+   *  pour retirer temporairement un outil de la grille — préférable à la suppression,
+   *  qui perd l'adresse. La remettre = enlever ce seul champ. */
+  hidden?: boolean;
 };
 const OUTILS: Outil[] = [
+  /* MASQUÉ le 2026-08-18 (demande explicite) : l'entrée et son adresse sont intactes,
+     seul l'affichage est suspendu. Retirer `hidden` la remet dans la grille. */
   { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid,
-    desc: "Grille tarifaire et scénarios d'abonnement.", embed: TOOLS.simulateurGrille },
+    desc: "Grille tarifaire et scénarios d'abonnement.", embed: TOOLS.simulateurGrille,
+    hidden: true },
   { id: "calculette", label: "Calculette d'abonnement", icon: Calculator,
     desc: "Simulation économique d'un projet.", embed: TOOLS.calculette, solar: true },
-  { id: "tiklib", label: "Tik&Lib", icon: Ticket,
-    desc: "Le ticketing interne.", embed: TOOLS.tikLib },
-  { id: "yousign", label: "You Sign", icon: FileSignature,
-    desc: "Signature électronique des contrats.", url: TOOLS.youSign },
+  { id: "map", label: "Map", icon: MapIcon,
+    desc: "Carte des installateurs.", embed: TOOLS.carteInstallateurs },
+  { id: "erp", label: "ERP", icon: Boxes,
+    desc: "Gestion interne SunLib.", embed: TOOLS.erp },
   { id: "formulaire", label: "Formulaire de contact", icon: Mail,
     desc: "Déposer une demande de contact.", embed: TOOLS.formulaireContact },
   { id: "bibliotheque", label: "Bibliothèque", icon: Library,
     desc: "Documents et supports internes.", embed: TOOLS.bibliotheque },
 ];
 
+/** Les outils réellement affichés. `OUTILS` garde TOUT (y compris les masqués) pour que
+ *  démasquer soit un mot-clé à retirer ; c'est cette liste que la grille parcourt, et
+ *  c'est aussi elle qui résout l'outil ouvert — sinon un `openId` pointant sur une
+ *  entrée fraîchement masquée resterait embarqué sous une grille qui ne le montre plus. */
+const OUTILS_VISIBLES: Outil[] = OUTILS.filter((o) => !o.hidden);
+
 /* Outils. UNE tuile = soit `page` (page de l'espace, ouverte en _top et résolue par
    `pageUrl`), soit `url` (outil externe, nouvel onglet). Les deux valeurs viennent de
    §0-bis, et une chaîne vide y signifie « pas encore d'adresse » → tuile désactivée.
    ⚠️ `page` et `url` sont exclusifs : c'est `page !== undefined` qui décide de la
-   cible, donc une entrée qui porterait les deux ignorerait `url` en silence. */
-const QUICK_LINKS: { label: string; icon: LucideIcon; page?: string; url?: string; solar?: boolean }[] = [
+   cible, donc une entrée qui porterait les deux ignorerait `url` en silence.
+
+   `hidden` = même convention que `OUTILS` : la tuile reste DÉCRITE ici (libellé, icône,
+   slug) mais ne s'affiche pas. C'est le geste réversible pour retirer un raccourci de
+   l'accueil sans perdre son slug ; la remettre = enlever ce seul champ. */
+const QUICK_LINKS: { label: string; icon: LucideIcon; page?: string; url?: string; solar?: boolean; hidden?: boolean }[] = [
   // Pages de l'espace Softr (ex-onglets de nav) restaurées en raccourcis (target _top).
   { label: "Prospects", icon: UserPlus, page: PAGES.prospects },
   { label: "Partenaires", icon: Handshake, page: PAGES.partenaires },
-  { label: "Contact Partenaire", icon: BookUser, page: PAGES.contactPartenaire },
+  /* MASQUÉ le 2026-08-18 (demande explicite) : le slug `contact-partenaire` reste bon,
+     seul l'affichage du raccourci est suspendu. */
+  { label: "Contact Partenaire", icon: BookUser, page: PAGES.contactPartenaire, hidden: true },
   { label: "Abonnés", icon: Users, page: PAGES.abonnes },
   { label: "Pilotage SAV", icon: Ticket, page: PAGES.sav },
   { label: "KPI", icon: BarChart3, page: PAGES.kpi },
-  /* ⚠️ PLUS AUCUN OUTIL ICI : You Sign, la Calculette, Tik&Lib, le Simulateur, le
-     Formulaire de contact et la Bibliothèque sont regroupés dans l'onglet « Outils »
-     (`OUTILS`). Cette section ne garde que les PAGES de l'espace Softr, d'où son
-     titre « Raccourcis ». Ne pas redédoubler un outil ici : deux chemins vers la même
-     app finissent toujours par divulguer deux adresses différentes. */
+  /* ⚠️ PLUS AUCUN OUTIL ICI : la Calculette, Map, l'ERP, le Formulaire de contact, la
+     Bibliothèque et le Simulateur sont regroupés dans l'onglet « Outils » (`OUTILS`).
+     Cette section ne garde que les PAGES de l'espace Softr, d'où son titre
+     « Raccourcis ». Ne pas redédoubler un outil ici : deux chemins vers la même app
+     finissent toujours par divulguer deux adresses différentes. */
 ];
+
+/** Les raccourcis réellement affichés — cf. `hidden` ci-dessus. C'est cette liste que
+ *  la grille parcourt ; `QUICK_LINKS` garde tout, masqués compris. */
+const QUICK_LINKS_VISIBLES = QUICK_LINKS.filter((l) => !l.hidden);
 
 /* ============================================================================
    8. Composants de page
@@ -2908,10 +2960,30 @@ const WidgetCfgCtx = createContext<WidgetCfgWriter | null>(null);
    et le bouton ⋮ : rien à y perdre. C'est aussi la convention (fenêtres, cartes).
 
    L'image de glissement est forcée sur la CARTE ENTIÈRE (`setDragImage`), sinon le
-   navigateur ne montrerait que le bandeau de l'en-tête. --- */
+   navigateur ne montrerait que le bandeau de l'en-tête.
+
+   ⚠️⚠️ 2026-08-18 — POURQUOI `onPointerDownCapture` ET PAS `e.target` DE `dragstart`.
+   L'en-tête contient des panneaux flottants : la MODALE de réglages (`WidgetOptionsMenu`,
+   `position: fixed`, plein écran) et les panneaux ancrés du ⋮ ou de `QuickCreate`. Comme
+   `draggable` est HÉRITÉ par tout le sous-arbre, un glissement amorcé N'IMPORTE OÙ dans
+   la modale démarrait un déplacement du widget derrière elle — carte fantôme qui suit le
+   curseur, cible de dépôt qui s'allume sous le fond flouté. C'est le bug signalé.
+   La garde qui existait déjà lisait `e.target` de `dragstart`, et c'est là qu'elle
+   échouait : pour un `dragstart`, la cible est la SOURCE DU GLISSEMENT — l'élément
+   `draggable`, donc l'en-tête lui-même — et jamais l'élément profond sous le curseur.
+   Un `closest("[role=dialog]")` dessus ne pouvait rien trouver.
+   On mémorise donc la vraie origine du geste au `pointerdown` (en phase de CAPTURE, pour
+   passer avant tout `stopPropagation` d'un panneau), et `onDragStart` décide sur elle.
+   `pointerdown` précède toujours `dragstart`, l'ordre est garanti.
+   ⚠️ Ne pas « simplifier » en `draggable={false}` sur la modale : l'attribut n'arrête pas
+   la recherche d'ancêtre glissable, le navigateur remonte jusqu'à l'en-tête et glisse
+   quand même. Et pas de portail non plus : `react-dom` n'est pas importable dans un bloc
+   Softr (cf. ARCHITECTURE.md). --- */
 type WidgetGrab = {
   onDragStart: (e: ReactDragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
+  /** Mémorise l'élément réellement pressé, seule cible fiable pour `onDragStart`. */
+  onPointerDownCapture: (e: ReactPointerEvent<HTMLElement>) => void;
 };
 const WidgetGrabCtx = createContext<WidgetGrab | null>(null);
 
@@ -3127,7 +3199,13 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
         <MoreVertical aria-hidden style={{ width: 15, height: 15 }} />
       </button>
       {open && (
-        <div role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
+        /* `data-slb-nodrag` : cette modale est un DESCENDANT de l'en-tête glissable du
+           widget (pas de portail possible, `react-dom` n'est pas importable), donc sans ce
+           marqueur un glissement parti d'ici déplacerait le widget derrière le fond flouté
+           — cf. la note de `WidgetGrab`. Il est porté par le FOND, donc il couvre aussi la
+           boîte : `closest` remonte. */
+        <div role="presentation" data-slb-nodrag
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
           style={{
             position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center",
             padding: "20px", background: "rgba(16,26,40,.30)", backdropFilter: "blur(7px)",
@@ -3232,14 +3310,29 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
 
             {/* Pied fixe : le geste d'engagement reste toujours visible.
                 À GAUCHE le retrait, à DROITE l'enregistrement — jamais côte à côte : ce
-                sont les deux gestes qu'il ne faut pas confondre du bout de la souris. */}
+                sont les deux gestes qu'il ne faut pas confondre du bout de la souris.
+
+                ⚠️ 2026-08-18 — LA CONFIRMATION DE RETRAIT PREND TOUT LE PIED : « Annuler »
+                et « Enregistrer » DISPARAISSENT tant qu'elle est posée, et reviennent dès
+                qu'on répond « Non ». Deux raisons, la seconde étant la vraie :
+                  · la question s'étale au lieu de se comprimer contre trois autres boutons ;
+                  · surtout, on ne propose plus DEUX sorties contradictoires à la fois.
+                    « Retirer / Non » et « Annuler / Enregistrer » côte à côte, c'était
+                    quatre boutons pour deux décisions imbriquées — et « Enregistrer »
+                    pendant qu'on demande « retirer ce widget ? » n'a aucun sens.
+                Le retrait reste le seul geste NON brouillonné de cette modale (il écrit
+                aussitôt), ce qui justifie qu'il capte le pied à lui seul le temps de la
+                question. */}
             <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "12px 18px", borderTop: `1px solid ${T.line}`, flex: "none" }}>
               {opts.onRemove && (
                 confirmRemove ? (
                   <span style={{ display: "inline-flex", alignItems: "center", gap: "7px", flex: "1 1 auto", minWidth: 0 }}>
                     {/* Le libellé de confirmation dit ce qui est PERDU. « Êtes-vous sûr ? »
-                        n'aide personne à décider ; « les réglages sont perdus » si. */}
-                    <span style={{ fontSize: "11.5px", fontWeight: 600, color: T.dangerInk }}>Retirer ce widget ? Ses réglages seront perdus.</span>
+                        n'aide personne à décider ; « les réglages sont perdus » si.
+                        Son `flex: 1` prend la largeur libérée par « Annuler / Enregistrer »
+                        et repousse les deux réponses tout à droite, à la place exacte où se
+                        trouvaient ces boutons — la souris n'a pas à revenir en arrière. */}
+                    <span style={{ flex: 1, minWidth: 0, fontSize: "11.5px", fontWeight: 600, color: T.dangerInk }}>Retirer ce widget ? Ses réglages seront perdus.</span>
                     <button style={{ ...btn, border: `1px solid ${T.danger}`, background: T.danger, color: "#fff" }}
                       onClick={() => { opts.onRemove?.(); setOpen(false); }}>
                       <Trash2 aria-hidden style={{ width: 14, height: 14 }} />Retirer
@@ -3259,12 +3352,18 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                   toujours, elle n'a simplement pas à être écrite sous chaque widget : deux
                   boutons nommés « Annuler » et « Enregistrer » la disent déjà.
                   ⚠️ Ne pas supprimer ce span en croyant nettoyer du vide : sans lui, le pied
-                  se tasse à gauche et « Retirer » touche « Enregistrer ». */}
-              {!confirmRemove && <span style={{ flex: 1, minWidth: 0 }} />}
-              <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
-              <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
-                <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
-              </button>
+                  se tasse à gauche et « Retirer » touche « Enregistrer ».
+                  Inutile pendant la confirmation : le bloc de question porte déjà `flex: 1`
+                  et occupe la place que ces deux boutons laissent libre. */}
+              {!confirmRemove && (
+                <>
+                  <span style={{ flex: 1, minWidth: 0 }} />
+                  <button className="slb-btng" style={btn} onClick={() => setOpen(false)}>Annuler</button>
+                  <button className="slb-btnp" style={{ ...btn, border: "none", background: T.brand, color: "#fff" }} onClick={save}>
+                    <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -3325,7 +3424,8 @@ function Widget({
           widget. Pas de poignée « mors de déménageur » non plus — elle n'existait qu'en
           mode Personnaliser, et sur chaque carte en usage courant elle serait du bruit. */}
       <div style={grab ? { ...headStyle, cursor: "grab" } : headStyle}
-        draggable={!!grab} onDragStart={grab?.onDragStart} onDragEnd={grab?.onDragEnd}>
+        draggable={!!grab} onDragStart={grab?.onDragStart} onDragEnd={grab?.onDragEnd}
+        onPointerDownCapture={grab?.onPointerDownCapture}>
         <span style={!solar && tint.pill ? { ...icoPillSm(false), background: tint.pill, color: tint.ink } : icoPillSm(solar)}>
           <Icon aria-hidden style={{ width: 15, height: 15 }} strokeWidth={1.7} />
         </span>
@@ -3567,7 +3667,7 @@ function QuickLinks() {
     <section aria-label="Raccourcis">
       <h2 style={{ ...H2, marginBottom: "14px" }}>Raccourcis</h2>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "13px" }}>
-        {QUICK_LINKS.map(({ label, icon: Icon, page, url, solar }) => {
+        {QUICK_LINKS_VISIBLES.map(({ label, icon: Icon, page, url, solar }) => {
           /* `page` = page de l'espace (résolue, target _top) ; `url` = outil externe. */
           const href = page !== undefined ? pageUrl(page) : url ?? "";
           const tile: CSSProperties = {
@@ -3621,9 +3721,10 @@ function EmbedTab({ src, title }: { src: string; title: string }) {
       l'autre en un clic, et l'outil ouvert est marqué (bordure + fond teintés, plus
       `aria-pressed`) — la couleur ne porte donc jamais l'information seule.
 
-      You Sign est le seul à partir dans un NOUVEL ONGLET : app à login qui refuse
-      l'iframing (cf. `OUTILS`). Son bouton l'annonce par une icône différente et un
-      `title`, pour que le départ hors du CRM ne surprenne pas.
+      Tous les outils sont embarquables aujourd'hui. Le chemin NOUVEL ONGLET reste en
+      place pour une entrée `url` (app à login qui refuse l'iframing, cf. `OUTILS`) :
+      son bouton l'annoncerait par une icône différente et un `title`, pour que le
+      départ hors du CRM ne surprenne pas.
 
       ⚠️ Un refus d'iframe est INDÉTECTABLE depuis ici (l'iframe est cross-origin, son
       contenu est illisible) : si une app se met à refuser l'iframing, son cadre
@@ -3633,14 +3734,14 @@ function OutilsTab() {
   const [openId, setOpenId] = useState<string | null>(null);
   // L'outil ouvert doit être embarquable ET avoir une adresse : un `openId` devenu
   // invalide (registre modifié) retombe donc proprement sur « rien d'ouvert ».
-  const open = OUTILS.find((o) => o.id === openId && o.embed) ?? null;
+  const open = OUTILS_VISIBLES.find((o) => o.id === openId && o.embed) ?? null;
 
   return (
     <section aria-label="Outils" style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
       <div>
         <h2 style={{ ...H2, marginBottom: "14px" }}>Outils</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "13px" }}>
-          {OUTILS.map((o) => {
+          {OUTILS_VISIBLES.map((o) => {
             const { id, label, icon: Icon, desc, embed, url, solar } = o;
             const href = embed ?? url ?? "";       // "" = adresse pas encore renseignée
             const actif = open?.id === id;
@@ -3674,7 +3775,7 @@ function OutilsTab() {
               </span>
             );
 
-            // Outil externe (You Sign) : nouvel onglet, jamais dans l'iframe du bloc.
+            // Outil externe (entrée `url`) : nouvel onglet, jamais dans l'iframe du bloc.
             if (!embed) return (
               <a key={id} href={href} target="_blank" rel="noopener noreferrer"
                 title={`${label} — s'ouvre dans un nouvel onglet`}
@@ -5599,7 +5700,7 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
 
       {/* ⚠️ PLUS DE CHOIX « Liste / Tableau / Indicateur » (retiré le 2026-08-06, demandé).
           La FORME d'un widget est décidée à la POSE, par le modèle choisi dans la galerie
-          (« Tableau des dossiers », « Dossiers du mois (indicateur) »…), et elle ne bouge
+          (« Tableau des dossiers », « Dossiers incomplets »…), et elle ne bouge
           plus ensuite : un indicateur reste un indicateur, une liste reste une liste.
           Raison de fond : la vue n'est pas un réglage de confort, c'est ce QU'EST le
           widget. La basculer changeait tout son sens — un indicateur devenu liste perdait
@@ -8434,7 +8535,8 @@ const DEFAULT_INSTANCES: Instance[] = [
    Entièrement GÉNÉRÉE, de deux origines :
      · les types SUR-MESURE (pour ré-ajouter un widget supprimé) ;
      · les `presets` DÉCLARÉS DANS LE CATALOGUE de chaque source (§6-bis) — c'est
-       là que « SAV en cours » ou « Dossiers du mois » se définissent, en pur JSON.
+       là que « SAV en cours » ou « Dossiers incomplets » se définissent, en pur JSON.
+       Un preset `hidden` y reste déclaré mais n'apparaît PAS ici (cf. `PresetDesc`).
        Une source sans preset déclaré en reçoit un par défaut (liste sur son
        mappage), pour qu'elle soit toujours posable.
    Brancher une source la fait donc apparaître ici sans une ligne de code de plus.
@@ -8611,13 +8713,17 @@ function presetsOf(s: SourceKey): Preset[] {
   const declared = desc.presets ?? [];
   const list: PresetDesc[] = declared.length ? declared
     : [{ label: `Liste — ${desc.label}`, cfg: { source: s } }];
-  return list.map((p, i) => {
+  /* `flatMap` et pas `filter().map()` : l'index `i` doit rester celui de la DÉCLARATION,
+     puisque c'est lui qui forme la clé du preset. Un modèle masqué rend donc un tableau
+     vide sans décaler ceux qui le suivent. */
+  return list.flatMap((p, i) => {
+    if (p.hidden) return [];
     /* La FORME se déduit de la vue déclarée par le preset : aucun archétype à saisir à
        la main, et un preset qui passe en tableau change de miniature tout seul. */
     const vue = (p.cfg as { view?: { kind?: string } }).view?.kind;
     const shape: ShapeKind = vue === "table" ? "table" : vue === "kpi" ? "kpi" : "list";
     const quoi = vue === "table" ? "Tableau" : vue === "kpi" ? "Indicateur" : "Liste";
-    return {
+    return [{
       key: `${s}:${i}`,
       label: p.label,
       hint,
@@ -8632,7 +8738,7 @@ function presetsOf(s: SourceKey): Preset[] {
          écrire pour chaque source branchée, donc oublié une fois sur deux ; celle-ci dit
          déjà l'essentiel (quelle forme, quelle table) et reste juste automatiquement. */
       desc: `${quoi} sur « ${desc.label} ». Filtres, tri et champs réglables ensuite.`,
-    };
+    }];
   });
 }
 
@@ -9476,16 +9582,30 @@ function Dashboard() {
     resetDrag();
   };
 
+  /* Origine RÉELLE du dernier appui sur un en-tête. `dragstart` ne la donne pas (sa
+     cible est la source du glissement, c'est-à-dire l'en-tête `draggable` lui-même), d'où
+     cette mémoire remplie au `pointerdown` en capture — cf. la note de `WidgetGrab`.
+     Une seule ref pour toute la grille suffit : le dernier appui est forcément celui du
+     widget qu'on est en train de glisser. */
+  const grabFromRef = useRef<Element | null>(null);
+
+  /** Ce qui INTERDIT de glisser : les éléments interactifs de l'en-tête (le ⋮, dont le
+   *  clic serait annulé par `dragstart` — bug du 2026-08-03) et tout panneau flottant qui
+   *  y est rendu, modale de réglages comprise (bug du 2026-08-18). `data-slb-nodrag`
+   *  couvre ce qu'aucun rôle ARIA ne désigne, en premier lieu le FOND de la modale. */
+  const NO_DRAG_FROM = 'button, select, input, textarea, label, a, [role="menu"], [role="dialog"], [data-slb-nodrag]';
+
   /** Préhension par l'en-tête, fournie à CHAQUE widget.
    *  L'image de glissement est forcée sur la carte entière : sans cela, le navigateur
    *  ne trimballerait que le bandeau de l'en-tête, ce qui rend la cible illisible. */
   const grabOf = (id: string, i: number): WidgetGrab => ({
+    onPointerDownCapture: (e) => { grabFromRef.current = e.target as Element | null; },
     onDragStart: (e) => {
       if (resizeRef.current || sizeRef.current) { e.preventDefault(); return; }
-      // Un glisser ne part jamais d'un élément interactif de l'en-tête (le ⋮) :
-      // `dragstart` annulerait son clic — c'est le bug du 2026-08-03.
-      const from = e.target as Element | null;
-      if (from?.closest?.('button, select, input, textarea, label, a, [role="menu"], [role="dialog"]')) {
+      /* On juge sur l'origine mémorisée, et `e.target` reste un second filet : si un
+         navigateur nous donnait un jour l'élément profond, la garde marcherait aussi. */
+      const from = grabFromRef.current ?? (e.target as Element | null);
+      if (from?.closest?.(NO_DRAG_FROM) || (e.target as Element | null)?.closest?.(NO_DRAG_FROM)) {
         e.preventDefault(); return;
       }
       const card = wrapRefs.current.get(id);
