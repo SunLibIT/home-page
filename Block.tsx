@@ -14,7 +14,7 @@
 
    Les données métier passent par un CACHE D'INSTANTANÉS (§6-ter) : au retour sur la page,
    les widgets affichent les lignes de la dernière lecture complète pendant que la relecture
-   tourne, et un bouton ⟳ sur chaque carte qui lit la base permet de la relire.
+   tourne, et le chip du héro dit d'où viennent les chiffres et les rafraîchit.
 
    Primitives (T, StyleInjector, Badge, TabBar, cartes) copiées du kit visuel
    de référence (partenaire-detail-inpage / abo-detail-inpage) — NE PAS les
@@ -2618,7 +2618,7 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: b
     if (!key || reading || live.error || ecrit.current === key) return;
     ecrit.current = key;
     writeSnapshot(key, drain ? live.rows : live.rows.slice(0, SNAP_ROWS_LIST));
-  });
+  }, [key, reading, live.error, live.rows, drain]);
 
   /* Remontée vers le bouton de la carte : rotation pendant la lecture, et date des lignes
      tant qu'on sert un instantané. `publish` est un `setState` stable, donc absent des
@@ -3048,12 +3048,23 @@ const deriveRows = (k: SourceKey, rows: Row[]): Row[] => {
   });
 };
 
-function feedFor(source: SourceKey, children: SourceChildren, drain?: boolean) {
+/** Enveloppe le consommateur d'une source pour lui livrer les lignes AVEC leurs champs
+ *  calculés (`derive`, §6-bis). PURE.
+ *  ⚠️⚠️ LE PARAMÈTRE S'APPELLE `recoit` ET N'EST JAMAIS RÉASSIGNÉ, et ce n'est pas une
+ *  question de style. La première version faisait :
+ *      const enrichi = (s) => children({ ...s, rows: derive(s.rows) });
+ *      children = enrichi;
+ *  Une closure capture la VARIABLE, pas sa valeur : après la réassignation, `enrichi`
+ *  s'appelait donc LUI-MÊME. « Maximum call stack size exceeded » au premier rendu, sur
+ *  une ligne qui se lit comme un simple aiguillage. */
+const withDerived = (source: SourceKey, recoit: SourceChildren): SourceChildren =>
+  (s) => recoit({ ...s, rows: deriveRows(source, s.rows) });
+
+function feedFor(source: SourceKey, recoit: SourceChildren, drain?: boolean) {
   /* UN SEUL point d'application pour les champs calculés : tout ce qui consomme une
      source passe par ici, mock compris. Les mettre dans chaque adapter serait douze
      endroits où l'oublier. */
-  const enrichi: SourceChildren = (s) => children({ ...s, rows: deriveRows(source, s.rows) });
-  children = enrichi;
+  const children = withDerived(source, recoit);
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
     case "abonnes":  return <AbonnesSource drain={drain}>{children}</AbonnesSource>;
