@@ -14,7 +14,7 @@
 
    Les données métier passent par un CACHE D'INSTANTANÉS (§6-ter) : au retour sur la page,
    les widgets affichent les lignes de la dernière lecture complète pendant que la relecture
-   tourne, et le chip du héro dit d'où viennent les chiffres et les rafraîchit.
+   tourne, et un bouton ⟳ sur chaque carte qui lit la base permet de la relire.
 
    Primitives (T, StyleInjector, Badge, TabBar, cartes) copiées du kit visuel
    de référence (partenaire-detail-inpage / abo-detail-inpage) — NE PAS les
@@ -1026,6 +1026,22 @@ const SELECT_ABONNE = q.select({
   partenaire: "Nom de l'entreprise (from Installateur )", // lookup installateur (espace avant ")")
   statut: "Statut Dossiers",
   offre: "Type d installation", // pas de Duo/Solo/Pro → « PV seul », « PV + Batterie Virtuelle »…
+  /* TYPE DE CLIENT — Pro / Solo / Duo (2026-08-18). C'est un champ FORMULE :
+       civilité vide → « Pro » · « Monsieur » ou « Madame » → « Solo » · sinon → « Duo ».
+     Donc PARTICULIER = Solo ∪ Duo, et c'est ce que fait `clientKind` (§9-bis) : la base
+     ne connaît pas le mot « particulier », il n'existe que dans notre lecture.
+     ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES du bloc pour la datasource `abonnes`, sinon Softr
+     refuse la datasource ENTIÈRE (« does not match / Remap the fields ») — même piège que
+     les champs de `notifC`. Non coché, le champ arriverait vide sur toutes les lignes ;
+     `clientScope` le détecte et n'applique alors aucun filtre plutôt que de vider la
+     liste en silence. */
+  client: "Champs IA Config client",
+  /* RAISON SOCIALE — sur un dossier PRO, « Nom » est VIDE : c'est ce champ qui porte le
+     client. Sans lui, les listes mappées sur `nom` affichaient une ligne SANS TITRE pour
+     les deux tiers des dossiers en attente. C'est `clientNom` (§6-bis) qui choisit lequel
+     des deux montrer.
+     ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES du bloc, comme `client`. */
+  entreprise: "Nom de l'entreprise",
   creeLe: "date de création",
   // ── Ajouts « fiche détaillée ». Ils servent aussi de colonnes et de filtres aux
   //    widgets génériques, puisque le catalogue les déclare (§6-bis).
@@ -1418,23 +1434,36 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
      page réelle. Deux lignes portent des creux VOLONTAIRES — n1 sans signature ni PDF
      (dossier en cours), n2 sans CAPEX — parce que la fiche doit rester lisible quand la
      base est incomplète, et que c'est le cas le plus fréquent en vrai. */
+  /* ⚠️ STATUTS REPRIS LE 2026-08-18 sur les valeurs RÉELLES du champ (les anciennes
+     n'existent plus, cf. la note de `statut` dans CATALOG). Sans ça l'aperçu montrait des
+     badges gris et les deux nouveaux modèles rendaient une liste vide EN APERÇU — de quoi
+     chercher longtemps un défaut qui n'était que dans le mock.
+     Les lignes couvrent les trois valeurs de `client` (Pro / Solo / Duo) et les deux files
+     d'attente : c'est le minimum pour éprouver le réglage « Clientèle » sans base. */
   abonnes: [
-    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Dossier incomplet pour instruction", offre: "PV + Batterie", creeLe: daysAgo(1),
+    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Demande d'infos : technique", offre: "PV + Batterie", creeLe: daysAgo(1), client: "Solo",
       ref: "SL-002310", statutAbonne: "", capex: 21400, aboMoyen: 189, kwc: 9, etatFacture2: "A traiter",
       dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: [] },
-    { id: "n2", prenom: "", nom: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(2),
+    /* ⚠️ `nom` VIDE sur les pros, comme dans la base : c'est ce qui rend visible en aperçu
+       le trou que `clientNom` bouche. Ne pas « réparer » ces lignes en y remettant un nom. */
+    { id: "n2", prenom: "", nom: "", entreprise: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Demande d'infos : solvabilité", offre: "PV seul", creeLe: daysAgo(2), client: "Pro",
       ref: "SL-002104", statutAbonne: "", capex: 0, aboMoyen: 0, kwc: 36, etatFacture2: "En attente de document",
       dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
-    { id: "n3", prenom: "", nom: "Toulose Transit", partenaire: "Neosoleil", statut: "Dossier complet pour instruction", offre: "PV seul", creeLe: daysAgo(2),
+    { id: "n3", prenom: "", nom: "", entreprise: "TOULOSE TRANSIT", partenaire: "Neosoleil", statut: "En attente de solvabilité", offre: "PV seul", creeLe: daysAgo(120), client: "Pro",
       ref: "SL-002291", statutAbonne: "", capex: 118500, aboMoyen: 940, kwc: 62, etatFacture2: "Traitement IA en cours",
       dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
-    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15),
+    /* Le plus ANCIEN des dossiers en attente : il doit sortir EN TÊTE des deux nouveaux
+       modèles (tri ascendant). S'il s'affiche en bas, c'est le tri qui est faux. */
+    { id: "n7", prenom: "Amandine", nom: "Castéran", partenaire: "Neosoleil", statut: "En attente de solvabilité", offre: "PV seul", creeLe: daysAgo(240), client: "Duo",
+      ref: "SL-001845", statutAbonne: "", capex: 16800, aboMoyen: 141, kwc: 7, etatFacture2: "A traiter",
+      dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: [] },
+    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15), client: "Solo",
       ref: "SL-002188", statutAbonne: "", capex: 27300, aboMoyen: 232, kwc: 11.5, etatFacture2: "A traiter",
       dateSignature: "", dateEdition: daysAgo(9), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
-    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15),
+    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15), client: "Duo",
       ref: "SL-002077", statutAbonne: "Repris", capex: 14900, aboMoyen: 128, kwc: 6, etatFacture2: "Validée",
       dateSignature: daysAgo(6), dateEdition: daysAgo(12), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
-    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Extension PV", creeLe: daysAgo(15),
+    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Dossier finalisé", offre: "Extension PV", creeLe: daysAgo(15), client: "Solo",
       ref: "SL-002050", statutAbonne: "Annulé", capex: 9200, aboMoyen: 84, kwc: 4.5, etatFacture2: "Non conforme",
       dateSignature: daysAgo(8), dateEdition: daysAgo(14), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
   ],
@@ -1686,6 +1715,21 @@ type FieldDesc = {
   kind: FieldKind;
   options?: string[];
   variants?: Record<string, BadgeVariant>;
+  /* --- CHAMP CALCULÉ (2026-08-18) ------------------------------------------------
+     Rempli à partir des AUTRES alias de la ligne au lieu d'être lu dans un select.
+     Le cas qui l'a introduit : sur un dossier PRO, « Nom » est vide et c'est « Nom de
+     l'entreprise » qui porte le client — une liste mappée sur l'un ou l'autre affiche donc
+     des lignes sans titre pour la moitié du parc.
+     La règle vit ICI, dans le descripteur, et non dans un widget : « qui est le client »
+     est une propriété de la TABLE, et tous les widgets doivent en hériter.
+     ⚠️ Appliqué par `deriveRows` dans `feedFor`, donc APRÈS le cache d'instantanés : le
+     cache ne garde que ce que la base a rendu, et corriger la règle prend effet sans le
+     vider. */
+  derive?: (row: Row) => unknown;
+  /* `false` = champ ABSENT de la pop-up de détail. Pour un champ calculé qui n'y serait
+     qu'un doublon des colonnes dont il est tiré. Il reste utilisable partout ailleurs —
+     titre de ligne, colonne, tri, filtre. */
+  detail?: boolean;
 };
 
 /* Actions PAR LIGNE offertes par une source (§9-ter). Pure donnée : l'exécuteur
@@ -1763,6 +1807,15 @@ type SourceDesc = {
      lookup ne se filtre pas de façon fiable côté serveur. Corollaire à connaître : il
      réduit ce qui est AFFICHÉ, il n'allège pas la lecture. */
   ownerField?: string;
+  /* --- ALIAS DU CHAMP « TYPE DE CLIENT » (2026-08-18) --------------------------
+     Renseigné, tout widget de cette source gagne le réglage « Clientèle : tous / pro /
+     particulier » (`cfg.clientele`), à TOUS par défaut — contrairement à « mes fiches »,
+     restreindre la clientèle n'est pas le besoin le plus courant, c'est une question
+     qu'on se pose ponctuellement.
+     Déclaré ici et non deviné : le champ s'appelle « Champs IA Config client » et rend
+     « Pro » / « Solo » / « Duo ». Aucune de ces trois valeurs ne dit « particulier » —
+     la traduction est faite par `clientKind`, à un seul endroit. */
+  clientField?: string;
 };
 
 /* Catalogue déclaratif — le « descripteur de source ». Il ne contient JAMAIS de nom
@@ -1786,29 +1839,75 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       partenaire: { label: "Installateur", kind: "text" },
       statut: {
         label: "Statut dossier", kind: "badge",
-        // ⚠️ « En attente de solvabilité » existe EN DOUBLE dans le champ Airtable
-        // (deux choix homonymes) : listé une fois ici, à nettoyer côté Airtable.
+        /* ⚠️⚠️ LISTE ENTIÈREMENT REFAITE LE 2026-08-18, relevée sur Airtable ce jour-là
+           (champ `fldXvGXjjI0yM1BtU`, 17 choix). L'ancienne datait du 2026-07-31 et
+           n'était plus juste : le pipeline a été redécoupé entre-temps. SIX statuts
+           qu'elle listait N'EXISTENT PLUS (« Dossier incomplet pour instruction »,
+           « Dossier complet pour instruction », « Dossier incomplet pour édition de
+           contrat », « Assurance non ok », « Dossier PRO en cours d'étude du service
+           technique », « En attente validation »), et NEUF nouveaux manquaient.
+           Le doublon « En attente de solvabilité » signalé ici a bien été nettoyé côté
+           Airtable : il n'y a plus qu'un choix de ce nom.
+           ⚠️ Ce que ça casse ailleurs : le preset « Dossiers incomplets » filtre sur
+           `statut contains "incomplet"` — plus AUCUN statut ne contient ce mot, donc ce
+           modèle rend une liste vide en permanence. Laissé tel quel : décider ce que
+           « incomplet » désigne aujourd'hui est un arbitrage métier, pas une correction.
+           ⚠️ Un champ singleSelect ne peut porter QUE ces valeurs : une liste périmée ici
+           ne provoque aucune erreur, elle rend seulement des filtres qui ne trouvent rien
+           et des badges gris. À revérifier quand le pipeline bouge. */
         options: [
-          "Dossier annulé", "Dossier incomplet pour instruction", "Dossier complet pour instruction",
-          "Dossier incomplet pour édition de contrat", "Contrat à éditer",
-          "Contrat envoyé et en attente signature", "Assurance non ok", "Dossier refusé",
-          "Contrat signé", "Dossier PRO en cours d'étude du service technique",
-          "En attente de solvabilité", "En attente validation",
+          "Dossier annulé", "Dossier refusé",
+          "Refusé : technique et solvabilité", "Refusé : validation technique", "Refusé : solvabilité",
+          "Demande d'infos : technique et solvabilité", "Demande d'infos : technique", "Demande d'infos : solvabilité",
+          "En attente de validation technique", "En attente de solvabilité", "En attente de validation",
+          "Contrat à éditer", "En attente édition contrat",
+          "Contrat envoyé et en attente signature", "En attente signature contrat",
+          "Contrat signé", "Dossier finalisé",
         ],
+        /* Deux familles, deux couleurs, et la distinction n'est pas décorative :
+           WARN = la balle est dans NOTRE camp (une info à demander, un contrat à éditer) ;
+           INFO = on attend un tiers (solvabilité, validation, signature). Un accueil sert
+           à voir ce qu'on doit faire, pas ce qu'on doit subir. */
         variants: {
           "Dossier annulé": "neutral",
-          "Dossier incomplet pour instruction": "danger",
-          "Dossier complet pour instruction": "warn",
-          "Dossier incomplet pour édition de contrat": "danger",
-          "Contrat à éditer": "warn",
-          "Contrat envoyé et en attente signature": "warn",
-          "Assurance non ok": "danger",
           "Dossier refusé": "danger",
+          "Refusé : technique et solvabilité": "danger",
+          "Refusé : validation technique": "danger",
+          "Refusé : solvabilité": "danger",
+          "Demande d'infos : technique et solvabilité": "warn",
+          "Demande d'infos : technique": "warn",
+          "Demande d'infos : solvabilité": "warn",
+          "En attente de validation technique": "info",
+          "En attente de solvabilité": "info",
+          "En attente de validation": "info",
+          "Contrat à éditer": "warn",
+          "En attente édition contrat": "info",
+          "Contrat envoyé et en attente signature": "info",
+          "En attente signature contrat": "info",
           "Contrat signé": "ok",
-          "Dossier PRO en cours d'étude du service technique": "info",
-          "En attente de solvabilité": "warn",
-          "En attente validation": "warn",
+          "Dossier finalisé": "ok",
         },
+      },
+      /* TYPE DE CLIENT (2026-08-18). Les trois valeurs sont celles que rend la formule —
+         « Particulier » n'en est PAS une, c'est notre regroupement (Solo ∪ Duo, cf.
+         `clientKind`). Les libellés bruts restent affichés tels quels : une fiche doit
+         montrer ce que dit la base, pas notre traduction. */
+      client: {
+        label: "Type de client", kind: "badge",
+        options: ["Pro", "Solo", "Duo"],
+        variants: { Pro: "brand", Solo: "info", Duo: "solar" },
+      },
+      entreprise: { label: "Nom de l'entreprise", kind: "text" },
+      /* LE CLIENT, tel qu'il faut l'écrire sur une ligne — la raison sociale pour un pro,
+         le nom de famille pour un particulier. Les replis vont dans les deux sens : un pro
+         sans raison sociale saisie garde son « Nom » plutôt que de n'avoir plus rien.
+         `detail: false` : dans la fiche il ne serait qu'un doublon de « Nom » et de « Nom
+         de l'entreprise », qui y figurent déjà l'un et l'autre. */
+      clientNom: {
+        label: "Client", kind: "text", detail: false,
+        derive: (r) => clientKind(r.client) === "pro"
+          ? (asText(r.entreprise).trim() || asText(r.nom).trim())
+          : (asText(r.nom).trim() || asText(r.entreprise).trim()),
       },
       offre: {
         label: "Type d'installation", kind: "badge",
@@ -1841,7 +1940,11 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       contratNonSigne: { label: "Contrat en attente (PDF)", kind: "bool" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
-    defaultMap: { title: "nom", sub: "partenaire", date: "creeLe", badge: "statut" },
+    /* `title: "clientNom"` et non `"nom"` depuis le 2026-08-18 : voir ce champ. Les
+       instances DÉJÀ POSÉES gardent le mappage enregistré dans leur cfg — elles
+       continueront d'afficher un titre vide sur les dossiers pros jusqu'à ce qu'on repasse
+       leur titre sur « Client » dans le ⋮. */
+    defaultMap: { title: "clientNom", sub: "partenaire", date: "creeLe", badge: "statut" },
     defaultFacet: "partenaire",   // filtre à cases proposé d'office : par installateur
     /* Modèles prêts à poser — pur JSON. C'est ici qu'on ajoute une vue métier utile
        sans écrire de composant : elle apparaît aussitôt dans la galerie. */
@@ -1869,7 +1972,41 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
                view: { kind: "kpi", agg: "count", dateField: "creeLe", compareDays: 30 } } },
       { label: "Tableau des dossiers", icon: "LayoutGrid",
         cfg: { view: { kind: "table", columns: ["nom", "partenaire", "statut", "creeLe"] } } },
+      /* ── AJOUTÉS LE 2026-08-18 (demande) — les deux FILES D'ATTENTE du pipeline.
+         Ajoutés EN FIN de tableau, jamais insérés : la clé de galerie est
+         « abonnes:<index> » (cf. `hidden` sur `PresetDesc`), donc intercaler déplacerait
+         les modèles déjà posés.
+
+         TRI ASCENDANT sur `creeLe`, à l'inverse du reste du bloc, et c'est le point :
+         une file d'attente se lit par le HAUT — le dossier qui traîne depuis décembre
+         doit passer devant celui d'hier. Trié par le plus récent, un widget d'attente
+         montrerait précisément ce dont personne ne s'inquiète.
+
+         « Demande d'infos » est filtré en `contains` parce que le pipeline en compte
+         TROIS (technique · solvabilité · les deux) : les énumérer figerait le widget au
+         jour où on ajouterait le quatrième. « En attente de solvabilité » est filtré en
+         `eq`, et il le faut : `contains "solvabilité"` ramasserait aussi « Refusé :
+         solvabilité » et « Demande d'infos : solvabilité » — trois files distinctes sous
+         un seul titre. */
+      /* ⚠️ MASQUÉS LE JOUR MÊME (`hidden`), remplacés par de VRAIS TYPES — `attSolva` et
+         `demInfos` (§10). En modèles du widget générique, ils héritaient de tout son
+         formulaire : on pouvait leur changer la source, le filtre, le tri… c'est-à-dire
+         leur faire afficher autre chose que ce que leur titre promet. Leur `limit: 20`
+         cachait aussi 5 des 25 dossiers en attente, sans le dire.
+         Masqués et non supprimés : la clé de galerie est « abonnes:<index> », et effacer
+         une ligne déplacerait les modèles suivants (cf. `hidden` sur `PresetDesc`). */
+      { label: "Dossiers en demande d'infos", icon: "Inbox", hidden: true,
+        cfg: { title: "Demandes d'infos", unit: "dossier",
+               query: { filter: [{ field: "statut", op: "contains", value: "Demande d'infos" }],
+                        sort: { by: "creeLe", dir: "asc" }, limit: 20 } } },
+      { label: "Dossiers en attente de solvabilité", icon: "Clock", hidden: true,
+        cfg: { title: "En attente de solvabilité", unit: "dossier",
+               query: { filter: [{ field: "statut", op: "eq", value: "En attente de solvabilité" }],
+                        sort: { by: "creeLe", dir: "asc" }, limit: 20 } } },
     ],
+    // Le champ qui distingue Pro / Solo / Duo → réglage « Clientèle » sur tout widget
+    // de cette source (cf. `clientField` sur `SourceDesc`).
+    clientField: "client",
     // Pas d'action d'écriture : « Abonnés » n'a pas de select d'écriture (§6).
   },
   notesIns: {
@@ -2262,9 +2399,13 @@ const variantOf = (desc: SourceDesc, alias: string | undefined, value: string): 
    purge des entrées d'un autre utilisateur au montage (postes partagés).
    ============================================================================ */
 const SNAP_PREFIX = "slb-home-snap";
-/* Horodatage de la dernière écriture, TOUTES sources confondues : c'est lui qui
-   alimente le chip « Données du … » du héro, lequel n'a pas à connaître les sources. */
-const SNAP_STAMP = `${SNAP_PREFIX}-at`;
+/* ⚠️ Il y avait ici un horodatage GLOBAL (`slb-home-snap-at`), écrit à chaque instantané
+   pour alimenter le chip du héro. Il est parti avec lui le 2026-08-18 : chaque widget
+   date désormais SES lignes, avec le `at` de SON instantané, remonté par `useSnapshot`.
+   Une date « toutes sources confondues » ne voulait de toute façon pas dire grand-chose
+   — elle datait la dernière source lue, pas celle qu'on avait sous les yeux.
+   Une clé résiduelle sur un poste déjà visité ne gêne rien : elle n'est plus lue, et la
+   purge la laisse tranquille (elle ne balaie que les clés en `slb-home-snap:`). */
 /* Relever cette version INVALIDE tout le parc de caches d'un coup. À faire le jour où
    la FORME d'une ligne change (et non son contenu) — le hash du select, lui, ne couvre
    que l'ajout, le retrait ou le renommage d'un alias. */
@@ -2342,7 +2483,6 @@ function writeSnapshot(key: string, rows: Row[]): boolean {
   for (let essai = 0; essai < 4; essai++) {
     try {
       window.localStorage.setItem(key, payload);
-      window.localStorage.setItem(SNAP_STAMP, String(Date.now()));
       return true;
     } catch {
       if (!evictOldest(key)) return false;   // plus rien à évincer, ou stockage indisponible
@@ -2369,8 +2509,12 @@ function evictOldest(sauf: string): boolean {
   } catch { return false; }
 }
 
-const readSnapStamp = (): number => {
-  try { return Number(window.localStorage.getItem(SNAP_STAMP)) || 0; } catch { return 0; }
+/** Date+heure courtes d'un instantané — pour le `title` du bouton de relecture, qui doit
+ *  dire QUAND et non « il y a combien » : on le lit en survolant, au moment de décider si
+ *  ça vaut la peine de relire. */
+const fmtStamp = (at: number): string => {
+  const d = new Date(at);
+  return `${d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" })} à ${d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
 };
 
 /** Âge lisible d'un instantané, tourné pour se coller à « Chiffres … » : « de l'instant »,
@@ -2401,46 +2545,47 @@ function purgeSnapshots(email: string): void {
   } catch { /* stockage inaccessible : rien à purger */ }
 }
 
-/* --- LE SIGNAL DE RAFRAÎCHISSEMENT ------------------------------------------------
-   `nonce` sert de CLÉ de remontage aux adapters (cf. `SourceFeed`) : l'incrémenter
-   démonte puis remonte chaque source, ce qui relance `useRecords`. C'est le seul
+/* --- RAFRAÎCHIR — UNE SOURCE À LA FOIS, DEPUIS SON WIDGET ---------------------------
+   ⚠️ LE BOUTON GLOBAL DU HÉRO A ÉTÉ RETIRÉ le 2026-08-18 (demandé). Il relisait TOUT :
+   une dizaine de sources, et jusqu'à 120 requêtes pour certaines, alors que le besoin est
+   presque toujours « CE widget-là a bougé, montre-le moi ». Un bouton dont le coût est
+   sans rapport avec l'intention est un bouton qu'on n'ose plus cliquer.
+
+   COMMENT ÇA MARCHE. `SourceFeed` tient un `nonce` LOCAL et le passe en `key` :
+   l'incrémenter démonte puis remonte l'adapter, donc `useRecords` repart. C'est le seul
    mécanisme qui ne dépende d'AUCUNE hypothèse sur l'API Softr.
    ⚠️ Si Softr s'appuie sur react-query avec un `staleTime` long, un remontage pourrait
    resservir le cache mémoire sans requête. D'où le `refetch()` de secours appelé par
    `useDrainPages` quand le montage fait suite à un rafraîchissement EXPLICITE
    (`nonce > 0`) — jamais au premier montage, où la requête part de toute façon.
 
-   `markStale` : les sources qui servent un instantané s'y inscrivent, ce qui donne au
-   héro un état global honnête (« actualisation… » vs « à jour ») sans qu'il ait à
-   connaître les widgets. --- */
-type RefreshApi = {
+   POURQUOI UN CONTEXTE plutôt qu'une prop. `SourceFeed` publie `refresh` dans un contexte
+   que la coquille `Widget` consomme : le bouton apparaît donc sur les quinze widgets qui
+   lisent une source SANS qu'aucun d'eux soit modifié. Et un widget sans source — horloge,
+   pense-bête, liste à cocher, feeds LinkedIn — ne trouve aucun contexte, donc n'a pas de
+   bouton. C'est la règle demandée, obtenue par construction plutôt que par une liste à
+   tenir à jour.
+
+   WIDGETS À PLUSIEURS SOURCES (les exceptions en lisent quatre) : leurs `SourceFeed` sont
+   IMBRIQUÉS, donc chaque niveau COMPOSE avec celui du dessus — un seul bouton, qui les
+   relit toutes. Sans cette composition, il n'aurait rafraîchi que la source la plus
+   interne et le widget aurait affiché un total mis à jour à moitié. --- */
+type SourceRefreshApi = {
+  /** Clé de remontage de l'adapter, et déclencheur du `refetch()` de secours. */
   nonce: number;
   refresh: () => void;
-  /** Inscription/retrait d'une source qui sert un instantané (clé = clé de cache). */
-  markStale: (key: string, on: boolean) => void;
-  /** Au moins une source affiche un instantané en attendant sa relecture. */
+  /** Une lecture est en cours sous ce provider — c'est ce qui fait tourner l'icône. */
   busy: boolean;
+  /** Date des lignes affichées quand elles viennent du cache (0 sinon), pour le `title`
+   *  du bouton : « Instantané du 18/08 à 09:14 — relire ». */
+  at: number;
+  /** Publié par `useSnapshot`, le seul endroit qui connaisse l'état réel de la lecture.
+   *  L'information circule donc de bas en haut, à l'inverse du reste du contexte. */
+  publish: (etat: { reading: boolean; at: number }) => void;
 };
-const RefreshCtx = createContext<RefreshApi>({
-  nonce: 0, refresh: () => {}, markStale: () => {}, busy: false,
-});
-
-/* La DATE des chiffres n'est volontairement PAS dans cet état : elle vit dans
-   `SNAP_STAMP`, que le chip relit à chaque battement. La porter en état React
-   obligerait à la propager depuis chaque écriture de chaque source — pour une valeur
-   qu'un `getItem` donne gratuitement et toujours à jour. */
-function useRefreshState(): RefreshApi {
-  const [nonce, setNonce] = useState(0);
-  const [stales, setStales] = useState<string[]>([]);
-  /* Rendre `cur` INCHANGÉ quand il n'y a rien à changer : `filter` rend toujours un
-     nouveau tableau, et un nouveau tableau re-rend tout le bloc — pour rien, à chaque
-     démontage d'une source qui n'était pas inscrite. */
-  const markStale = (key: string, on: boolean) =>
-    setStales((cur) =>
-      on ? (cur.includes(key) ? cur : [...cur, key])
-         : (cur.includes(key) ? cur.filter((k) => k !== key) : cur));
-  return { nonce, refresh: () => setNonce((n) => n + 1), markStale, busy: stales.length > 0 };
-}
+/* `null` par défaut, et c'est le cœur du mécanisme : hors d'un `SourceFeed`, il n'y a
+   RIEN à rafraîchir, et `Widget` n'affiche pas de bouton. */
+const SourceRefreshCtx = createContext<SourceRefreshApi | null>(null);
 
 /** Jointure instantané ↔ live, appelée par CHAQUE adapter (§6-bis). Voir le contrat en
  *  tête de section : sert le cache pendant la lecture, l'écrit à la fin, jamais pendant.
@@ -2448,7 +2593,7 @@ function useRefreshState(): RefreshApi {
 function useSnapshot(source: SourceKey, select: Record<string, string>, drain: boolean, live: SourceState): SourceState {
   const email = asText(useCurrentUser()?.email).trim().toLowerCase();
   const key = email ? snapKey(email, source, drain, snapSig(select)) : "";
-  const { markStale } = useContext(RefreshCtx);
+  const refreshCtx = useContext(SourceRefreshCtx);
 
   /* Lu UNE SEULE FOIS PAR CLÉ : l'instantané est un point de départ, pas un état vivant.
      Le relire à chaque render le ferait réapparaître après qu'on l'a remplacé par le
@@ -2475,12 +2620,13 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: b
     writeSnapshot(key, drain ? live.rows : live.rows.slice(0, SNAP_ROWS_LIST));
   });
 
-  // Inscription au registre global (le chip du héro). Retrait garanti au démontage.
+  /* Remontée vers le bouton de la carte : rotation pendant la lecture, et date des lignes
+     tant qu'on sert un instantané. `publish` est un `setState` stable, donc absent des
+     dépendances — l'y mettre relancerait l'effet à chaque render du provider. */
+  const publish = refreshCtx?.publish;
   useEffect(() => {
-    if (!key) return;
-    markStale(key, serving);
-    return () => markStale(key, false);
-  }, [key, serving]);
+    publish?.({ reading, at: serving ? snap!.at : 0 });
+  }, [reading, serving, snap?.at]);
 
   if (!serving) return live;
   /* `loading: false` — c'est TOUT le point : les widgets cessent d'afficher leur
@@ -2663,7 +2809,7 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
      ⚠️ Rien ne documente la présence de `refetch` sur l'objet rendu par Softr : le `?.`
      est la garde, pas une coquetterie. Si la trace réseau ne montre rien repartir au
      clic, c'est ICI qu'est le point à reprendre. */
-  const { nonce } = useContext(RefreshCtx);
+  const nonce = useContext(SourceRefreshCtx)?.nonce ?? 0;
   useEffect(() => { if (nonce > 0) res?.refetch?.(); }, []);
 
   useEffect(() => {
@@ -2855,17 +3001,59 @@ function NotifCSource({ children, drain }: { children: SourceChildren; drain?: b
    ⚠️ Oublier `drain` sur un widget qui compte ne provoque aucune erreur — juste un
    chiffre faux, crédible et silencieux. C'est le bug qu'a connu Pilotage SAV. */
 function SourceFeed({ source, children, drain }: { source: SourceKey; children: SourceChildren; drain?: boolean }) {
-  /* `key={nonce}` sur un Fragment : le bouton « Rafraîchir » du héro incrémente le nonce,
-     ce qui DÉMONTE puis REMONTE l'adapter — donc `useRecords` repart de zéro. C'est le
-     seul mécanisme de rafraîchissement qui ne suppose RIEN de l'API Softr (le `refetch()`
-     de `useDrainPages` n'en est que le renfort). La page ne se vide pas pour autant :
-     `useSnapshot` relit son instantané au remontage et le sert pendant la relecture.
-     ⚠️ Le nonce doit être lu AVANT tout retour anticipé — c'est un hook. */
-  const { nonce } = useContext(RefreshCtx);
-  return <Fragment key={nonce}>{feedFor(source, children, drain)}</Fragment>;
+  /* `key={nonce}` sur un Fragment : le bouton de la carte incrémente le nonce, ce qui
+     DÉMONTE puis REMONTE l'adapter — donc `useRecords` repart de zéro. La page ne se vide
+     pas pour autant : `useSnapshot` relit son instantané au remontage et le sert pendant
+     la relecture (§6-ter). */
+  const parent = useContext(SourceRefreshCtx);
+  const [nonce, setNonce] = useState(0);
+  const [etat, setEtat] = useState({ reading: false, at: 0 });
+
+  /* Un `SourceFeed` imbriqué (widget à plusieurs sources) relit AUSSI celles du dessus :
+     un bouton qui ne rafraîchirait qu'un quart d'un total serait pire qu'aucun bouton. */
+  const refresh = () => { parent?.refresh(); setNonce((n) => n + 1); };
+  /* Date affichée = la PLUS ANCIENNE des instantanés servis, pour la même raison qu'un
+     total composé se date sur sa source la plus en retard (cf. `AggregateNote`). */
+  const at = [etat.at, parent?.at ?? 0].filter(Boolean).sort((a, b) => a - b)[0] ?? 0;
+  const api: SourceRefreshApi = {
+    nonce, refresh, busy: etat.reading || !!parent?.busy, at, publish: setEtat,
+  };
+
+  /* PAS DE PROVIDER — donc pas de bouton — sur une source qui ne lit pas la base : en
+     production, une table non connectée sert son mock (`offlineState`), et un bouton
+     « relire » proposerait de relire des lignes écrites en dur. Mieux vaut pas de bouton
+     qu'un bouton qui ment, c'est la règle que suit déjà `write` sur ces sources.
+     ⚠️ EN APERÇU (`USE_MOCK`), le bouton est au contraire CONSERVÉ : c'est le seul endroit
+     où l'on peut vérifier son allure et sa place dans l'en-tête, exactement comme les
+     écritures y sont simulées plutôt que masquées. */
+  if (!isLive(source) && !USE_MOCK) return <>{feedFor(source, children, drain)}</>;
+
+  return (
+    <SourceRefreshCtx.Provider value={api}>
+      <Fragment key={nonce}>{feedFor(source, children, drain)}</Fragment>
+    </SourceRefreshCtx.Provider>
+  );
 }
 
+/** Ajoute aux lignes les champs CALCULÉS du descripteur (`derive`, §6-bis). PURE.
+ *  Rend le tableau d'origine si la source n'en déclare aucun — la quasi-totalité des cas,
+ *  et il n'y a alors rien à payer. */
+const deriveRows = (k: SourceKey, rows: Row[]): Row[] => {
+  const calc = Object.entries(CATALOG[k].fields).filter(([, f]) => f.derive);
+  if (!calc.length) return rows;
+  return rows.map((r) => {
+    const o: Row = { ...r };
+    for (const [alias, f] of calc) o[alias] = f.derive!(r);
+    return o;
+  });
+};
+
 function feedFor(source: SourceKey, children: SourceChildren, drain?: boolean) {
+  /* UN SEUL point d'application pour les champs calculés : tout ce qui consomme une
+     source passe par ici, mock compris. Les mettre dans chaque adapter serait douze
+     endroits où l'oublier. */
+  const enrichi: SourceChildren = (s) => children({ ...s, rows: deriveRows(source, s.rows) });
+  children = enrichi;
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
     case "abonnes":  return <AbonnesSource drain={drain}>{children}</AbonnesSource>;
@@ -3747,6 +3935,8 @@ function Widget({
 }) {
   const opts = useContext(WidgetOptionsCtx);
   const grab = useContext(WidgetGrabCtx);
+  /* `null` hors d'un `SourceFeed` — c'est ce qui décide de la présence du bouton. */
+  const refreshCtx = useContext(SourceRefreshCtx);
   /* TITRE : celui de l'instance s'il existe, sinon celui que le composant a passé.
      `title` (la prop) reste donc le titre PAR DÉFAUT — c'est lui que le panneau montre
      en `placeholder`, et lui qui revient si l'utilisateur vide le champ. `shown` sert
@@ -3793,6 +3983,22 @@ function Widget({
           {sub && <div style={WSUB}>{sub}</div>}
         </div>
         {headActions}
+        {/* RELIRE LES DONNÉES — présent UNIQUEMENT sous un `SourceFeed`, donc seulement sur
+            les widgets qui lisent la base (§6-ter). Un pense-bête ou une horloge n'a rien
+            à relire et n'a donc pas ce bouton : la règle tient au contexte, pas à une
+            liste de types qu'il faudrait maintenir.
+            ⚠️ C'est un <button> DANS la zone de préhension : le DnD HTML5 avalerait son
+            clic si `onDragStart` ne refusait pas déjà de démarrer depuis un élément
+            interactif (§7-11 d'ARCHITECTURE.md — trois causes, dont celle-là). */}
+        {refreshCtx && (
+          <button type="button" className="slb-nbtn" style={NBTN_SM}
+            onClick={refreshCtx.refresh}
+            aria-label={`Relire les données — ${shown}`}
+            title={refreshCtx.at ? `Données du ${fmtStamp(refreshCtx.at)} — cliquer pour relire` : "Relire les données"}>
+            <RefreshCw aria-hidden className={refreshCtx.busy ? "slb-spin" : undefined}
+              style={{ width: 15, height: 15 }} />
+          </button>
+        )}
         {/* ⋮ affiché pour TOUS les widgets depuis le 2026-08-04 : même un type sans
             réglages propres est RENOMMABLE, donc le bouton a toujours quelque chose
             à offrir — il n'est plus décoratif pour autant. */}
@@ -3972,39 +4178,12 @@ function Sunburst({ height, still = false }: { height: string; still?: boolean }
   );
 }
 
-/* --- CHIP DE FRAÎCHEUR — le seul endroit de la page qui dise d'où viennent les chiffres,
-   et le seul bouton qui les rafraîchisse tous.
-   POURQUOI GLOBAL et non un bouton par carte : le cache est posé sous les SOURCES, pas
-   sous les widgets — une source alimente plusieurs cartes, et douze boutons diraient
-   douze fois la même chose. Le détail par carte existe déjà là où il compte :
-   `AggregateNote` date l'instantané des widgets qui agrègent.
-   ⚠️ C'est un vrai <button> : le rafraîchissement est une action, pas une décoration.
-   Il reste cliquable même quand tout est à jour — « je veux voir maintenant » est une
-   demande légitime, et c'est le seul recours si une lecture s'est mal passée. --- */
-function FreshnessChip({ style }: { style: CSSProperties }) {
-  const { busy, refresh } = useContext(RefreshCtx);
-  /* Battement d'une minute : sans lui, « il y a 2 min » resterait écrit une heure sur une
-     page laissée ouverte — et une date fausse sur un chiffre est pire que pas de date.
-     Une minute est exactement la résolution de ce que le chip affiche. */
-  const [, battre] = useState(0);
-  useEffect(() => {
-    const t = window.setInterval(() => battre((n) => n + 1), 60_000);
-    return () => window.clearInterval(t);
-  }, []);
-  const at = readSnapStamp();
-  const texte = busy ? `Actualisation… · chiffres ${snapAge(at)}` : at ? `À jour · chiffres ${snapAge(at)}` : "Actualiser";
-  return (
-    <button type="button" onClick={refresh} title="Relire toutes les données"
-      style={{ ...style, fontFamily: "inherit", cursor: "pointer" }}>
-      {/* La rotation n'est pas décorative : elle dit qu'une lecture est EN COURS.
-          `slb-spin` est défini dans la feuille injectée (§2) ; si elle ne s'applique
-          pas dans le bloc Softr, l'icône reste fixe et le TEXTE porte l'information —
-          c'est pour ça qu'il change lui aussi. */}
-      <RefreshCw aria-hidden className={busy ? "slb-spin" : undefined} style={{ width: 14, height: 14 }} />
-      {texte}
-    </button>
-  );
-}
+/* ⚠️ `FreshnessChip` (chip « À jour · chiffres d'il y a 4 min » + bouton global) a été
+   SUPPRIMÉ le 2026-08-18 : le rafraîchissement est passé du héro à chaque carte qui lit
+   la base (cf. `SourceRefreshCtx`, §6-ter). Un seul bouton pour dix sources relisait tout
+   pour une intention qui ne portait presque jamais que sur un widget.
+   Ce qui portait sa fonction d'information est resté : `AggregateNote` date l'instantané
+   des widgets qui agrègent, et le bouton de chaque carte donne la date en `title`. */
 
 function Hero({ firstName }: { firstName: string }) {
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -4035,7 +4214,6 @@ function Hero({ firstName }: { firstName: string }) {
               nombre faux — un compteur à côté d'une cloche est cru sur parole. */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "20px" }}>
             <span style={chip}><Bell aria-hidden style={{ width: 14, height: 14 }} />Notifications</span>
-            <FreshnessChip style={chip} />
           </div>
         </div>
         {/* Les rayons sont tracés en blanc à la source : plus besoin du
@@ -4101,11 +4279,79 @@ function QuickLinks() {
       ⚠️ Nécessite que l'app cible autorise l'iframing (pas de X-Frame-Options
       DENY/SAMEORIGIN ni CSP frame-ancestors restrictive) ET que la CSP de
       l'iframe Softr autorise `frame-src https://*.vercel.app`. --- */
+/* --- HAUTEUR D'UN OUTIL EMBARQUÉ — pourquoi elle ne peut pas être devinée ----------
+   LE SYMPTÔME : deux barres de défilement imbriquées, celle de l'outil et celle de la
+   page. Elle vient de ce que le cadre est plus COURT que le contenu de l'app.
+
+   LA CONTRAINTE : l'iframe est CROSS-ORIGIN. Le bloc ne peut ni lire `contentDocument`,
+   ni mesurer la hauteur du document distant, ni styliser sa barre. Il n'existe donc
+   qu'une seule façon exacte de dimensionner le cadre : que l'app l'ANNONCE elle-même.
+
+   LE PROTOCOLE, six lignes à coller dans chaque app embarquée (recette complète dans le
+   README §3) : `parent.postMessage({ type: "sunlib:embed-height", height: N }, "*")`,
+   réémis à chaque changement de taille.
+
+   TANT QU'UNE APP N'ENVOIE RIEN, le cadre garde EXACTEMENT la hauteur qu'il avait avant
+   (`EMBED_H_FALLBACK`) : la bascule se fait app par app, sans coordination et sans
+   régression pour celles qu'on n'a pas encore touchées. --- */
+const EMBED_MSG = "sunlib:embed-height";
+const EMBED_H_FALLBACK = "min(1200px, 82vh)";
+const EMBED_H_MIN = 560;
+/* Garde-fou : une hauteur vient d'un message, donc de l'extérieur. Un contenu qui
+   grandirait en boucle (une app qui se dimensionne sur son propre cadre) ne doit pas
+   pouvoir étirer la page indéfiniment. 20 000 px ≈ 20 écrans : au-delà, c'est un défaut
+   de l'app, pas une page longue. */
+const EMBED_H_MAX = 20000;
+
+/** Origine d'une adresse d'outil, "" si elle est illisible. Une adresse relative ou
+ *  vide ne donne AUCUNE origine — et sans origine on n'accepte aucun message, plutôt que
+ *  d'en accepter n'importe lequel. */
+const originOf = (src: string): string => { try { return new URL(src).origin; } catch { return ""; } };
+
+/** Hauteur portée par un message, ou `null` si le message n'est pas à prendre.
+ *  PURE — c'est ici que se prennent les décisions de sécurité et de bornage, donc c'est
+ *  ici qu'on peut les éprouver sans navigateur.
+ *  ⚠️ On n'accepte QUE l'origine de l'outil affiché : `message` est reçu de n'importe qui
+ *  — une autre iframe de la page, une extension du navigateur, la page Softr elle-même.
+ *  Sans ce test, un tiers pourrait redimensionner le cadre à volonté. */
+function embedHeightOf(msg: { origin?: string; data?: unknown }, origine: string): number | null {
+  if (!origine || msg.origin !== origine) return null;
+  const d = msg.data as { type?: unknown; height?: unknown } | null;
+  if (!d || typeof d !== "object" || d.type !== EMBED_MSG) return null;
+  const v = Math.round(Number(d.height));
+  if (!(v > 0)) return null;              // NaN, 0, négatif : ignoré — jamais de repli à 0
+  return Math.min(EMBED_H_MAX, Math.max(EMBED_H_MIN, v));
+}
+
+function useEmbedHeight(src: string): number | null {
+  const [h, setH] = useState<number | null>(null);
+  useEffect(() => {
+    /* Changer d'outil REMET À NULL : garder la hauteur du précédent afficherait le
+       nouveau dans un cadre à la mauvaise taille jusqu'à son premier message. */
+    setH(null);
+    const origine = originOf(src);
+    const onMsg = (e: MessageEvent) => {
+      const v = embedHeightOf(e, origine);
+      if (v !== null) setH(v);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [src]);
+  return h;
+}
+
 function EmbedTab({ src, title }: { src: string; title: string }) {
+  const h = useEmbedHeight(src);
   return (
     <section aria-label={title} style={{ borderRadius: T.rXl, overflow: "hidden", border: `1px solid ${T.line}`, boxShadow: T.shSm, backgroundColor: T.surface }}>
-      <iframe src={src} title={title} loading="lazy"
-        style={{ display: "block", width: "100%", height: "min(1200px, 82vh)", minHeight: 560, border: "none" }} />
+      {/* ⚠️ `scrolling="no"` SEULEMENT quand la hauteur est annoncée. L'attribut supprime
+          la barre ET la possibilité de défiler : posé sur une hauteur devinée, il rendrait
+          le bas du contenu inatteignable. Il est déprécié en HTML5, et c'est pourtant le
+          seul levier disponible — `overflow: hidden` devrait être appliqué au document
+          DISTANT, que l'on ne peut pas styliser. Il garantit qu'un écart d'un pixel entre
+          la hauteur annoncée et la hauteur réelle ne fasse pas réapparaître la barre. */}
+      <iframe src={src} title={title} loading="lazy" scrolling={h ? "no" : undefined}
+        style={{ display: "block", width: "100%", height: h ? `${h}px` : EMBED_H_FALLBACK, minHeight: EMBED_H_MIN, border: "none" }} />
     </section>
   );
 }
@@ -4879,7 +5125,23 @@ type InstanceCfg = {
      nature (cf. `ownerIsUser`) — un manager qui suit plusieurs portefeuilles, ou un nom
      écrit autrement en base, doit pouvoir ouvrir la liste. */
   mine?: boolean;
+  /* « Pro / particulier / les deux » (2026-08-18). N'a de sens que si le descripteur de
+     la source déclare un `clientField` ; ailleurs la clé est absente.
+     À "tous" par défaut, contrairement à `mine` : un accueil montre d'abord TOUT le
+     périmètre, et restreindre la clientèle répond à une question ponctuelle (« combien
+     de particuliers attendent leur solvabilité ? ») plutôt qu'à un besoin permanent. */
+  clientele?: Clientele;
 };
+
+/* Trois états et pas quatre : la base dit « Pro », « Solo » ou « Duo », mais l'accueil
+   raisonne en pro ↔ particulier. Séparer Solo de Duo ici offrirait un réglage que
+   personne n'a demandé, et qu'il faudrait porter dans tous les libellés. */
+type Clientele = "tous" | "pro" | "particulier";
+const CLIENTELES: { key: Clientele; label: string }[] = [
+  { key: "tous", label: "Tous les clients" },
+  { key: "pro", label: "Professionnels seulement" },
+  { key: "particulier", label: "Particuliers seulement" },
+];
 
 const LIST_LIMIT_MAX = 50;
 const KPI_DAYS_MAX = 365;
@@ -5018,6 +5280,12 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
      rechargement suivant. Une source sans propriétaire n'a pas la clé du tout. --- */
   const mine = desc.ownerField ? o.mine !== false : false;
 
+  /* --- Clientèle : offerte seulement si la source déclare un `clientField`. Toute valeur
+     inconnue retombe sur "tous" — un réglage illisible ne doit jamais restreindre en
+     silence. La clé est écrite même à "tous", pour la même raison que `mine`. --- */
+  const clientele: Clientele =
+    desc.clientField && CLIENTELES.some((c) => c.key === o.clientele) ? (o.clientele as Clientele) : "tous";
+
   return {
     title: asText(o.title ?? base.title),
     unit: asText(o.unit || base.unit) || "élément",
@@ -5026,6 +5294,7 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
     view,
     search: kind === "kpi" ? false : o.search !== false,
     ...(desc.ownerField ? { mine } : {}),
+    ...(desc.clientField ? { clientele } : {}),
     ...(facet ? { facet } : {}),
     ...(use.length ? { actions: { use } } : {}),
     ...(o.create && desc.create ? { create: true } : {}),
@@ -5089,13 +5358,46 @@ const ownerScope = (rows: Row[], cfg: InstanceCfg, ident?: UserIdent): Row[] => 
   return rows.filter((r) => ownerIsUser(asText(r[alias]), ident!));
 };
 
+/** « Pro » ↔ « particulier » à partir de la valeur brute du champ (« Pro », « Solo »,
+ *  « Duo »). Rend "" pour une valeur vide ou inconnue — non classable, et c'est une
+ *  information, pas un défaut : le champ peut ne pas être exposé côté Softr. PURE.
+ *  ⚠️ Tout ce qui n'est pas « pro » est un particulier : c'est vrai des deux valeurs
+ *  existantes (Solo, Duo) et le restera d'une éventuelle troisième forme de foyer, alors
+ *  qu'une liste blanche `["solo","duo"]` la classerait « inconnue » sans un mot. */
+const clientKind = (v: unknown): "pro" | "particulier" | "" => {
+  const t = foldText(v).trim();
+  return !t ? "" : t === "pro" ? "pro" : "particulier";
+};
+
+/** Périmètre CLIENTÈLE, appliqué comme `ownerScope` : avant les filtres, donc aussi aux
+ *  agrégats. Une ligne non classable est écartée quand un périmètre est demandé — sinon
+ *  « Professionnels seulement » afficherait des lignes dont rien ne dit qu'elles le sont.
+ *  ⚠️ SAUF si AUCUNE ligne n'est classable : le champ n'est alors pas exposé côté Softr
+ *  (il n'a pas été coché dans l'onglet Sources), et filtrer viderait le widget sans que
+ *  personne puisse comprendre pourquoi. On rend tout, et `DataView` affiche « Filtre
+ *  inactif » — même arbitrage que pour « mes fiches » sans session identifiable. */
+const clientScope = (rows: Row[], cfg: InstanceCfg): Row[] => {
+  const alias = CATALOG[cfg.source].clientField;
+  const veut = cfg.clientele;
+  if (!alias || !veut || veut === "tous") return rows;
+  if (!rows.some((r) => clientKind(r[alias]))) return rows;
+  return rows.filter((r) => clientKind(r[alias]) === veut);
+};
+
+/** Le périmètre clientèle est-il RÉELLEMENT applicable ? Demandé dans la cfg ne suffit
+ *  pas : il faut que les lignes portent le champ (voir `clientScope`). */
+const clientFilterActive = (cfg: InstanceCfg, rows: Row[]): boolean => {
+  const alias = CATALOG[cfg.source].clientField;
+  return !!alias && !!cfg.clientele && cfg.clientele !== "tous" && rows.some((r) => clientKind(r[alias]));
+};
+
 /** Lignes retenues par les filtres (ET), sans tri ni limite — base des agrégats.
  *  ⚠️ Le filtre PROPRIÉTAIRE passe en premier et hors de la grammaire des `Filter` : ce
  *  n'est pas un critère de consultation mais un PÉRIMÈTRE. Il s'applique donc aussi aux
  *  agrégats (`kpiCompute`), sinon un KPI compterait le portefeuille de tout le monde
  *  au-dessus d'une liste qui n'en montre qu'une part. */
 function selectRows(rows: Row[], cfg: InstanceCfg, ident?: UserIdent): Row[] {
-  const out = ownerScope(rows, cfg, ident);
+  const out = clientScope(ownerScope(rows, cfg, ident), cfg);
   const fs = cfg.query.filter;
   return fs.length ? out.filter((r) => fs.every((f) => matchFilter(r[f.field], f))) : out;
 }
@@ -5305,7 +5607,21 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const aliases = Object.keys(desc.fields);
+  /* Ce que la fiche montre, et ce qu'elle tait :
+     · `detail !== false` — un champ CALCULÉ qui ne serait qu'un doublon des colonnes dont
+       il est tiré n'a rien à y faire (cf. `clientNom`) ;
+     · valeur VIDE → champ masqué (2026-08-18, demandé). Le code affichait auparavant un
+       tiret, délibérément : « Signé le — » disait que le dossier n'était pas signé. À
+       l'usage c'est l'inverse qui gêne — sur un dossier en attente de solvabilité, contrat
+       et facturation n'existent pas ENCORE, et cinq lignes de tirets noient les trois
+       informations utiles. Le prix, assumé : on ne distingue plus « champ vide » de
+       « champ absent du descripteur », et une fiche change de longueur d'un dossier à
+       l'autre.
+     ⚠️ « Vide » se mesure sur `asText`, donc un `0` ou un `false` RESTENT affichés : un
+     CAPEX à 0 € est une information, pas une absence. Ne disparaissent que les chaînes
+     vides et les listes vides — dont les pièces jointes non déposées. */
+  const aliases = Object.keys(desc.fields)
+    .filter((x) => desc.fields[x].detail !== false && asText(row[x]).trim() !== "");
   /* Titre : le champ de rôle `title` s'il existe, sinon le premier champ texte non vide.
      Une fiche sans titre lisible serait une fiche qu'on ne sait pas rattacher. */
   const titre = asText(map.title ? row[map.title] : "")
@@ -5807,8 +6123,22 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
      compte / somme / moyenne sur TOUTES les lignes lues (cf. `rows` ci-dessous) : sans
      drainage elle annoncerait le total de la première page comme le total de la table. */
   const isKpiView = cfg.view.kind === "kpi";
+  /* ⚠️⚠️ DRAINER DÈS QUE LA SÉLECTION RESTREINT (2026-08-18), et pas seulement en vue KPI.
+     Une liste sans filtre décrit ce qu'elle montre — « les 12 derniers dossiers » — donc
+     une page suffit. Dès qu'un filtre, un périmètre ou une clientèle entre en jeu, elle
+     prétend montrer « les dossiers QUI remplissent un critère » : sur une seule page,
+     elle ne cherche que parmi les plus récents et rate tout le reste, sans rien dire.
+     C'est ce qui a motivé la règle : les deux files d'attente ajoutées ce jour-là portent
+     des dossiers qui remontent à décembre, très loin au-delà de la première page — le
+     widget en aurait affiché une poignée, l'air complet.
+     Le « N sur M » du sous-titre a le même besoin : M doit compter la table, pas la page.
+     Le coût (des dizaines de requêtes) est réel ; c'est le cache d'instantanés (§6-ter)
+     qui le rend invisible au retour sur la page. */
+  const restreint = cfg.query.filter.length > 0
+    || (!!cfg.mine && !!desc.ownerField)
+    || (!!cfg.clientele && cfg.clientele !== "tous");
   return (
-    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView}>
+    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
         /* Les réglages locaux (recherche, cases, tri) passent DANS `applyQuery`, donc
@@ -5818,11 +6148,22 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
            ce « sur M », une recherche qui ne rend rien ressemble à une source vide.
            ⚠️ `total` porte le MÊME périmètre propriétaire que `rows` : « 3 sur 12 » doit
            comparer ce qui est cherché à ce qui est visible, pas au fichier entier. */
-        const total = isKpi ? 0 : applyQuery(api.rows, cfg, undefined, ident).length;
-        const restreint = !isKpi && ((local.q ?? "") !== "" || (local.facetValues ?? []).length > 0);
+        /* ⚠️ `selectRows` et non `applyQuery` : `applyQuery` applique la LIMITE, donc son
+           compte était lui-même plafonné — « 3 sur 12 » comparait à la fenêtre et non à ce
+           qui existe. `selectRows` rend tout ce qui passe les filtres et le périmètre. */
+        const total = isKpi ? 0 : selectRows(api.rows, cfg, ident).length;
+        /* On annonce « N sur M » aussi quand c'est la LIMITE qui coupe, et pas seulement
+           une recherche : sinon une liste plafonnée à 20 sur 25 dossiers écrit « 20
+           dossiers » et cache les cinq autres sans un mot. C'est exactement ce qui est
+           arrivé aux deux files d'attente le 2026-08-18. */
+        const restreint = !isKpi && ((local.q ?? "") !== "" || (local.facetValues ?? []).length > 0 || rows.length < total);
         /* Le sous-titre DIT que la liste est réduite à son portefeuille : sans ça, un
            widget qui montre 4 notes sur 300 se lit comme une source presque vide. */
-        const perimetre = mineOn ? " · mes fiches" : "";
+        /* Le périmètre CLIENTÈLE s'annonce au même endroit et pour la même raison : « 4
+           dossiers » sous un titre neutre ne dit pas qu'on n'en montre qu'une part. */
+        const clienteleOn = clientFilterActive(cfg, api.rows);
+        const perimetre = (mineOn ? " · mes fiches" : "")
+          + (clienteleOn ? (cfg.clientele === "pro" ? " · pros" : " · particuliers") : "");
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
           : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}`
@@ -5847,6 +6188,19 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
                   <Badge variant="warn" dot>Filtre inactif</Badge>
                   <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
                     Session non identifiée : toutes les fiches sont affichées.
+                  </span>
+                </div>
+              )}
+              {/* ⚠️ Clientèle demandée mais AUCUNE ligne classable : le champ « Champs IA
+                  Config client » n'est pas exposé par la datasource (à cocher dans
+                  l'onglet Sources du bloc). On le DIT — sans ce bandeau, le réglage
+                  paraîtrait simplement ne rien faire, et on chercherait le défaut dans le
+                  code plutôt que dans la configuration Softr. */}
+              {!!cfg.clientele && cfg.clientele !== "tous" && !clientFilterActive(cfg, api.rows) && (
+                <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+                  <Badge variant="warn" dot>Filtre inactif</Badge>
+                  <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+                    Type de client non lu par la source : tous les dossiers sont affichés.
                   </span>
                 </div>
               )}
@@ -6217,6 +6571,24 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
             Le rapprochement se fait sur le NOM (ces champs ne portent pas d'e-mail) :
             décochez si votre nom est écrit autrement en base, ou si vous suivez le
             portefeuille de plusieurs personnes.
+          </p>
+        </>
+      )}
+
+      {/* CLIENTÈLE — même famille que « mes fiches » : un PÉRIMÈTRE, pas un critère de
+          consultation. Sous le même intertitre quand les deux existent. Un `<select>` et
+          non deux cases : les trois états sont exclusifs, et deux cases laisseraient
+          poser « ni pro ni particulier », qui ne veut rien dire. */}
+      {desc.clientField && (
+        <>
+          {!desc.ownerField && <div style={lbl}>Périmètre</div>}
+          <select value={cfg.clientele ?? "tous"} onChange={(e) => set({ clientele: e.target.value as Clientele })}
+            style={{ ...field, marginTop: desc.ownerField ? 8 : 0 }}>
+            {CLIENTELES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <p style={{ margin: "2px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+            « Particuliers » regroupe les dossiers Solo et Duo — la base ne connaît que ces
+            deux formes de foyer, et « Pro » pour tout le reste.
           </p>
         </>
       )}
@@ -7018,6 +7390,62 @@ const NOTES_PRO_CFG: InstanceCfg = cfgOfSource("notesPro", { title: "Dernières 
 
 // Widget « data » créé de zéro depuis la galerie : liste des dossiers Abonné.
 const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
+
+/* --- LES DEUX FILES D'ATTENTE — cfg FIGÉES (2026-08-18) ----------------------------
+   Elles ont d'abord été des modèles du widget générique. Le générique donnait avec elles
+   tout son formulaire : source, mappage, colonnes, filtres, tri, limite, périmètre,
+   clientèle, recherche… soit une dizaine de réglages pour un widget dont la raison d'être
+   tient en une phrase — « les dossiers en attente de solvabilité, point ». On pouvait même
+   lui changer sa source, donc lui faire afficher tout autre chose sous le même titre.
+   Ces deux-là sont donc devenues des TYPES à part entière, sans `Options` (§10) : le ⋮ n'y
+   propose plus que le nom et la couleur, et le contenu ne bouge pas.
+
+   `limit: LIST_LIMIT_MAX` — une file d'attente se montre ENTIÈRE : c'est une charge de
+   travail, pas un aperçu des derniers arrivés. 25 dossiers étaient en attente de
+   solvabilité au 2026-08-18, et le plafond du générique (20) en cachait cinq sans le dire.
+   Si la file dépasse un jour ce maximum, `DataView` l'annonce (« 50 sur 62 »).
+   `search: false` et `facet: ""` — pas de barre d'outils : moins il y a à régler, mieux la
+   carte dit ce qu'elle est. --- */
+const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
+  title, unit: "dossier",
+  source: "abonnes",
+  /* Tri ASCENDANT, à l'inverse du reste du bloc : une file se lit par le haut, le dossier
+     qui traîne depuis décembre doit passer devant celui d'hier. */
+  query: { filter: [filtre], sort: { by: "creeLe", dir: "asc" }, limit: LIST_LIMIT_MAX },
+  /* `title: "clientNom"` — la raison sociale pour un pro, le nom pour un particulier
+     (§6-bis). Mappé sur `nom`, ce widget affichait des lignes SANS TITRE pour les deux
+     tiers de la file : sur un dossier pro, « Nom » est vide dans la base. */
+  view: { kind: "list", map: { title: "clientNom", sub: "partenaire", date: "creeLe", badge: "statut" } },
+  search: false,
+  facet: "",
+}, cfgOfSource("abonnes"));
+
+/* --- LE SEUL RÉGLAGE DE CES WIDGETS : L'ORDRE ---------------------------------------
+   Une file d'attente se lit de deux façons — par l'ancienneté (qui attend depuis le plus
+   longtemps ?) et par l'enjeu (quels dossiers pèsent le plus ?). C'est le seul choix qui
+   change la façon de travailler ; tout le reste — source, filtre, colonnes — resterait
+   une invitation à détourner le widget de ce que son titre promet.
+   Quatre entrées et pas un formulaire : le ⋮ n'offre donc que le nom, la couleur, et ceci. */
+const FILE_TRIS = [
+  { key: "ancien", label: "Le plus ancien d'abord", by: "creeLe", dir: "asc" },
+  { key: "recent", label: "Le plus récent d'abord", by: "creeLe", dir: "desc" },
+  { key: "capexHaut", label: "CAPEX le plus élevé d'abord", by: "capex", dir: "desc" },
+  { key: "capexBas", label: "CAPEX le plus faible d'abord", by: "capex", dir: "asc" },
+] as const;
+type FileTri = (typeof FILE_TRIS)[number]["key"];
+/* Par défaut l'ancienneté : c'est une FILE, et ce qui traîne doit se voir en premier. */
+const fileTriOf = (raw: unknown): (typeof FILE_TRIS)[number] =>
+  FILE_TRIS.find((t) => t.key === asText(asObj(raw).tri)) ?? FILE_TRIS[0];
+
+/* ⚠️ `eq` et non `contains` : « contient solvabilité » ramasserait CINQ statuts, dont
+   « Refusé : solvabilité » et « Demande d'infos : solvabilité » — des dossiers morts et
+   une autre file, sous un titre qui promet une seule chose. */
+const ATT_SOLVA_CFG: InstanceCfg = fileCfg("En attente de solvabilité",
+  { field: "statut", op: "eq", value: "En attente de solvabilité" });
+/* `contains` ici, au contraire : le pipeline compte TROIS « Demande d'infos » (technique ·
+   solvabilité · les deux), et les énumérer figerait le widget au jour du quatrième. */
+const DEM_INFOS_CFG: InstanceCfg = fileCfg("Demandes d'infos",
+  { field: "statut", op: "contains", value: "Demande d'infos" });
 
 /* --- EMBEDS ELFSIGHT — ISOLÉS DANS UNE IFRAME `srcDoc` ------------------------
    ⚠️⚠️ POURQUOI UNE IFRAME, ET NON LE SNIPPET DANS CE DOCUMENT : parce que le montage
@@ -8781,6 +9209,12 @@ type WidgetTypeKey =
   | "podium" | "classementCom" | "classementInst" | "comIndics"
   /* ← Exceptions (§9-octies) : les tuiles de couverture et le registre. */
   | "excIndics" | "excRegistre"
+  /* ← Les deux FILES D'ATTENTE du pipeline dossier (2026-08-18). Types sur-mesure et non
+     instances `data`, alors que leur RENDU est celui d'une liste générique : c'est leur
+     cfg qui est le sujet. Figée, elle ne peut pas dériver — on ne peut ni changer leur
+     source, ni leur filtre, ni leur tri. Un widget dont la raison d'être tient en une
+     phrase ne doit pas offrir dix réglages qui la contredisent. */
+  | "attSolva" | "demInfos"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
   | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
@@ -8811,6 +9245,44 @@ const dataType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTyp
   Options: DataOptions,
 });
 
+/* Fabrique d'une FILE D'ATTENTE. La cfg enregistrée n'est PAS la cfg du widget : `coerce`
+   n'y lit qu'une chose, l'ordre, et reconstruit tout le reste depuis la constante figée.
+   Deux conséquences voulues :
+     · rien de ce que porte le document de disposition ne peut détourner ces widgets —
+       ni leur source, ni leur filtre, ni leurs colonnes ;
+     · une instance posée hier suit automatiquement une correction de filtre faite ici.
+   `Options` n'offre donc que le tri (`FileOptions`), et le ⋮ le nom et la couleur. */
+const fileType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTypeDef => ({
+  title,
+  icon,
+  Render: ({ cfg }) => <DataView cfg={cfg} />,
+  coerce: (raw) => {
+    const t = fileTriOf(raw);
+    return { ...base, tri: t.key, query: { ...base.query, sort: { by: t.by, dir: t.dir } } };
+  },
+  Options: FileOptions,
+});
+
+/** Le formulaire d'une file : UN sélecteur. Il rend `{ tri }` et RIEN d'autre — la cfg
+ *  stockée dans le layout tient donc en une clé, et `coerce` reconstruit le reste. */
+function FileOptions({ cfg, onChange }: { cfg: any; onChange: (next: any) => void }) {
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 5px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  return (
+    <>
+      <div style={lbl}>Ordre d'affichage</div>
+      <select value={cfg?.tri ?? FILE_TRIS[0].key} style={field}
+        onChange={(e) => onChange({ tri: e.target.value as FileTri })}>
+        {FILE_TRIS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+      </select>
+      <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        C'est le seul réglage de ce widget : ce qu'il montre — les dossiers du statut, tous,
+        sans filtre ni périmètre — ne se change pas.
+      </p>
+    </>
+  );
+}
+
 const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   /* ⚠️ La CLÉ reste `notifs` : c'est un contrat de persistance (les layouts déjà
      enregistrés la portent). Seul le titre change — « Nouveaux dossiers abonnés »
@@ -8820,6 +9292,10 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   taches: { title: "Journal des tâches", icon: CalendarClock, Render: TachesCard },
   notesInstallateurs: dataType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
   notesProspects: dataType("Dernières notes — Prospects", Target, NOTES_PRO_CFG),
+  /* Les deux FILES D'ATTENTE : `fileType` et non `dataType`, donc AUCUN réglage de
+     contenu (§10). Voir `ATT_SOLVA_CFG` / `DEM_INFOS_CFG` pour ce qu'elles montrent. */
+  attSolva: fileType("En attente de solvabilité", Clock, ATT_SOLVA_CFG),
+  demInfos: fileType("Demandes d'infos", Inbox, DEM_INFOS_CFG),
   // Titres modifiables librement (les CLÉS, elles, sont figées : contrat de persistance).
   linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Render: LinkedinCard },
   linkedinBanner: { title: "À la une SunLib", icon: Megaphone, Render: LinkedinBannerCard },
@@ -9106,6 +9582,10 @@ const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
    d'annonces n'a pas besoin d'un widget de 340 px) et leur groupe de galerie. */
 const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetHeight; group: string; shape: ShapeKind; desc: string }[] = [
   { type: "notifs", group: "abonnes", shape: "list", desc: "Les nouveaux dossiers abonnés notifiés, leur statut, l'état lu / non lu et un accès à la fiche." },
+  /* Les deux files d'attente. Leur description dit ce qu'elles montrent ET qu'elles ne se
+     règlent pas : c'est ce qui les distingue d'une liste posée depuis les modèles. */
+  { type: "attSolva", group: "abonnes", shape: "list", desc: "Tous les dossiers au statut « En attente de solvabilité », le plus ancien en tête. Rien à régler." },
+  { type: "demInfos", group: "abonnes", shape: "list", desc: "Tous les dossiers en « Demande d'infos » (technique, solvabilité ou les deux), le plus ancien en tête. Rien à régler." },
   { type: "taches", group: "taches", shape: "list", desc: "Vos tâches prospects et partenaires, avec leur échéance et la case « Fait »." },
   /* Hauteurs de pose accordées au contenu réel de chaque embed : il ne défile pas, donc
      ce qui dépasse est perdu jusqu'à ce qu'on agrandisse la carte à la main. */
@@ -10428,11 +10908,6 @@ export default function Block() {
   const rootRef = useRef<HTMLDivElement>(null);
   useHoverFX(rootRef);
 
-  /* CACHE D'INSTANTANÉS (§6-ter) — l'état de rafraîchissement est monté ICI, au-dessus
-     de tout, parce que le bouton vit dans le héro et les sources dans les widgets : ils
-     ne se croisent nulle part ailleurs. */
-  const refreshApi = useRefreshState();
-
   /* Purge au montage, UNE fois : entrées d'un autre utilisateur (poste partagé),
      d'une version périmée, ou vieilles de plus de sept jours. Ce cache contient des
      données CRM nominatives — le ménage n'est pas de l'hygiène de quota, c'est la
@@ -10450,7 +10925,6 @@ export default function Block() {
   }, [email]);
 
   return (
-    <RefreshCtx.Provider value={refreshApi}>
     <div id="slb" ref={rootRef} style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
       {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
@@ -10480,6 +10954,5 @@ export default function Block() {
 
       </div>
     </div>
-    </RefreshCtx.Provider>
   );
 }

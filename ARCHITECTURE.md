@@ -94,7 +94,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 5 | Helpers de formatage : `fmtDate`, `relDays`, `fmtRel`, `fmtDue`, `dueVariant`, `initials`, `avatarBg`, `firstNameOf` |
 | **6** | **Données** : `DS = datasource.define({…})`, tous les `SELECT_*`, types de vue, `flatten`/`flattenRows`, `mapNotif`/`mapTask`/`mapNote`/`isDone`, `MOCK_USER` + `MOCK_ROWS` (indexé par source) |
 | **6-bis** | **Couche SOURCES** : `SourceKey`, **descripteur `CATALOG`** (`SourceDesc`/`FieldDesc`), map `ICONS` + `iconOf`, `variantOf`, `isLive`/`liveState`/`offlineState`, adapters (`AbonnesSource`) et dispatch statique **`SourceFeed`** |
-| **6-ter** | **Cache d'INSTANTANÉS** (2026-08-18) : `snapSig`/`snapKey`, `readSnapshot`/`writeSnapshot`/`evictOldest`/`purgeSnapshots`, `snapAge`, `RefreshCtx`/`useRefreshState`, et **`useSnapshot`** — la jointure instantané ↔ live appelée par les 12 adapters. Détail complet en §4 |
+| **6-ter** | **Cache d'INSTANTANÉS** (2026-08-18) : `snapSig`/`snapKey`, `readSnapshot`/`writeSnapshot`/`evictOldest`/`purgeSnapshots`, `snapAge`/`fmtStamp`, **`SourceRefreshCtx`** (le bouton « relire » de chaque carte), et **`useSnapshot`** — la jointure instantané ↔ live appelée par les 12 adapters. Détail complet en §4 |
 | 7 | `NAV_TABS` + `QUICK_LINKS` (URLs, la plupart encore `#`) |
 | 8 | Composants de page : `EmptyState`, les **4 contextes de widget** (`WidgetChromeCtx`, `WidgetOptionsCtx`, **`WidgetCfgCtx`**, **`WidgetGrabCtx`**) + `WidgetHeightCtx`, `useDismissOnOutside`/`hitsRect`, `WidgetEditMenu`, **`Widget`** (la coquille), `ScrollBody`, `PageNavBar`, `Hero`, **`topOrigin`/`softrPageUrl`**, `QuickLinks`, `EmbedTab` |
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
@@ -803,8 +803,13 @@ Deux détails de lecture qui comptent : la comparaison des 30 jours **nomme** la
 « +2 100 % » ; et `fmtPct` écrit « 0,3 % » plutôt que « 0 % », qui se lirait comme *aucun* alors que
 six dossiers sont concernés.
 
-Non reprises du bloc KPI, faute de sens ici : le bouton « Rafraîchir » (les sources se relisent au
-montage) et l'ouverture d'une ligne en fiche détail.
+~~Non reprises du bloc KPI, faute de sens ici : le bouton « Rafraîchir » (les sources se relisent au
+montage) et l'ouverture d'une ligne en fiche détail.~~ **Les deux ont fini par être reprises** :
+la fiche détail est devenue `RecordDialog` (générique, §2), et le bouton « relire » existe depuis le
+2026-08-18 — sur **chaque carte** qui lit la base, et non en tête de page (§4). Le raisonnement
+d'origine (« les sources se relisent au montage ») était juste tant que revenir sur la page
+relisait tout ; le cache d'instantanés a précisément supprimé cette relecture systématique, donc il
+a fallu rendre le geste explicite.
 
 ### La galerie — feuille modale, recherche, miniatures (2026-08-04)
 
@@ -1028,7 +1033,7 @@ vérité ; l'instantané n'est qu'un point de départ.
 | **Listes** | tronquées à `SNAP_ROWS_LIST = 80` lignes ; les sources drainées sont gardées **entières** |
 | **Quota plein** | `evictOldest` supprime l'instantané le plus ancien et réessaie (4 fois) |
 | **Purge** | au montage : autre e-mail, autre version, plus de 7 jours |
-| **Horodatage** | `slb-home-snap-at`, global, alimente le chip du héro |
+| **Horodatage** | le `at` de CHAQUE entrée, remonté par `useSnapshot` jusqu'au bouton de sa carte |
 
 **Deux règles qui portent toute la justesse** — les toucher, c'est rouvrir le défaut du bloc SAV :
 
@@ -1041,15 +1046,39 @@ vérité ; l'instantané n'est qu'un point de départ.
 **Ce que ça change à l'écran.** `SourceState` gagne `stale` et `at`. Les widgets ne voient plus
 `loading: true` quand un instantané est servi (donc plus de squelette), et `AggregateNote` a un
 **troisième état**, « Instantané — chiffres d'il y a N min, mise à jour en cours », qui passe avant
-« Calcul en cours » et « Calcul partiel ». Le héro porte un **chip de fraîcheur** cliquable
-(`FreshnessChip`) : c'est le seul bouton « Rafraîchir » de la page, parce que le cache est posé
-sous les **sources**, pas sous les widgets.
+« Calcul en cours » et « Calcul partiel ».
 
-**Le rafraîchissement** passe par un `nonce` (`RefreshCtx`) porté en `key` sur un `Fragment` dans
-`SourceFeed` : l'incrémenter démonte et remonte les adapters, donc `useRecords` repart. C'est le
-seul mécanisme qui ne suppose rien de l'API Softr. En renfort, `useDrainPages` appelle
-`res.refetch?.()` au premier montage **qui suit** un rafraîchissement explicite — au cas où Softr
-garderait un cache mémoire (react-query, `staleTime`) que le remontage ne traverserait pas.
+### Relire — un bouton par carte, pas un bouton pour tout (2026-08-18)
+
+Il y a d'abord eu un **chip unique dans le héro**. Il a été retiré le jour même : il relisait
+**tout** — une dizaine de sources, jusqu'à 120 requêtes pour certaines — alors que l'intention est
+presque toujours « CE widget-là a bougé, montre-le moi ». Un bouton dont le coût est sans rapport
+avec l'intention est un bouton qu'on n'ose plus cliquer.
+
+`SourceFeed` tient donc un `nonce` **local**, porté en `key` sur un `Fragment` : l'incrémenter
+démonte et remonte **son** adapter, donc `useRecords` repart. C'est le seul mécanisme qui ne suppose
+rien de l'API Softr. En renfort, `useDrainPages` appelle `res.refetch?.()` au premier montage **qui
+suit** un rafraîchissement explicite (`nonce > 0`) — au cas où Softr garderait un cache mémoire
+(react-query, `staleTime`) que le remontage ne traverserait pas.
+
+**Le bouton apparaît sans qu'aucun widget soit modifié.** `SourceFeed` publie `{nonce, refresh,
+busy, at, publish}` dans **`SourceRefreshCtx`**, que la coquille `Widget` consomme. D'où trois
+propriétés obtenues par construction plutôt que par une liste à tenir à jour :
+
+- un widget **sans source** (horloge, pense-bête, liste à cocher, feeds LinkedIn) ne trouve aucun
+  contexte : **pas de bouton** ;
+- une source **non connectée** (qui sert son mock en production) n'installe pas de provider : pas de
+  bouton non plus — même règle que `write`, mieux vaut pas de bouton qu'un bouton qui ment. En
+  **aperçu** (`USE_MOCK`) il est au contraire conservé, comme les écritures y sont simulées ;
+- un widget à **plusieurs sources** (les exceptions en lisent quatre) a des `SourceFeed` imbriqués,
+  et chaque niveau **compose** avec celui du dessus : un seul bouton, qui les relit toutes. Sans
+  cette composition il n'aurait rafraîchi que la source la plus interne, et le widget aurait affiché
+  un total mis à jour à moitié.
+
+L'information circule **dans les deux sens** : le contexte descend `refresh`, et `useSnapshot`
+remonte `{reading, at}` par `publish` — c'est le seul endroit qui connaisse l'état réel de la
+lecture. `reading` fait tourner l'icône, `at` remplit le `title` (« Données du 18/08 à 09:14 —
+cliquer pour relire »).
 
 **Limite connue, assumée** : l'instantané est écrit **une fois par montage**, à la fin de la
 lecture. Une écriture faite ensuite depuis la page (cocher « Fait », marquer une notification vue)
@@ -1086,7 +1115,7 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 | Alias | Table Airtable | État | Champs (alias → nom exact) |
 |---|---|---|---|
 | `prefs` | « Home Preferences » (SunLib CRM — Préférences) | ✅ **connecté** | email `user_email` · layout `layout_json` · updatedAt `updated_at` · schemaVersion `schema_version` |
-| `abonnes` | « Abonnés » (BDD Abonné) | ✅ **connecté** | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
+| `abonnes` | « Abonnés » (BDD Abonné) | ✅ **connecté** | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` · **client `Champs IA Config client`** *(2026-08-18)* |
 | `notesIns` | « Suivi client » (Bdd Installateurs, `tblkP20xivQbSSLUj`) | ✅ **connecté** | nom `Installateur` · note `Notes` · date `Date `*(espace final)* |
 | `notesPro` | « Suivi propect » (BDD Propect, `tblaWCbZGGz7IUdNm`) | ✅ **connecté** | nom `Nom` · note `Notes` · date `date `*(espace final, createdTime)* |
 | `tachesPa` | « Taches » (Bdd Installateurs, `tblebnLi0r90yuqry`) | ✅ **connecté** | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` |
@@ -1111,6 +1140,108 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 > **sans** espace (alias `installateur` de `SELECT_COM`). Les deux noms ont été vérifiés sur
 > Airtable le 2026-08-04. `Propio SOFTR` est un **singleSelect** : Softr peut le rendre en
 > objet `{ id, name }`, d'où le passage systématique par `asText`.
+
+### Pro / particulier, et les deux files d'attente (2026-08-18)
+
+**Le champ.** `Champs IA Config client` (`fld3SpiGzcJrADLgL`) est une **formule** qui rend trois
+valeurs, et trois seulement : civilité vide → **`Pro`** · « Monsieur » ou « Madame » → **`Solo`** ·
+sinon → **`Duo`**. La base ne dit donc **jamais « particulier »** : c'est notre regroupement
+(Solo ∪ Duo), fait à un seul endroit, `clientKind`. Relevé sur les 39 dossiers en attente le
+2026-08-18 : 31 Pro, 7 Solo, 1 Duo, aucune valeur vide.
+
+**Le réglage.** `clientField` sur `SourceDesc` — même patron que `ownerField` : renseigné, tout
+widget de la source gagne un `<select>` « Tous / Professionnels / Particuliers » (`cfg.clientele`),
+à **`tous`** par défaut. Le filtrage passe par `clientScope`, appliqué dans `selectRows` **avant**
+les filtres, donc aussi aux agrégats — un KPI ne doit pas compter tout le monde au-dessus d'une
+liste qui n'en montre qu'une part.
+
+> ⚠️ **Le champ doit être coché dans l'onglet Sources du bloc** pour la datasource `abonnes`, sinon
+> Softr refuse la datasource entière (« does not match / Remap the fields »). S'il arrive vide sur
+> **toutes** les lignes, `clientScope` **ne filtre rien** et le widget affiche « Filtre inactif » —
+> plutôt qu'une liste vide dont personne ne saurait dire si elle est juste.
+
+**Les 17 statuts.** La liste d'`options`/`variants` de `statut` a été **entièrement refaite** le
+2026-08-18 : celle du 2026-07-31 n'était plus juste, le pipeline ayant été redécoupé. Six statuts
+qu'elle listait n'existent plus (« Dossier incomplet pour instruction », « … pour édition de
+contrat », « Dossier complet pour instruction », « Assurance non ok », « Dossier PRO en cours
+d'étude du service technique », « En attente validation ») et neuf nouveaux manquaient. Les couleurs
+suivent une règle : **warn** = la balle est dans notre camp (demande d'infos, contrat à éditer),
+**info** = on attend un tiers (solvabilité, validation, signature).
+
+> ⚠️ **Effet de bord : le modèle « Dossiers incomplets » est mort.** Il filtre sur
+> `statut contains "incomplet"` et **plus aucun statut ne contient ce mot** — il rend donc une
+> liste vide en permanence. Laissé en l'état : décider ce que « incomplet » désigne aujourd'hui est
+> un arbitrage métier, pas une correction technique.
+
+**Les deux files d'attente** — `attSolva` et `demInfos`, des **types** (§10) et non des modèles :
+
+| Widget | Filtre | Pourquoi ce filtre |
+|---|---|---|
+| Demandes d'infos | `statut contains "Demande d'infos"` | le pipeline en compte **trois** (technique · solvabilité · les deux) ; les énumérer figerait le widget au jour où un quatrième apparaît |
+| En attente de solvabilité | `statut eq "En attente de solvabilité"` | `contains "solvabilité"` en ramasserait **cinq**, dont deux « Refusé » — des dossiers morts dans une file d'attente |
+
+Les deux trient par `creeLe` **ascendant**, à l'inverse du reste du bloc : une file d'attente se lit
+par le haut, le dossier qui traîne depuis décembre doit passer devant celui d'hier.
+
+> ⚠️ **Elles ont d'abord été des modèles du widget générique, et c'était une erreur** (corrigée le
+> jour même). En `data`, elles héritaient de tout le formulaire — source, mappage, colonnes,
+> filtres, tri, limite, périmètre, clientèle, recherche : une dizaine de réglages pour un widget
+> dont la raison d'être tient en une phrase, et parmi lesquels **le choix de la source**, qui
+> permettait de leur faire afficher tout autre chose sous le même titre. Leur `limit: 20` cachait
+> par ailleurs 5 des 25 dossiers en attente, sans le dire.
+>
+> Ce sont donc des `WidgetTypeDef` **sans `Options`** (fabrique `fileType`), avec une cfg figée en
+> constante. Pas de `coerce` non plus : la cfg enregistrée est ignorée, si bien qu'une instance
+> posée hier suit automatiquement une correction de filtre faite dans le code. Le ⋮ n'y propose
+> plus que le **nom** et la **couleur**. Les deux modèles d'origine sont `hidden` — masqués et non
+> supprimés, la clé de galerie étant `abonnes:<index>`.
+>
+> Au passage, `DataView` annonce désormais « **N sur M** » quand c'est la **limite** qui coupe, et
+> plus seulement une recherche : une liste plafonnée à 20 sur 25 écrivait « 20 dossiers » et cachait
+> les cinq autres. Le compte de référence vient de `selectRows` et non d'`applyQuery`, qui applique
+> lui-même la limite — « 3 sur 12 » comparait donc à la fenêtre, pas à ce qui existe.
+
+**Leur seul réglage : l'ordre.** `FileOptions` n'offre qu'un `<select>` — plus ancien / plus récent
+/ CAPEX élevé / CAPEX faible. Une file se lit de deux façons, par l'ancienneté et par l'enjeu ; le
+reste (source, filtre, colonnes) serait une invitation à détourner le widget. La cfg stockée ne
+porte **que** la clé `tri` : `coerce` reconstruit tout le reste depuis la constante figée.
+
+### Champs CALCULÉS — `derive` (2026-08-18)
+
+Un `FieldDesc` peut porter un **`derive: (row) => …`** : le champ est alors rempli à partir des
+autres alias au lieu d'être lu dans un select. Appliqué par `deriveRows` dans **`feedFor`** — un
+seul point de passage, mock compris, et **après** le cache d'instantanés (le cache ne garde que ce
+que la base a rendu, donc corriger une règle prend effet sans le vider).
+
+Le cas qui l'a introduit : **sur un dossier PRO, « Nom » est VIDE** — c'est « Nom de l'entreprise »
+qui porte le client. Les listes mappées sur `nom` affichaient donc une ligne **sans titre** pour les
+deux tiers des dossiers en attente. D'où `clientNom` : la raison sociale pour un pro, le nom de
+famille sinon, avec **repli dans les deux sens** (un pro sans raison sociale garde son nom). La
+règle vit dans le **descripteur** et non dans un widget : « qui est le client » est une propriété de
+la table, et `defaultMap.title` d'`abonnes` pointe désormais dessus.
+
+> Un `FieldDesc` peut aussi porter **`detail: false`** — utilisable comme titre, colonne, tri ou
+> filtre, mais absent de la pop-up. C'est le cas de `clientNom`, qui n'y serait qu'un doublon de
+> « Nom » et « Nom de l'entreprise ».
+
+### La fiche de détail masque les champs VIDES (2026-08-18)
+
+`RecordDialog` affichait tout champ déclaré, vide compris, avec un tiret — délibérément : « Signé
+le — » disait que le dossier n'était pas signé. **Inversé sur demande** : à l'usage, cinq lignes de
+tirets (facture, contrat édité, contrat signé…) noyaient les trois informations utiles d'un dossier
+en attente de solvabilité, où contrat et facturation n'existent pas *encore*.
+
+Le prix est assumé : on ne distingue plus « champ vide » de « champ absent du descripteur », et une
+fiche change de longueur d'un dossier à l'autre. ⚠️ « Vide » se mesure sur `asText` : un `0` ou un
+`false` **restent affichés** — un CAPEX à 0 € est une information, pas une absence. Ne disparaissent
+que les chaînes et les listes vides, dont les pièces jointes non déposées.
+
+**Et le drainage a changé de règle.** `DataView` ne drainait qu'en vue KPI. Il draine désormais dès
+que la sélection **restreint** — filtre, périmètre propriétaire ou clientèle. Sans ça, ces deux
+modèles auraient cherché leurs dossiers dans la **première page** seulement : les 39 concernés
+s'étalent de décembre à août, le widget en aurait montré une poignée avec l'air d'être complet. Le
+« N sur M » du sous-titre a le même besoin — M doit compter la table, pas la page. Le coût est réel
+(des dizaines de requêtes) ; c'est le cache d'instantanés (§4) qui le rend invisible au retour.
 
 ### Les tuiles d'indicateurs — un rendu, deux widgets
 

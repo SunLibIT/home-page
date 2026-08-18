@@ -47,10 +47,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 
 1. **Héro** — dégradé de marque `#13A3AC → #3CAE68` (seule exception validée), **animé en boucle
    lente** via la Web Animations API, « Bienvenue {prénom} ! », date du jour, 1 chip
-   **« Notifications » sans compteur** (à implémenter), un **chip de fraîcheur** cliquable
-   (« À jour · chiffres d'il y a 4 min » / « Actualisation… ») qui est le **seul bouton
-   Rafraîchir** de la page, **sunburst SVG animé** à droite (le logo rond distant, reconstruit
-   pour pouvoir l'animer rayon par rayon).
+   **« Notifications » sans compteur** (à implémenter), **sunburst SVG animé** à droite (le logo
+   rond distant, reconstruit pour pouvoir l'animer rayon par rayon).
+   *Un chip « Rafraîchir » global y a vécu quelques heures le 2026-08-18 : il relisait les dix
+   sources d'un coup. Le geste est passé sur **chaque carte qui lit la base** (voir §5).*
 2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
 3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
    grille qui reste visible). Cinq apps Vercel publiques embarquées : Calculette d'abonnement,
@@ -60,6 +60,53 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    l'affichage est suspendu. Le départ en **nouvel onglet** (`url`) n'est plus utilisé par
    aucune entrée mais reste supporté : une app à login refuse l'iframing et n'aurait qu'un
    cadre blanc, elle devra passer par là.
+
+   ### Une seule barre de défilement — le protocole de hauteur (2026-08-18)
+
+   Un outil ouvert affichait **deux barres imbriquées** : la sienne et celle de la page. La
+   cause n'est pas un réglage à trouver — l'iframe est **cross-origin**, donc le bloc ne peut
+   ni mesurer la hauteur du document distant ni styliser sa barre. Le cadre était simplement
+   plus court que le contenu.
+
+   La seule façon exacte de le dimensionner : que **l'app annonce sa hauteur**. Le bloc écoute
+   déjà (`useEmbedHeight`, `Block.tsx`) ; il ne reste qu'à coller ceci **dans chaque app
+   embarquée** (avant `</body>`, ou dans un `useEffect` de son composant racine) :
+
+   ```html
+   <script>
+   /* Annonce la hauteur du document au bloc SunLib qui embarque cette page, pour qu'il
+      supprime sa barre de défilement. Sans effet hors iframe. */
+   (function () {
+     if (window.parent === window) return;
+     var envoyer = function () {
+       var d = document.documentElement, b = document.body;
+       var h = Math.max(d.scrollHeight, d.offsetHeight, b ? b.scrollHeight : 0, b ? b.offsetHeight : 0);
+       window.parent.postMessage({ type: "sunlib:embed-height", height: h }, "*");
+     };
+     if (window.ResizeObserver) new ResizeObserver(envoyer).observe(document.documentElement);
+     window.addEventListener("load", envoyer);
+     setInterval(envoyer, 1000);   // filet : contenu qui grandit sans redimensionner le document
+     envoyer();
+   })();
+   </script>
+   ```
+
+   Ce qu'il faut savoir avant de le poser :
+
+   - **App par app, sans coordination.** Une app qui n'envoie rien garde exactement le cadre
+     qu'elle avait (`min(1200px, 82vh)`) : aucune régression sur celles qu'on n'a pas touchées.
+   - **`"*"` en destination est volontaire** : l'app ne connaît pas l'origine Softr, qui varie.
+     Le contrôle de sécurité est **côté bloc**, qui n'accepte un message que s'il vient de
+     l'origine de l'outil affiché — une hauteur n'est pas une donnée sensible, mais un cadre
+     redimensionnable par n'importe qui en serait une.
+   - **Le cadre passe alors en `scrolling="no"`**, et seulement alors : sur une hauteur devinée,
+     l'attribut rendrait le bas du contenu inatteignable.
+   - **Si l'app se dimensionne en `100vh`**, elle annoncera la hauteur de son propre cadre : la
+     hauteur sera stable mais pas plus juste qu'avant. Il faut alors que sa racine se dimensionne
+     sur son **contenu**, pas sur la fenêtre.
+   - **À vérifier en recette** : le bloc vit lui-même dans une iframe Softr. Un outil de 3 000 px
+     rend le bloc très haut — si Softr ne suit pas la hauteur de son bloc, la barre réapparaîtra
+     un cran plus haut. C'est le seul point que l'aperçu local ne peut pas révéler.
 4. **Raccourcis** (onglet Accueil) — tuiles vers les pages de l'espace en `target="_top"`. Cette
    section s'appelait « Outils » avant que les outils aient leur onglet. **Contact Partenaire est
    masqué depuis le 2026-08-18** (même convention `hidden` : le slug reste au registre).
@@ -256,7 +303,7 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 
 | Alias (`DS.`) | Table Airtable (base)                       | Datasource ID | Champs (alias → nom Airtable exact) |
 | ------------- | ------------------------------------------- | ------------- | ----------------------------------- |
-| `abonnes`  | « Abonnés » (BDD Abonné)                        | ✅ `8fc957d0-…` | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` |
+| `abonnes`  | « Abonnés » (BDD Abonné)                        | ✅ `8fc957d0-…` | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` · **client `Champs IA Config client`** · **entreprise `Nom de l'entreprise`** ⚠️ *les DEUX à cocher côté Softr* |
 | `notesIns` | « Suivi client » (Bdd Installateurs)           | ✅ `122fbc71-…` | nom `Installateur` · note `Notes` · date `Date ` *(espace final)* · **⚠️ à exposer** : proprio `Proprietaire (from Installateurs)` |
 | `notesPro` | « Suivi propect » (BDD Propect)                | ✅ `dbd7e501-…` | nom `Nom` · note `Notes` · date `date ` *(espace final, createdTime)* · **⚠️ à exposer** : proprio `Propriétaire (from Propects)` *(lookup **créé le 2026-08-07**)* |
 | `tachesPa` | « Taches » (Bdd Installateurs)                 | ✅ `7198b954-…` | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` · **⚠️ à exposer** : assignee `Assignee` |
@@ -511,9 +558,12 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
      chiffre qui valide ou non `SNAP_MAX_CHARS = 900 000` (estimé, jamais mesuré en production).
   2. **2e visite** (aller sur une autre page de l'espace, puis revenir) : la page doit être pleine
      **immédiatement**, le chip afficher « Actualisation… », les widgets d'agrégat « Instantané ».
-  3. **Cliquer le chip** : vérifier dans l'onglet Réseau que des requêtes **repartent**. Si rien ne
-     part, le remontage par `key` ne suffit pas et c'est le `res.refetch?.()` de `useDrainPages`
-     qu'il faut reprendre.
+  3. **Cliquer le ⟳ d'une carte** (en-tête, à gauche du ⋮ — présent uniquement sur les widgets qui
+     lisent la base) : l'icône tourne, et l'onglet Réseau doit montrer des requêtes **repartir pour
+     cette source seulement**. Si rien ne part, le remontage par `key` ne suffit pas et c'est le
+     `res.refetch?.()` de `useDrainPages` qu'il faut reprendre. Vérifier aussi qu'un widget **sans
+     source** (horloge, pense-bête) n'a **pas** ce bouton, et que celui des **Exceptions** — qui lit
+     quatre sources — les relit bien toutes.
   4. **Contrôle de justesse** : comparer un agrégat servi depuis le cache, puis rafraîchi, avec le
      bloc métier correspondant (dossiers SAV ouverts vs « Pilotage SAV »). Le cache ne doit jamais
      figer un total partiel.
@@ -521,6 +571,23 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
 - **Mener l'expérience `count`** (taille de page Softr) : `SOFTR_PAGE_SIZE` + `TRACE_PAGES` dans
   `Block.tsx`, à côté de `COM_MAX_PAGES` — mode d'emploi dans le commentaire. C'est le levier de
   performance le moins cher qui reste, et **il n'a jamais été testé**.
+- **⚠️ BLOQUANT — cocher DEUX champs** dans l'onglet **Sources** du bloc, pour la datasource
+  `abonnes` (2026-08-18) : **`Champs IA Config client`** et **`Nom de l'entreprise`**. Sans eux,
+  Softr **refuse la datasource entière** (« does not match / Remap the fields ») dès que le bloc est
+  recollé : les deux viennent d'être ajoutés à `SELECT_ABONNE`. C'est le même piège que les cinq
+  champs de `notifC`.
+  `Nom de l'entreprise` porte le **nom des clients pros** : dans la base, un dossier pro a un
+  « Nom » **vide**. Sans ce champ, les listes de dossiers affichent une ligne sans titre pour les
+  deux tiers de la file d'attente.
+  Une fois coché, le réglage **« Clientèle : tous / professionnels / particuliers »** apparaît dans
+  le ⋮ de tout widget branché sur « Abonnés ». S'il reste sans effet et affiche « Filtre inactif »,
+  c'est que le champ n'est pas exposé — le widget le dit au lieu de se vider en silence.
+- **Poser les deux nouveaux widgets** depuis « Ajouter un widget » → groupe des dossiers :
+  **« En attente de solvabilité »** et **« Demandes d'infos »**. Ce sont des widgets **figés** : leur
+  ⋮ ne propose que le nom et la couleur, pas de réglage de contenu. Vérifier que le dossier le PLUS
+  ANCIEN sort en tête (tri ascendant, c'est une file d'attente) et que le compte correspond à
+  Airtable — **25 dossiers** « En attente de solvabilité » au 2026-08-18, 14 en « Demande d'infos ».
+  Si le sous-titre affiche « N sur M », c'est que la file dépasse 50 dossiers : c'est dit, pas caché.
 
 ## 5. Règles Softr respectées
 
