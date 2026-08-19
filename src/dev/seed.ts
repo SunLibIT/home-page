@@ -76,6 +76,22 @@ const sav: Rec[] = [
       debut: daysAgo(9), fin: daysAgo(1), statut: "Résolu", priorite: 4, alerte: 1 } },
 ];
 
+/* « Détails des contacts par installateur » — annuaire (aliases : nom / prenom / entreprise /
+   mail / tel / service / typeContact / commentaire / proprio / creeLe). `entreprise`, `service`
+   et `typeContact` sont des TABLEAUX en base (lien et multi-sélections) : le seed reproduit
+   cette forme, sans quoi le chemin USE_MOCK=false ne testerait pas ce que `asText` doit mettre
+   à plat. Deux contacts chez le MÊME installateur : c'est la raison d'être du widget.
+   ⚠️ Coordonnées inventées, domaines en `.example` (jamais routables) : les mails et téléphones
+   sont des liens cliquables depuis le 2026-08-19. */
+const contactsIns: Rec[] = [
+  { id: "k1", fields: { prenom: "Sébastien", nom: "MARCHAND", entreprise: ["MC ENERGY"], mail: "s.marchand@mc-energy.example",
+      tel: "+33 6 12 34 56 78", service: ["Gérant(e)"], typeContact: ["Commercial", "Direction"], proprio: "Frédéric Martin", creeLe: daysAgo(320) } },
+  { id: "k2", fields: { prenom: "Nadia", nom: "BELKACEM", entreprise: ["MC ENERGY"], mail: "n.belkacem@mc-energy.example",
+      tel: "+33 4 90 40 46 62", service: ["Administratif", "Comptable"], typeContact: ["Admin", "Finance"], proprio: "Frédéric Martin", creeLe: daysAgo(280) } },
+  { id: "k3", fields: { prenom: "", nom: "Secrétariat", entreprise: ["HDD ENERGIES"], mail: "contact@hdd-energies.example",
+      tel: "", service: ["Administratif"], typeContact: ["Admin"], proprio: "Ilan LEVY", creeLe: daysAgo(500) } },
+];
+
 export const SEED: Record<string, Rec[]> = {
   [DS_IDS.abonnes]: abonnes,
   [DS_IDS.notesIns]: notesIns,
@@ -83,4 +99,5 @@ export const SEED: Record<string, Rec[]> = {
   [DS_IDS.tachesPa]: tachesPa,
   [DS_IDS.tachesPr]: tachesPr,
   [DS_IDS.sav]: sav,
+  [DS_IDS.contactsIns]: contactsIns,
 };

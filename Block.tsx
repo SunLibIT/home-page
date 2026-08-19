@@ -390,13 +390,37 @@ function StyleInjector() {
          ligne). Doublon volontaire de la règle HoverFX de §2-bis. */
       .slb-rzh > span, .slb-rzv > span{ transition:opacity .15s ease, background .15s ease, height .15s ease, width .15s ease; }
       .slb-rzh:hover > span, .slb-rzh:active > span, .slb-rzv:hover > span, .slb-rzv:active > span{ opacity:1; }
-      @keyframes slb-skel{ 0%{opacity:.55} 50%{opacity:1} 100%{opacity:.55} }
-      .slb-skel{ animation:slb-skel 1.3s ease-in-out infinite; }
-      /* Rotation du chip de fraîcheur pendant une relecture. DÉCORATIVE au sens de §2 :
-         si la feuille ne s'applique pas dans le bloc Softr, l'icône reste fixe et c'est
-         le TEXTE du chip qui dit « Actualisation… ». */
+      /* SQUELETTES et BARRE DE CHARGEMENT : leur animation ne vit PAS ici, elle vit dans le
+         moteur JS de §2-ter (MotionFX).
+         Ce n'est pas un choix de style, c'est un constat : cette feuille peut ne pas
+         s'appliquer dans le bloc Softr — exactement ce qui prive HoverFX (§2-bis) de tous ses
+         survols — et le 2026-08-19 le symptôme a ete rapporte tel quel a l'ecran, les loaders
+         ne bougeaient pas. Un indicateur d'attente figé ressemble à un écran gelé : il dit
+         l'inverse de ce qu'on lui demande. La Web Animations API, elle, ne dépend d'aucune
+         feuille.
+         Une premiere version posait le reflet en ::after ici meme, pour ne pas toucher aux
+         seize squelettes deja ecrits. Sans feuille, le pseudo-element n'existe pas : elle
+         etait donc morte precisement dans le cas qu'elle devait couvrir.
+         ⚠️ Ne pas « remettre les keyframes au cas où » POUR LE SQUELETTE : la feuille ne peut
+         pas produire le meme effet (le fond inline l'emporte sur elle), et deux effets
+         differents selon qu'elle s'applique ou non seraient pires qu'un seul. La barre et la
+         rotation, elles, restent declarees ci-dessous : leurs valeurs sont IDENTIQUES des deux
+         cotes, donc elles cohabitent sans se voir. */
+      /* Rotation du chip de fraîcheur et de l'icône « relire » d'un widget.
+         PORTÉE AUSSI PAR LE MOTEUR JS (§2-ter) depuis le 2026-08-19 : les deux posent la même
+         rotation, donc aucun conflit visible. La feuille est le repli, le JS la garantie —
+         c'est la regle etablie pour les survols (§2-bis). Sans le JS, feuille absente, l'icone
+         restait fixe et c'etait le TEXTE du chip qui portait tout (« Actualisation... »). */
       @keyframes slb-spin{ to{ transform:rotate(360deg) } }
       .slb-spin{ animation:slb-spin 1s linear infinite; }
+      /* BARRE DE CHARGEMENT d'un widget : un segment qui traverse le bas de l'en-tête tant que
+         la source lit. Mêmes valeurs que la règle correspondante du moteur JS (§2-ter), qui est
+         celle qui s'applique réellement dans le bloc Softr — ici, c'est le repli.
+         La largeur du segment (38 %) et la distance parcourue (260 %) vont de pair :
+         38 × 2,6 ≈ 100 %, donc il sort exactement par le bord droit. Changer l'une des deux
+         valeurs sans l'autre, ou sans toucher a MOTION_RULES, les desaccorderait. */
+      @keyframes slb-bar{ 0%{ transform:translateX(-100%) } 100%{ transform:translateX(260%) } }
+      .slb-bar{ animation:slb-bar 1.15s ease-in-out infinite; }
 
       /* Podium CAPEX : la marche survolée se soulève, sa pastille et son numéro
          grossissent un peu. Purement DÉCORATIF, donc légitime en feuille de style —
@@ -620,6 +644,130 @@ function useHoverFX(rootRef: RefObject<HTMLElement | null>) {
       for (const el of [...active.keys()]) leave(el);
       dropRing();
     };
+  }, [rootRef]);
+}
+
+/* ============================================================================
+   2-ter. MotionFX — les ANIMATIONS D'ATTENTE, en JS (Web Animations API)
+   ----------------------------------------------------------------------------
+   POURQUOI, et c'est mot pour mot la raison d'HoverFX (§2-bis) : dans le bloc Softr,
+   la feuille de §2 peut ne pas s'appliquer, et avec elle disparaissent TOUTES les
+   `@keyframes`. Symptôme rapporté à l'écran le 2026-08-19 : « les loaders ne bougent
+   pas sur les widgets ». Les squelettes s'affichaient, la barre de chargement aussi —
+   immobiles.
+
+   Et un indicateur d'attente FIGÉ est pire que pas d'indicateur : une forme grise qui
+   ne bouge pas ressemble à un écran gelé, c'est-à-dire à une panne. C'est l'inverse
+   exact de ce qu'on lui demande de dire.
+
+   Le remède suit la règle déjà établie du fichier : une animation NÉCESSAIRE passe par
+   le JS, comme le dégradé du héro et le sunburst (§12). `element.animate()` ne dépend
+   d'aucune feuille de style et l'emporte sur les animations CSS.
+
+   MÉCANIQUE. Un `MutationObserver` sur le conteneur du bloc : au montage et à chaque
+   nœud ajouté, les éléments porteurs d'une classe d'animation reçoivent leur
+   `Animation`. Un `WeakSet` évite de les animer deux fois — un squelette est monté puis
+   démonté des dizaines de fois par visite.
+
+   ⚠️ UN SQUELETTE NE PEUT PAS ÊTRE ANIMÉ PAR UN PSEUDO-ÉLÉMENT. La première version
+   posait le reflet en `::after` dans la feuille, justement pour ne pas toucher aux seize
+   squelettes déjà écrits — mais sans feuille, le pseudo-élément n'existe pas du tout.
+   On anime donc leur PROPRE fond : le moteur pose un dégradé en style inline, ce que la
+   feuille ne pourrait pas faire (le `background` inline de chaque squelette l'emporte
+   sur elle), et déplace sa `background-position`.
+   ⚠️ `prefers-reduced-motion: reduce` : rien n'est lancé, et les formes restent
+   visibles. Même garde que le FLIP, le pan du héro et HoverFX.
+   ⚠️ Les classes restent DÉCLARÉES dans la feuille (§2) pour `slb-spin` : les deux
+   posent la même rotation, donc aucun conflit visible — la feuille sert de repli, le JS
+   de garantie. Pour le squelette et la barre, la feuille ne porte plus rien : elle ne
+   pouvait pas produire le même effet, et deux effets différents selon le contexte
+   seraient pires qu'un seul.
+   ============================================================================ */
+type MotionRule = {
+  sel: string;
+  /** Styles inline posés AVANT l'animation (le dégradé d'un squelette). En longhand, pour la
+   *  même raison qu'HoverFX : un raccourci effacerait ce que React a posé. */
+  prep?: Record<string, string>;
+  frames: Keyframe[];
+  duree: number;
+  easing?: string;
+};
+
+const MOTION_RULES: MotionRule[] = [
+  /* SQUELETTE — un reflet qui traverse la forme. `background-size: 220%` laisse la bande
+     claire entrer et sortir du cadre ; c'est `background-position` qui la déplace, de la
+     droite vers la gauche. Le dégradé part et revient à `neutral050`, la couleur que les
+     seize squelettes du fichier posent en ligne : le reflet passe donc sans que la forme
+     change de teinte. */
+  {
+    sel: ".slb-skel",
+    prep: {
+      "background-image": `linear-gradient(90deg, ${T.neutral050} 0%, #FFFFFF 48%, ${T.neutral050} 96%)`,
+      "background-size": "220% 100%",
+      "background-repeat": "no-repeat",
+    },
+    frames: [{ backgroundPosition: "160% 0" }, { backgroundPosition: "-60% 0" }],
+    duree: 1350,
+    easing: "ease-in-out",
+  },
+  /* BARRE DE CHARGEMENT de l'en-tête d'un widget (§8). Le segment fait 38 % de large et
+     parcourt 260 % : 38 × 2,6 ≈ 100 %, donc il sort exactement par le bord droit. */
+  {
+    sel: ".slb-bar",
+    frames: [{ transform: "translateX(-100%)" }, { transform: "translateX(260%)" }],
+    duree: 1150,
+    easing: "ease-in-out",
+  },
+  /* ROTATION de l'icône « relire » pendant une lecture. Portée aussi par la feuille
+     (`slb-spin`), et c'est volontaire : même rotation des deux côtés. */
+  {
+    sel: ".slb-spin",
+    frames: [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
+    duree: 1000,
+    easing: "linear",
+  },
+];
+
+const MOTION_SEL = MOTION_RULES.map((r) => r.sel).join(",");
+
+function useMotionFX(rootRef: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    /* `animate` manque sur les moteurs très anciens : on ne fait alors RIEN plutôt que de
+       casser le rendu — les squelettes restent des formes grises, comme avant ce moteur. */
+    if (typeof Element === "undefined" || !Element.prototype.animate) return;
+
+    const vus = new WeakSet<Element>();
+    const anime = (el: Element) => {
+      if (vus.has(el)) return;
+      for (const r of MOTION_RULES) {
+        if (!el.matches(r.sel)) continue;
+        vus.add(el);
+        if (r.prep && el instanceof HTMLElement) {
+          for (const [k, v] of Object.entries(r.prep)) el.style.setProperty(k, v);
+        }
+        try {
+          el.animate(r.frames, { duration: r.duree, iterations: Infinity, easing: r.easing });
+        } catch { /* frames refusées par ce moteur : la forme reste, sans mouvement */ }
+        return;                                   // une règle par élément, comme HoverFX
+      }
+    };
+    /* Le nœud ajouté PEUT être le squelette lui-même (`anime`) ou le contenir
+       (`querySelectorAll`) : un widget entier arrive d'un coup, squelettes inclus. */
+    const balayer = (n: Node) => {
+      if (!(n instanceof Element)) return;
+      anime(n);
+      n.querySelectorAll(MOTION_SEL).forEach(anime);
+    };
+
+    balayer(root);
+    const obs = new MutationObserver((muts) => {
+      for (const m of muts) m.addedNodes.forEach(balayer);
+    });
+    obs.observe(root, { childList: true, subtree: true });
+    return () => obs.disconnect();
   }, [rootRef]);
 }
 
@@ -985,6 +1133,12 @@ const DS = datasource.define({
   //    ⚠️ Le sens de « Statut de lecture » suit les formules INVERSÉES de la table : voir
   //    SELECT_NOTIF_C. Le jour où elles sont corrigées côté Airtable, inverser ici aussi.
   notifC: "fecd4e37-cc12-4780-ae87-e412b431a852",   // « Notification Center » (tblqF71AO8nFVpWi5)
+  /* ✅ Connectée le 2026-08-19 (id fourni par le propriétaire du bloc) — « Détails des contacts
+     par installateur » (appvD32dWRPmogRgn · tblplaeeb843AHLqo), l'annuaire de la page Softr
+     `contact-partenaire`. LECTURE SEULE, et 1 266 lignes drainées page par page.
+     ⚠️ Les DIX champs de `SELECT_CONTACT_INS` doivent être cochés sur CETTE connexion : un seul
+     oubli fait échouer la datasource entière au collage, donc tout le bloc. */
+  contactsIns: "acc8398e-5798-4e1c-9b57-f13ee1cbb2b1",
 });
 
 /* Le registre est COMPLET depuis le 2026-08-05 : les 9 sources du catalogue qui
@@ -1113,6 +1267,41 @@ const SELECT_TACHE_PR = q.select({
   fin: "Date de fin",  // ⚠️ majuscule
   fait: "Fait",
   assignee: "Assignee",
+});
+
+/* ── CONTACTS PARTENAIRES ← base « Bdd Installateurs Sunlib » (appvD32dWRPmogRgn) ·
+   table « Détails des contacts par installateur » (tblplaeeb843AHLqo, 1 266 lignes au
+   2026-08-19). Schéma RELEVÉ SUR AIRTABLE ce jour-là, pas recopié d'un écran : les dix
+   noms ci-dessous sont ceux du schéma, casse et accents exacts.
+   C'est l'annuaire que porte la page Softr `contact-partenaire` (§0-bis) — un installateur
+   y a autant de lignes qu'il a d'interlocuteurs, ce que le nom de la table dit à la lettre.
+
+   ⚠️ `entreprise` est un champ LIEN (`multipleRecordLinks` vers « Installateurs »), donc un
+   TABLEAU côté Airtable, que `asText` met à plat (§5) — même mécanique que les lookups des
+   notes. C'est LUI qui porte le nom de l'installateur, et donc tout le regroupement de ce
+   widget (`defaultFacet`).
+   ⚠️ `service` et `typeContact` sont des MULTI-SÉLECTIONS : une même personne est souvent
+   « Commercial » ET « Admin » (la page Softr affiche bien deux pastilles, et `FieldValue` les
+   rend comme telles depuis le 2026-08-19). Mis à plat ils donnent « Commercial, Admin » :
+   un filtre `eq` sur « Commercial » ne les trouverait donc PAS — il faut `contains`.
+   ⚠️ `proprio` est un LOOKUP de la formule « Propriétaire TBD » portée par la fiche
+   installateur. Il est LU (affiché en fiche, cherchable) mais ne restreint RIEN d'office :
+   voir pourquoi `ownerField` est délibérément absent du descripteur.
+   ⚠️⚠️ LES DIX CHAMPS SONT À COCHER DANS L'ONGLET SOURCES DU BLOC pour cette datasource.
+   Un seul oubli fait échouer la datasource ENTIÈRE (« New data source does not match /
+   Remap the fields »), pas seulement ce widget — c'est le piège qui a déjà coûté sur
+   `notifC` et sur « Champs IA Config client ». */
+const SELECT_CONTACT_INS = q.select({
+  nom: "Nom",                             // champ primaire (le NOM de famille seul)
+  prenom: "Prénom",
+  entreprise: "Nom Entreprise",           // LIEN → « Installateurs »
+  mail: "Mail",
+  tel: "Téléphone",
+  service: "Service",                     // multi-sélection (16 choix relevés)
+  typeContact: "Type de contact SunLib",  // multi-sélection (5 choix relevés)
+  commentaire: "Commentaire installateur",
+  proprio: "Propriétaire TBD (from Nom Entreprise)",
+  creeLe: "Date de création",             // createdTime
 });
 
 /* ── NOTIFICATION CENTER ← base « BDD Abonné » (appe55vTZRk6Ssd2w) · table
@@ -1513,6 +1702,62 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
     { id: "p7", nom: "Enecopro — Thuir (66)", date: "2025-05-19", note: "Ancien associé de Mr Chaufrias, connaît déjà l'offre SunLib.", proprio: "" },
   ],
 
+  /* ← SELECT_CONTACT_INS : contact / prenom / nom / entreprise / mail / tel / service /
+     typeContact / commentaire / proprio / creeLe (`contact` est CALCULÉ, cf. `derive`).
+
+     ⚠️ LES PERSONNES ET LES COORDONNÉES SONT INVENTÉES, et les domaines sont en `.example`
+     — jamais routable (RFC 2606). Ce n'est pas de la pudeur : depuis le 2026-08-19 les mails
+     et les téléphones sont des liens `mailto:` / `tel:` CLIQUABLES, et un mock « réaliste »
+     ferait partir un vrai courriel au premier clic d'essai en aperçu. Les noms d'ENTREPRISE,
+     eux, sont ceux des autres mocks du fichier : c'est ce qui permet de reconnaître le même
+     installateur d'un widget à l'autre.
+
+     Ce que l'échantillon reproduit exprès, parce que la table réelle le porte :
+       · TROIS contacts chez le même installateur (MC ENERGY) et DEUX chez un autre — c'est
+         la raison d'être du widget, et le seul moyen de voir que le filtre par entreprise
+         regroupe au lieu de dédoublonner ;
+       · des MULTI-SÉLECTIONS (« Commercial » + « Admin ») : deux pastilles, pas une ;
+       · un contact SANS MAIL et un SANS TÉLÉPHONE — les deux creux les plus fréquents ;
+       · un contact sans service NI type (la table en compte beaucoup : la ligne doit rester
+         lisible, pas se réduire à des tirets) ;
+       · un « Secrétariat » SANS PRÉNOM : c'est le cas que `derive` doit rendre sans espace
+         parasite devant le nom ;
+       · des propriétaires variés, dont l'utilisateur mock (« Frédéric Martin », cf.
+         src/lib/user.tsx) : sans ce mélange, activer un jour `ownerField` ne se verrait pas
+         en aperçu. */
+  contactsIns: [
+    { id: "k1", prenom: "Sébastien", nom: "MARCHAND", entreprise: "MC ENERGY", mail: "s.marchand@mc-energy.example", tel: "+33 6 12 34 56 78",
+      service: ["Gérant(e)"], typeContact: ["Commercial", "Direction"], proprio: "Frédéric Martin", creeLe: daysAgo(320),
+      commentaire: "Interlocuteur unique pour les grilles tarifaires." },
+    { id: "k2", prenom: "Nadia", nom: "BELKACEM", entreprise: "MC ENERGY", mail: "n.belkacem@mc-energy.example", tel: "+33 4 90 40 46 62",
+      service: ["Administratif", "Comptable"], typeContact: ["Admin", "Finance"], proprio: "Frédéric Martin", creeLe: daysAgo(280),
+      commentaire: "" },
+    // SANS TÉLÉPHONE : la colonne doit afficher un tiret, pas un lien `tel:` vide.
+    { id: "k3", prenom: "Yoann", nom: "PERRET", entreprise: "MC ENERGY", mail: "y.perret@mc-energy.example", tel: "",
+      service: ["Technique"], typeContact: ["Technique"], proprio: "Frédéric Martin", creeLe: daysAgo(95),
+      commentaire: "Suit les mises en service et les Consuel." },
+    { id: "k4", prenom: "Élodie", nom: "RAVEL", entreprise: "Neosoleil", mail: "e.ravel@neosoleil.example", tel: "+33 6 65 09 86 82",
+      service: ["Directeur commercial"], typeContact: ["Commercial"], proprio: "Philippe GERY", creeLe: daysAgo(410),
+      commentaire: "" },
+    { id: "k5", prenom: "Marc", nom: "TEISSIER", entreprise: "Neosoleil", mail: "m.teissier@neosoleil.example", tel: "+33 7 68 57 81 32",
+      service: ["Poseur"], typeContact: ["Technique"], proprio: "Philippe GERY", creeLe: daysAgo(150),
+      commentaire: "" },
+    // SANS MAIL : c'est le contact qu'on ne peut qu'appeler, et il faut le voir.
+    { id: "k6", prenom: "Christelle", nom: "AUBRY", entreprise: "FLG SOLAR", mail: "", tel: "+33 6 59 97 19 79",
+      service: ["Président"], typeContact: ["Direction"], proprio: "Audrey QUINTANA", creeLe: daysAgo(200),
+      commentaire: "Ne répond qu'aux appels, jamais aux mails." },
+    // NI SERVICE NI TYPE — la table en compte beaucoup. La ligne reste lisible.
+    { id: "k7", prenom: "Idriss", nom: "OUAZZANI", entreprise: "Mandat Energie", mail: "i.ouazzani@mandat-energie.example", tel: "+33 7 61 90 12 65",
+      service: [], typeContact: [], proprio: "", creeLe: daysAgo(60), commentaire: "" },
+    // SANS PRÉNOM : « Secrétariat » doit sortir seul, sans espace devant (cf. `derive`).
+    { id: "k8", prenom: "", nom: "Secrétariat", entreprise: "HDD ENERGIES", mail: "contact@hdd-energies.example", tel: "+33 5 53 20 65 00",
+      service: ["Administratif"], typeContact: ["Admin"], proprio: "Ilan LEVY", creeLe: daysAgo(500),
+      commentaire: "Boîte partagée : passer par elle pour les pièces de dossier." },
+    { id: "k9", prenom: "Amélie", nom: "FONTAINE", entreprise: "Enertec", mail: "a.fontaine@enertec.example", tel: "+33 6 24 51 56 16",
+      service: ["Marketing", "Commercial"], typeContact: ["Commercial"], proprio: "Frédéric Martin", creeLe: daysAgo(30),
+      commentaire: "" },
+  ],
+
   /* ← SELECT_NOTIF_C. Depuis la refonte du 2026-08-06, ces lignes sont TOUT ce que lit
      le widget « Nouveaux dossiers abonnés » : plus de jointure avec `abonnes`, donc les
      `liens` ne renvoient plus aux lignes mock ci-dessus mais portent des record ids de
@@ -1698,10 +1943,17 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
    appelé dans `SourceFeed` lui-même.
    ============================================================================ */
 type SourceKey = "abonnes" | "notesIns" | "notesPro" | "tachesPa" | "tachesPr" | "sav" | "notifC" | "comKpi"
-  | "excAbo" | "excPart" | "parcAbo" | "parcPart";
+  | "excAbo" | "excPart" | "parcAbo" | "parcPart"
+  | "contactsIns";   // annuaire des contacts par installateur (2026-08-19)
 
 // Nature d'un champ → sert au rendu (badge, date relative…) et au tri typé.
-type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url";
+/* `email` et `phone` ajoutés le 2026-08-19 avec l'annuaire des contacts partenaires : un
+   annuaire dont on ne peut ni écrire ni appeler d'un clic oblige à recopier l'adresse à la
+   main, et c'est précisément le geste qu'il doit supprimer. Partout ailleurs qu'au rendu
+   (`FieldValue`) ils se comportent comme du `text` — tri alphabétique, recherche
+   plein-texte, filtres `contains` : aucun autre point du moteur n'a eu à les connaître. */
+type FieldKind = "text" | "longtext" | "date" | "badge" | "number" | "bool" | "url"
+  | "email" | "phone";
 // Champ (par ALIAS) proposé pour chaque rôle d'affichage d'un widget liste.
 type FieldRoleMap = { title?: string; sub?: string; date?: string; badge?: string };
 
@@ -1726,6 +1978,17 @@ type FieldDesc = {
      cache ne garde que ce que la base a rendu, et corriger la règle prend effet sans le
      vider. */
   derive?: (row: Row) => unknown;
+  /* CHAMP À PLUSIEURS VALEURS (2026-08-19) — une multi-sélection Airtable, qu'`asText` met à
+     plat en « A, B » (§5). Deux conséquences, déclarées ici plutôt que devinées ailleurs :
+       · `FieldValue` rend UNE PASTILLE PAR VALEUR, là où « Commercial, Admin » en une seule
+         pastille perdait sa couleur (aucune entrée de `variants` ne porte la paire) ;
+       · le filtre à cases liste les VALEURS et non leurs combinaisons — sans quoi « Service »
+         proposait « Commercial », « Commercial, Admin », « Admin, Commercial »… et cocher
+         l'une d'elles ratait les deux autres.
+     ⚠️ Le découpage se fait sur la VIRGULE : à ne déclarer que là où la base porte vraiment
+     plusieurs valeurs. Sur du texte libre, une raison sociale du genre « MARTIN, SARL » serait
+     coupée en deux — c'est pourquoi ce n'est pas déduit du `kind`. */
+  multi?: boolean;
   /* `false` = champ ABSENT de la pop-up de détail. Pour un champ calculé qui n'y serait
      qu'un doublon des colonnes dont il est tiré. Il reste utilisable partout ailleurs —
      titre de ligne, colonne, tri, filtre. */
@@ -1788,13 +2051,61 @@ type SourceDesc = {
      transmis ne désignerait rien et le lien ouvrirait une page vide. C'est pourquoi
      cette information est DÉCLARÉE ici et non déduite du nom de la source. */
   detailPage?: string;
-  /* ALIAS proposé par défaut comme FILTRE À VALEURS (cases à cocher, multi-sélection)
-     dans la barre d'outils d'un widget liste ou tableau. À choisir sur le champ par
-     lequel on trie mentalement cette table : l'installateur pour des notes, le
-     partenaire pour des dossiers. `undefined` = pas de filtre proposé d'office.
+  /* Page de l'espace Softr qui porte la LISTE COMPLÈTE de cette source (slug de `PAGES`,
+     §0-bis). Renseignée, tout widget `data` de cette source gagne un pied « Ouvrir dans le
+     CRM » qui y renvoie en `target="_top"` (cf. `DataView`).
+     Pourquoi ce n'est pas un doublon de `detailPage` : un widget d'accueil montre au mieux
+     50 lignes d'une table qui en compte des centaines, avec UN filtre à cases. Le pied est
+     la porte de sortie assumée vers l'écran complet — sans elle, celui qui ne trouve pas sa
+     ligne n'a aucun chemin, sinon deviner le menu du CRM.
+     ⚠️ À ne déclarer que si la page liste RÉELLEMENT cette table : un slug qui montre autre
+     chose ferait un lien qui trahit son libellé. */
+  listPage?: string;
+  /* NOM DE LA PAGE, tel qu'il s'affiche dans le CRM (2026-08-19). Sert de libellé aux deux
+     boutons qui y mènent — le pied du widget et, à défaut de `detailPage`, celui de la fiche.
+     Pourquoi ce n'est pas cosmétique : « Ouvrir dans le CRM » ne dit pas OÙ, et « Ouvrir la
+     fiche complète » sur une page qui est une LISTE dit carrément faux. Nommer la page est la
+     seule formulation qui reste vraie dans les deux cas. */
+  pageLabel?: string;
+  /* --- À QUELLE FRÉQUENCE CETTE SOURCE DOIT-ELLE ÊTRE RELUE ? (2026-08-19) -----------
+     C'est le réglage qui décide du COÛT de la page d'accueil, et il est déclaré ici parce que
+     la réponse est métier, pas technique.
+       · `"jour"` (DÉFAUT) — la PREMIÈRE ouverture de la journée lit la base ; les suivantes
+         servent l'instantané (§6-ter) SANS AUCUNE REQUÊTE. Le ⟳ de chaque carte force une
+         lecture à tout moment.
+       · `"ouverture"` — relu à chaque ouverture de la page, comme avant. À réserver aux
+         sources qui portent une FILE À TRAITER : un dossier notifié à 10 h doit se voir à
+         10 h 05, pas demain.
+     Pourquoi une règle CALENDAIRE et non un délai glissant : un TTL de 24 h laisserait
+     quelqu'un qui ouvre à 8 h lundi puis à 9 h mardi travailler sur les chiffres de la veille
+     — 23 h d'écart, sous le seuil, et pourtant « hier ». Voir `memeJour`.
+     ⚠️ Une source servie par le cache n'expose PAS `write` (cf. `CachedSource`) : ses boutons
+     d'écriture disparaissent, par la règle du fichier — mieux vaut pas de bouton qu'un bouton
+     qui mente. Les trois sources dans lesquelles ce bloc écrit réellement sont en
+     `"ouverture"`, donc rien ne se perd aujourd'hui ; le jour où une action est ajoutée à une
+     source en `"jour"`, c'est le premier point à revoir. */
+  fraicheur?: "jour" | "ouverture";
+  /* « CETTE SOURCE N'A DE SENS QUE LUE EN ENTIER » (2026-08-19). Renseignée, tout widget
+     `data` de cette source DRAINE sa pagination, comme s'il portait un filtre (cf. la règle
+     de `restreint` dans `DataView`).
+     Le cas qui l'a introduite : l'annuaire des contacts fait 1 266 lignes, Softr en rend ~25
+     par page, et un annuaire dont la RECHERCHE ne fouille que les 25 premières ne dit pas
+     qu'elle a vu 2 % de la table — elle répond « aucun contact » avec l'aplomb d'une réponse
+     complète. C'est le défaut le plus coûteux de ce projet, et il n'a ici rien à voir avec un
+     agrégat : c'est la RECHERCHE qui mentirait.
+     ⚠️ CE N'EST PAS GRATUIT : ~51 allers-retours EN SÉRIE au premier chargement (le cache
+     d'instantanés, §6-ter, les rend invisibles au retour sur la page). À ne déclarer que sur
+     une source qu'on consulte EN LA CHERCHANT, jamais pour « avoir tout ». */
+  drain?: boolean;
+  /* ALIAS proposé(s) par défaut comme FILTRE À VALEURS (cases à cocher, multi-sélection)
+     dans la barre d'outils d'un widget liste ou tableau. Un alias, ou JUSQU'À TROIS depuis le
+     2026-08-19 (`FACETS_MAX`) : l'annuaire des contacts en demande trois, comme la page Softr
+     dont il reprend la présentation. À choisir sur les champs par lesquels on trie mentalement
+     cette table : l'installateur pour des notes, le partenaire pour des dossiers.
+     `undefined` = pas de filtre proposé d'office.
      Les VALEURS ne sont pas listées ici : elles sont déduites des lignes lues
      (`facetValues`), donc un nouvel installateur apparaît sans toucher au code. */
-  defaultFacet?: string;
+  defaultFacet?: string | string[];
   /* --- ALIAS DU CHAMP « PROPRIÉTAIRE SUNLIB » (2026-08-07) ----------------------
      Renseigné, tout widget de cette source gagne le filtre « seulement les fiches dont
      je suis propriétaire » (`cfg.mine`), ACTIF PAR DÉFAUT, et le rapprochement se fait
@@ -2062,6 +2373,8 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
   },
   tachesPa: {
     key: "tachesPa",
+    // File à traiter et source écrivable (« Fait ») : relue à chaque ouverture, comme `notifC`.
+    fraicheur: "ouverture",
     label: "Tâches partenaires — Taches (Installateurs)",
     icon: "CalendarClock",
     connected: true,
@@ -2098,6 +2411,8 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
   },
   tachesPr: {
     key: "tachesPr",
+    // Idem `tachesPa` : c'est le même widget, il ne peut pas être frais d'un seul côté.
+    fraicheur: "ouverture",
     label: "Tâches prospects — Tâches (BDD Propect)",
     icon: "ClipboardList",
     connected: true,
@@ -2129,8 +2444,137 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
      ne sait pas faire (écarter les lignes sans propriétaire, regrouper les jumelles) :
      une « liste de notifications » posée à la main afficherait tout en double.
      ⚠️ Sens de la case inversé : voir SELECT_NOTIF_C. */
+  /* ── CONTACTS PARTENAIRES — l'annuaire de la page Softr `contact-partenaire`.
+     Branché le 2026-08-19 sur demande : « le même niveau de présentation » que la page du
+     CRM, et un chemin de retour vers elle.
+
+     CE QUE LA PAGE SOFTR MONTRE, et ce que le widget en reprend :
+       · une recherche plein-texte → `search`, offert par défaut (§9-bis), et qui cherche
+         RÉELLEMENT dans les 1 266 lignes grâce à `drain` ci-dessous ;
+       · trois filtres à valeurs (Nom Entreprise · Service · Type de contact SunLib) → UN seul
+         filtre à cases existe dans le moteur, et c'est l'entreprise qui le mérite : c'est
+         ainsi qu'on cherche un contact (« qui appelle-t-on chez MC ENERGY ? »). Les deux
+         autres colonnes restent triables, cherchables et filtrables par la grammaire `query`
+         (⚠️ en `contains` : ce sont des multi-sélections) ;
+       · sept colonnes → six, `contact` fusionnant Prénom et Nom (cf. `derive`) :
+         `TABLE_COLS_MAX` en autorise six, et deux colonnes pour un seul nom de personne
+         coûtent la largeur du mail dans une carte de demi-page.
+
+     ⚠️ AUCUN `ownerField`, et c'est le choix INVERSE de celui des notes. Un annuaire se
+     consulte en entier : on y cherche justement le contact d'un installateur qu'on ne suit
+     pas (une astreinte, un remplacement, un dossier repris). Le propriétaire est lu et
+     affiché, il ne filtre rien. Pour l'activer un jour : `ownerField: "proprio"` — le filtre
+     « mes fiches » apparaîtra alors, ACTIF par défaut (§6-bis).
+     ⚠️ Ni action d'écriture ni `create` : un contact se crée sur la fiche de l'installateur,
+     qui porte le champ LIEN. Même raison que les notes — un lien attend un record id, pas un
+     nom — d'où l'absence de SELECT_CONTACT_INS_W. */
+  contactsIns: {
+    key: "contactsIns",
+    label: "Contacts partenaires — Détails des contacts par installateur",
+    icon: "BookUser",
+    // ✅ Connectée le 2026-08-19 (`acc8398e-…`, §6). ⚠️ Les dix champs du select doivent être
+    //    cochés sur cette connexion — voir l'avertissement au-dessus de `ContactsInsSource`.
+    connected: true,
+    /* ⚠️ PAS DE `detailPage`, et c'est une CORRECTION du 2026-08-19 : la page
+       `contact-partenaire` est une LISTE, elle ignore le record id qu'on lui passerait. Elle
+       était d'abord déclarée là, ce qui faisait promettre à la pop-up « Ouvrir la fiche
+       complète » pour rendre un tableau de 371 lignes — un bouton juste dans sa destination et
+       faux dans son libellé. Le descripteur dit ce que la page SAIT faire, le bouton en
+       découle (cf. `RecordDialog`).
+       Le jour où l'espace Softr gagne une vraie fiche de contact, une ligne suffit :
+       `detailPage: PAGES.<slug de la fiche>` — et le libellé redevient « fiche complète »
+       tout seul. */
+    listPage: PAGES.contactPartenaire,
+    pageLabel: "Contact partenaire",
+    // 1 266 lignes, ~25 par page : sans ceci, la recherche du widget ne verrait que 2 % de
+    // l'annuaire sans le dire. Voir `drain` sur `SourceDesc` pour ce que ça coûte.
+    drain: true,
+    fields: {
+      /* CALCULÉ — « Prénom Nom », dans cet ordre, et sans espace parasite quand l'un des deux
+         manque (les deux cas existent en base : « Secrétariat » sans prénom, un prénom sans
+         nom de famille). La règle vit ICI parce qu'une personne se nomme d'une façon : c'est
+         une propriété de la TABLE, dont tous les widgets héritent (§6-bis).
+         `detail: false` : la fiche montre déjà Prénom et Nom, chacun sur sa ligne. */
+      contact: {
+        label: "Contact", kind: "text", detail: false,
+        derive: (r) => [asText(r.prenom).trim(), asText(r.nom).trim()].filter(Boolean).join(" "),
+      },
+      prenom: { label: "Prénom", kind: "text" },
+      nom: { label: "Nom", kind: "text" },
+      entreprise: { label: "Nom Entreprise", kind: "text" },
+      mail: { label: "Mail", kind: "email" },
+      tel: { label: "Téléphone", kind: "phone" },
+      /* Les 16 choix RELEVÉS le 2026-08-19. Les doublons de graphie (« Gerant » / « Gérant » /
+         « Gérant(e) », « Directeur général » / « Directeur Général ») sont ceux de la base :
+         les recopier tels quels EST le point — un filtre `eq` sur une valeur « harmonisée »
+         ne trouverait rien, et le jour où le champ deviendrait écrivable, l'écriture
+         échouerait.
+         Pas de `variants` : un service n'est pas un ÉTAT, et la charte réserve la couleur au
+         sens (même arbitrage que « fabricant » sur le SAV). Ils sortiront donc en neutre. */
+      service: {
+        label: "Service", kind: "badge", multi: true,
+        options: ["Gerant", "Gérant", "Gérant(e)", "Président", "Directeur général",
+          "Directeur Général", "Directeur d'Agence", "Directeur commercial",
+          "Directeur Commercial", "Commercial", "Administratif", "Comptable",
+          "Technique", "Poseur", "Marketing", "Indépendant"],
+      },
+      /* Ici, au contraire, la couleur DIT quelque chose : à qui l'on parle, et de quoi. Cinq
+         choix, cinq variants — c'est le seul champ de cette table qui porte un sens. */
+      typeContact: {
+        label: "Type de contact SunLib", kind: "badge", multi: true,
+        options: ["Admin", "Commercial", "Technique", "Finance", "Direction"],
+        variants: { "Admin": "info", "Commercial": "brand", "Technique": "warn",
+                    "Finance": "ok", "Direction": "neutral" },
+      },
+      commentaire: { label: "Commentaire installateur", kind: "longtext" },
+      proprio: { label: "Propriétaire (SunLib)", kind: "text" },
+      creeLe: { label: "Ajouté le", kind: "date" },
+    },
+    /* Tri par ENTREPRISE, à l'inverse du reste du bloc qui trie par date : un annuaire se lit
+       par installateur, et la date d'ajout d'un contact n'apprend rien à personne. */
+    defaultSort: { by: "entreprise", dir: "asc" },
+    /* Pas de rôle `date` dans le mappage : « ajouté il y a 240 j » sous un nom de contact est
+       du bruit — ce n'est pas un flux, c'est un annuaire. */
+    defaultMap: { title: "contact", sub: "entreprise", badge: "typeContact" },
+    /* LES TROIS FILTRES DE LA PAGE SOFTR (demandés le 2026-08-19) : entreprise, service, type
+       de contact. Dans cet ordre — c'est celui de la page, et c'est aussi l'ordre d'usage : on
+       cherche d'abord chez qui, puis à quel service, puis pour quel motif.
+       ⚠️ Les deux derniers sont des multi-sélections (`multi` sur leur champ) : le filtre liste
+       donc « Commercial » et « Admin » séparément, et cocher « Commercial » trouve bien les
+       contacts qui portent les deux. */
+    defaultFacet: ["entreprise", "service", "typeContact"],
+    /* UN SEUL MODÈLE, et c'est une demande explicite du 2026-08-19 : « un suffit amplement ».
+       Une variante en LISTE (demi-carte, trois lignes par contact) a existé quelques minutes
+       et a été retirée — pas masquée, parce qu'aucun accueil n'avait encore pu la poser : le
+       bloc n'était pas recollé, donc aucune instance ne porte la clé « contactsIns:1 » (c'est
+       la seule situation où l'on peut effacer une ligne de preset sans décaler les autres, cf.
+       `hidden` sur `PresetDesc`).
+       ⚠️ Ne pas « compléter » ce tableau par habitude : la forme d'un widget est décidée à la
+       pose et ne se change plus (le choix de vue a été retiré des Options le 2026-08-06). Deux
+       modèles pour la même table, c'est donc deux fois la même carte dans la galerie, à charge
+       pour l'utilisateur de devenir devin sur la différence. */
+    presets: [
+      /* Calqué sur la page Softr : six colonnes, l'entreprise en filtre à cases, la recherche
+         au-dessus. `h: 560` parce qu'un annuaire a besoin de HAUTEUR et non de largeur — en
+         340 px il montre huit lignes sur 1 266.
+         `limit: 50` et non les 12 par défaut : on CHERCHE ici, et une recherche qui trouve 30
+         contacts ne doit pas en cacher 18. C'est le plafond du moteur (`LIST_LIMIT_MAX`), écrit
+         en dur : la constante est déclarée en §9-bis, bien après ce catalogue, et un `const`
+         cité avant sa déclaration lèverait une erreur au chargement du bloc. */
+      { label: "Contact partenaire", icon: "BookUser", h: 560,
+        cfg: { title: "Contact partenaire", unit: "contact",
+               query: { limit: 50 },
+               view: { kind: "table",
+                       columns: ["contact", "entreprise", "mail", "tel", "service", "typeContact"] } } },
+    ],
+  },
   notifC: {
     key: "notifC",
+    /* FILE À TRAITER — relue à CHAQUE ouverture (§6-bis, `fraicheur`). C'est la seule source du
+       widget « Nouveaux dossiers abonnés », qui sert à traiter ce qui arrive : un dossier
+       notifié à 10 h doit se voir à 10 h 05, pas le lendemain matin. Elle est aussi ÉCRIVABLE
+       (« Vu »), et une source servie par le cache n'expose pas `write`. */
+    fraicheur: "ouverture",
     label: "Nouveaux dossiers — Notification Center",
     icon: "Inbox",
     connected: true,    // connectée à CE bloc le 2026-08-05 (id dans DS.notifC)
@@ -2353,6 +2797,9 @@ const ICONS: Record<string, LucideIcon> = {
   // ⚠️ Toute clé citée dans GALLERY_GROUPS doit figurer ici, sinon `iconOf` retombe
   // silencieusement sur l'icône neutre — c'est arrivé à « Utilitaires ».
   Clock, FileSignature, Trophy,
+  // Contacts partenaires (2026-08-19) : clé du descripteur `contactsIns` ET du groupe de
+  // galerie « Partenaires ». Déjà importée pour le raccourci du même nom (§7).
+  BookUser,
 };
 const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
 
@@ -2445,6 +2892,23 @@ function snapSig(select: Record<string, string>): string {
 const snapKey = (email: string, source: SourceKey, drain: boolean, sig: string): string =>
   `${SNAP_PREFIX}:${email}:${source}:${drain ? "full" : "page"}:${sig}`;
 
+/** Deux horodatages tombent-ils le MÊME JOUR civil (heure locale) ? PURE.
+ *  C'est la règle de fraîcheur de `SourceDesc.fraicheur` (§6-bis) : « la première ouverture de
+ *  la journée lit la base ». Un délai glissant de 24 h ne dirait pas la même chose — 8 h lundi
+ *  puis 9 h mardi font 23 h, et pourtant ce sont les chiffres de la veille. */
+const memeJour = (a: number, b: number): boolean => {
+  const x = new Date(a), y = new Date(b);
+  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+};
+
+/** Combien de temps on attend l'e-mail de la session avant de décider de lire quand même.
+ *  ⚠️ Cette attente n'est pas décorative : la clé du cache contient l'e-mail, et Softr rend
+ *  souvent l'utilisateur au SECOND render (tout le fichier passe par `?.` pour cette raison).
+ *  Décider dès le premier render reviendrait à ne jamais trouver d'instantané, donc à lire à
+ *  chaque fois — le cache serait écrit sans jamais servir. Pendant l'attente, le widget montre
+ *  ses squelettes ; s'il n'y a pas de session du tout, on lit au bout de ce délai. */
+const SESSION_WAIT_MS = 400;
+
 function readSnapshot(key: string): Snapshot | null {
   try {
     const raw = window.localStorage.getItem(key);
@@ -2455,6 +2919,23 @@ function readSnapshot(key: string): Snapshot | null {
     return s;
   } catch { return null; }
 }
+
+/** Horodatage d'un instantané SANS parser ses lignes.
+ *  Une entrée peut peser 900 000 caractères (`SNAP_MAX_CHARS`) : faire un `JSON.parse` complet
+ *  sur chacune des dix sources, juste pour lire une date et jeter le résultat, coûterait une
+ *  partie de ce que le mécanisme de §6-quater économise. On lit donc l'en-tête seul.
+ *  ⚠️ Cela suppose l'ordre de sérialisation de `writeSnapshot` — {"v":…,"at":…,"rows":[…]}.
+ *  L'hypothèse est bornée : si la forme ne correspond pas, on paye le parse complet plutôt que
+ *  de renoncer au cache. `0` = pas d'instantané utilisable, donc « il faut lire ». */
+const readSnapshotStamp = (key: string): number => {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return 0;
+    const m = /"at":(\d+)/.exec(raw.slice(0, 96));
+    if (m) return Number(m[1]);
+    return readSnapshot(key)?.at ?? 0;
+  } catch { return 0; }
+};
 
 /* Une trace par clé, pas une par render : c'est un relevé de calibrage, pas du bruit. */
 const snapTooBig = new Set<string>();
@@ -2607,18 +3088,29 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: b
   if (snapRef.current.key !== key) snapRef.current = { key, snap: key ? readSnapshot(key) : null };
   const snap = snapRef.current.snap;
 
-  const reading = live.loading || !!live.draining;
-  const serving = !!snap && reading;
+  /* DEUX ÉTATS, et les confondre coûte dans les deux sens :
+       · `sansDonnees` — la lecture n'a encore RIEN de complet à montrer (`loading`), ou son
+         total est en cours de constitution (`draining`). C'est LUI, et lui seul, qui autorise à
+         servir l'instantané à la place ;
+       · `reading` — il se passe quelque chose, RELECTURE COMPRISE (`fetching`). C'est ce que le
+         bouton et la barre de la carte doivent montrer.
+     Mettre `fetching` dans `serving` ferait réapparaître l'instantané par-dessus des lignes
+     fraîches à chaque relecture : le contraire du but. */
+  const sansDonnees = live.loading || !!live.draining;
+  const reading = sansDonnees || !!live.fetching;
+  const serving = !!snap && sansDonnees;
 
   /* Écriture : une fois par clé, à la fin de la lecture. Indexé par clé pour la même
      raison que la lecture — sinon une lecture terminée AVANT l'arrivée de l'e-mail
      condamnerait la source à ne jamais rien écrire. */
   const ecrit = useRef("");
   useEffect(() => {
-    if (!key || reading || live.error || ecrit.current === key) return;
+    /* `sansDonnees` et non `reading` : on écrit l'instantané dès que la lecture est COMPLÈTE.
+       Une relecture en arrière-plan (`fetching`) porte déjà des lignes bonnes à garder. */
+    if (!key || sansDonnees || live.error || ecrit.current === key) return;
     ecrit.current = key;
     writeSnapshot(key, drain ? live.rows : live.rows.slice(0, SNAP_ROWS_LIST));
-  }, [key, reading, live.error, live.rows, drain]);
+  }, [key, sansDonnees, live.error, live.rows, drain]);
 
   /* Remontée vers le bouton de la carte : rotation pendant la lecture, et date des lignes
      tant qu'on sert un instantané. `publish` est un `setState` stable, donc absent des
@@ -2647,6 +3139,23 @@ type SourceState = {
    *  l'agrégat finira juste — il ne l'est pas encore. À annoncer (cf. `AggregateNote`) :
    *  un total qui monte en silence est indiscernable d'un total faux. */
   draining?: boolean;
+  /** Ces lignes viennent du cache et AUCUNE LECTURE N'A ÉTÉ LANCÉE (§6-quater) — à distinguer
+   *  de `stale`, qui dit « instantané servi PENDANT une relecture ». La nuance change ce qu'un
+   *  widget doit écrire : « mise à jour en cours » est faux ici, il n'y a pas de mise à jour en
+   *  cours et il n'y en aura pas avant demain (ou avant un clic sur le ⟳). */
+  cached?: boolean;
+  /** Une RELECTURE est en cours alors que des lignes sont DÉJÀ affichées (`isFetching` de
+   *  l'objet rendu par Softr, distinct d'`isLoading` qui ne couvre que la première requête).
+   *  ⚠️ C'EST CE QUI MANQUAIT AU BOUTON « RELIRE » (2026-08-19, signalé : « on a l'impression
+   *  qu'il ne fonctionne pas »). Au remontage de l'adapter, Softr rend IMMÉDIATEMENT les lignes
+   *  de son cache mémoire : `isLoading` reste donc FAUX, aucun état ne passait à « en cours »,
+   *  et ni la rotation de l'icône ni la barre de l'en-tête ne s'allumaient — pour des lignes
+   *  identiques, le bouton paraissait inerte alors que la requête repartait bien.
+   *  ⚠️ Il ne REMPLACE PAS `loading` : masquer derrière des squelettes des lignes déjà justes,
+   *  le temps d'une relecture, serait exactement le recul que le cache d'instantanés a été
+   *  écrit pour éviter (§6-ter). Les deux états servent deux choses — l'un le contenu, l'autre
+   *  l'accusé de réception. */
+  fetching?: boolean;
   /** Ce qui s'affiche vient du CACHE D'INSTANTANÉS (§6-ter), pas de la lecture en
    *  cours : les lignes sont celles de la dernière lecture complète, la relecture est
    *  en route. À DIRE — un chiffre d'hier présenté comme celui de maintenant est le
@@ -2676,8 +3185,12 @@ const isLive = (k: SourceKey): boolean => !USE_MOCK && CATALOG[k].connected;
 
 /* NB : l'API Softr expose `isLoading` / `error` (comme le reste du fichier, cf.
    §11 `bddRes.isLoading`) — pas de `status` textuel. */
-const liveState = (res: { data?: { pages?: { items: any[] }[] }; isLoading?: boolean; error?: unknown }): SourceState =>
-  ({ rows: flattenRows(res), loading: !!res.isLoading, error: !!res.error });
+const liveState = (res: { data?: { pages?: { items: any[] }[] }; isLoading?: boolean; isFetching?: boolean; error?: unknown }): SourceState =>
+  /* `isFetching` est lu avec la même prudence que le reste de cette API : s'il est absent de
+     l'objet Softr, `fetching` vaut faux et on retombe exactement sur le comportement d'avant —
+     le bouton n'aura simplement rien de plus à montrer que son plancher d'accusé de réception
+     (cf. `SourceFeed`). */
+  ({ rows: flattenRows(res), loading: !!res.isLoading, error: !!res.error, fetching: !!res.isFetching });
 
 const offlineState = (k: SourceKey): SourceState =>
   ({ rows: USE_MOCK ? MOCK_ROWS[k] ?? [] : [], loading: false, error: false });
@@ -2810,7 +3323,16 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
      est la garde, pas une coquetterie. Si la trace réseau ne montre rien repartir au
      clic, c'est ICI qu'est le point à reprendre. */
   const nonce = useContext(SourceRefreshCtx)?.nonce ?? 0;
-  useEffect(() => { if (nonce > 0) res?.refetch?.(); }, []);
+  useEffect(() => {
+    if (nonce === 0) return;
+    if (typeof res?.refetch === "function") { void res.refetch(); return; }
+    /* DIAGNOSTIC, et pas du bruit : c'est la seule hypothèse qu'on ne peut pas vérifier depuis
+       le code. Si le bouton paraît toujours inerte APRÈS le plancher d'accusé de réception
+       (§6-ter) et que cette ligne s'imprime, alors Softr n'expose pas `refetch` et seul le
+       remontage a eu lieu — auquel cas la vraie relecture dépend de son `staleTime`, qui ne
+       nous appartient pas. Une ligne par clic, jamais au chargement de la page. */
+    console.info("[SunLib] relecture : `refetch` absent de l'objet useRecords — seul le remontage de l'adapter a eu lieu.");
+  }, []);
 
   useEffect(() => {
     if (enabled && hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
@@ -2975,6 +3497,34 @@ function SavSource({ children }: { children: SourceChildren }) {
   const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
   return <>{children(useSnapshot("sav", SELECT_SAV, true, { ...liveState(res), partial, draining }))}</>;
 }
+/* ── CONTACTS PARTENAIRES — l'annuaire de la page Softr `contact-partenaire`. Connectée le
+   2026-08-19 (id propre à CE bloc, cf. §6 : jamais celui d'un autre bloc, même pour la même
+   table — c'est la leçon du SAV).
+
+   ⚠️⚠️ PRÉREQUIS AU COLLAGE : les DIX champs de `SELECT_CONTACT_INS` doivent être cochés sur
+   la connexion `contactsIns` dans l'onglet Sources. Un champ lu par le code et absent de la
+   datasource fait échouer la datasource ENTIÈRE (« New data source does not match / Remap the
+   fields »), donc le bloc — pas seulement ce widget. C'est le piège qui a déjà coûté sur
+   `notifC` et sur « Champs IA Config client ».
+
+   ⚠️ LECTURE SEULE, comme le SAV : pas de `useRecordUpdate`, donc pas de whitelist
+   `SELECT_CONTACT_INS_W`. Un contact se modifie sur la fiche de son installateur, qui porte le
+   champ LIEN et les validations.
+   ⚠️ 1 266 lignes, ~25 par page : son consommateur DRAINE toujours (`drain: true` au catalogue,
+   appliqué par `DataView`), sinon la recherche du widget ne fouillerait que la première page en
+   répondant « aucun contact » comme s'il n'y en avait pas. `partial` remonte si le plafond de
+   pages est atteint.
+   ⚠️ `orderBy` sur `nom` et non sur `entreprise`, alors que le catalogue trie par entreprise :
+   le tri d'AFFICHAGE est appliqué côté client (`applyQuery`), et la pagination étant drainée
+   en entier, l'ordre de lecture n'a aucune conséquence sur ce qui s'affiche. Reste qu'un
+   `orderBy` sur un champ LIEN n'est pas garanti côté Softr, là où le champ primaire l'est :
+   autant trier sur ce qui est sûr. */
+function ContactsInsSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+  const res = useRecords({ from: DS.contactsIns, select: SELECT_CONTACT_INS, orderBy: q.asc("nom") });
+  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  return <>{children(useSnapshot("contactsIns", SELECT_CONTACT_INS, !!drain, { ...liveState(res), partial, draining }))}</>;
+}
+
 /* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Connectée le
    2026-08-05 (id propre à CE bloc : onglet Chat, jamais celui d'un autre bloc — cf. la
    note du SAV).
@@ -3000,6 +3550,14 @@ function NotifCSource({ children, drain }: { children: SourceChildren; drain?: b
    parcs) et le SAV drainent TOUJOURS : elles n'existent que pour être agrégées.
    ⚠️ Oublier `drain` sur un widget qui compte ne provoque aucune erreur — juste un
    chiffre faux, crédible et silencieux. C'est le bug qu'a connu Pilotage SAV. */
+/* Durée MINIMALE pendant laquelle un widget se montre « en cours de relecture » après un clic
+   sur son bouton. Une relecture servie par le cache mémoire de Softr peut durer 80 ms : la
+   barre et la rotation apparaissent puis disparaissent avant d'avoir été vues, et le bouton
+   passe pour inerte — c'est le retour qui a été fait le 2026-08-19.
+   Ce plancher n'invente AUCUNE donnée : les lignes affichées restent les vraies, seul l'accusé
+   de réception est tenu assez longtemps pour être lu. */
+const REFRESH_FLOOR_MS = 650;
+
 function SourceFeed({ source, children, drain }: { source: SourceKey; children: SourceChildren; drain?: boolean }) {
   /* `key={nonce}` sur un Fragment : le bouton de la carte incrémente le nonce, ce qui
      DÉMONTE puis REMONTE l'adapter — donc `useRecords` repart de zéro. La page ne se vide
@@ -3008,15 +3566,70 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
   const parent = useContext(SourceRefreshCtx);
   const [nonce, setNonce] = useState(0);
   const [etat, setEtat] = useState({ reading: false, at: 0 });
+  /* Accusé de réception du clic, indépendant de ce que la source rend (cf. `REFRESH_FLOOR_MS`).
+     ⚠️ Le timer est nettoyé au démontage : sans cela, un widget retiré pendant sa relecture
+     déclencherait un `setState` sur un composant démonté. */
+  const [accuse, setAccuse] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
+
+  /* --- FAUT-IL LIRE ? (§6-quater) ---------------------------------------------------
+     L'e-mail entre dans la clé du cache : sans lui, aucune décision n'est possible. Il arrive
+     souvent au SECOND render (cf. `SESSION_WAIT_MS`), d'où l'attente courte plutôt qu'une
+     lecture immédiate qui rendrait le cache inutile. */
+  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
+  const [sansSession, setSansSession] = useState(false);
+  useEffect(() => {
+    if (email || sansSession) return;
+    const t = window.setTimeout(() => setSansSession(true), SESSION_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [email, sansSession]);
+
+  /* Décision FIGÉE au premier render où l'e-mail est connu, et gardée dans un ref : sans ça un
+     widget pourrait basculer du cache à la lecture (ou l'inverse) en cours de vie, et remonter
+     deux fois des lignes différentes à son consommateur.
+     ⚠️ Indexée par clé, exactement comme le ref de `useSnapshot` et pour la même raison : une
+     décision prise avant l'arrivée de l'e-mail resterait figée sur « pas de cache ». */
+  const choix = useRef<{ clef: string; snap: Snapshot | null }>({ clef: "\u0000", snap: null });
+  const select = SELECT_OF[source];
+  const clef = email && select ? snapKey(email, source, !!drain, snapSig(select)) : "";
+  if (clef && choix.current.clef !== clef) {
+    /* Une source en `"ouverture"` ne consulte même pas son instantané ici : elle en a un, il
+       sert pendant sa relecture (§6-ter), mais il ne peut pas la dispenser de lire.
+       Ordre volontaire pour les autres : l'HORODATAGE d'abord (une centaine de caractères), le
+       parse complet SEULEMENT si la date autorise à servir. Un instantané d'hier ne coûte donc
+       pas son `JSON.parse` de 900 000 caractères pour finir jeté. */
+    const parJour = CATALOG[source].fraicheur !== "ouverture";
+    const stamp = parJour ? readSnapshotStamp(clef) : 0;
+    choix.current = { clef, snap: stamp && memeJour(stamp, Date.now()) ? readSnapshot(clef) : null };
+  }
+  /* `nonce > 0` : le ⟳ de la carte a été cliqué — on lit, quoi qu'en dise le cache. C'est la
+     porte de sortie de tout le mécanisme, et la raison pour laquelle il peut être aussi strict.
+     ⚠️ `isLive` EN PREMIER, et ce n'est pas une précaution de style : en APERÇU (`USE_MOCK`) ou
+     sur une source non connectée, ce composant sert le mock — et un instantané laissé par une
+     vraie session sur le même poste passerait devant lui. On travaillerait alors sur des données
+     de production dans un écran censé montrer des données fictives, ce qui est le pire des deux
+     mondes. Même raison pour l'attente de session juste en dessous : sans base à lire, il n'y a
+     rien à attendre. */
+  const cache = isLive(source) && nonce === 0 && clef === choix.current.clef ? choix.current.snap : null;
+  /* On ne sait pas ENCORE s'il faut lire : squelettes, le temps d'un render ou deux. Lancer la
+     lecture « en attendant » annulerait tout le bénéfice, et l'annuler ensuite est impossible. */
+  const attenteSession = isLive(source) && !email && !sansSession;
 
   /* Un `SourceFeed` imbriqué (widget à plusieurs sources) relit AUSSI celles du dessus :
      un bouton qui ne rafraîchirait qu'un quart d'un total serait pire qu'aucun bouton. */
-  const refresh = () => { parent?.refresh(); setNonce((n) => n + 1); };
+  const refresh = () => {
+    parent?.refresh();
+    setNonce((n) => n + 1);
+    setAccuse(true);
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setAccuse(false), REFRESH_FLOOR_MS);
+  };
   /* Date affichée = la PLUS ANCIENNE des instantanés servis, pour la même raison qu'un
      total composé se date sur sa source la plus en retard (cf. `AggregateNote`). */
   const at = [etat.at, parent?.at ?? 0].filter(Boolean).sort((a, b) => a - b)[0] ?? 0;
   const api: SourceRefreshApi = {
-    nonce, refresh, busy: etat.reading || !!parent?.busy, at, publish: setEtat,
+    nonce, refresh, busy: etat.reading || accuse || !!parent?.busy, at, publish: setEtat,
   };
 
   /* PAS DE PROVIDER — donc pas de bouton — sur une source qui ne lit pas la base : en
@@ -3028,9 +3641,21 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
      écritures y sont simulées plutôt que masquées. */
   if (!isLive(source) && !USE_MOCK) return <>{feedFor(source, children, drain)}</>;
 
+  /* TROIS chemins, et un seul monte un `useRecords` :
+       · attente de la session → squelettes, aucune requête ;
+       · instantané du jour → `CachedSource`, aucune requête ;
+       · sinon → l'adapter, qui lit (et draine) comme avant.
+     Le `key={nonce}` reste sur le Fragment : c'est lui qui démonte-remonte l'adapter au clic sur
+     le ⟳, et c'est aussi ce qui fait passer du chemin « cache » au chemin « lecture ». */
   return (
     <SourceRefreshCtx.Provider value={api}>
-      <Fragment key={nonce}>{feedFor(source, children, drain)}</Fragment>
+      <Fragment key={nonce}>
+        {attenteSession
+          ? children({ rows: [], loading: true, error: false })
+          : cache
+            ? <CachedSource source={source} snap={cache}>{children}</CachedSource>
+            : feedFor(source, children, drain)}
+      </Fragment>
     </SourceRefreshCtx.Provider>
   );
 }
@@ -3060,6 +3685,74 @@ const deriveRows = (k: SourceKey, rows: Row[]): Row[] => {
 const withDerived = (source: SourceKey, recoit: SourceChildren): SourceChildren =>
   (s) => recoit({ ...s, rows: deriveRows(source, s.rows) });
 
+/* ============================================================================
+   6-quater. LECTURE ÉVITÉE — le cache décide s'il faut appeler la base
+   ----------------------------------------------------------------------------
+   CE QUE §6-ter NE FAISAIT PAS. Le cache d'instantanés est un cache d'AFFICHAGE :
+   il sert les lignes de la dernière lecture complète, puis relit TOUJOURS. Il
+   supprime l'attente, pas les requêtes. Or les sources drainées coûtent des
+   dizaines d'allers-retours EN SÉRIE chacune (≈ 350 à 450 pour un accueil qui
+   porte tous les widgets, à la taille de page déduite de ~25 lignes), et cela à
+   CHAQUE ouverture de la page — celle qu'on visite dix fois par jour.
+
+   LA RÈGLE, arbitrée le 2026-08-19 : la donnée doit être fraîche à la première
+   ouverture de la journée ; ensuite, l'instantané suffit. Elle est DÉCLARÉE PAR
+   SOURCE (`fraicheur`, §6-bis) parce que la réponse est métier : les deux files à
+   traiter — notifications de dossiers et journal des tâches — restent relues à
+   chaque ouverture, un dossier arrivé à 10 h devant se voir à 10 h 05.
+
+   COMMENT. `SourceFeed` calcule la clé du cache AVANT de monter l'adapter (d'où la
+   table `SELECT_OF` : la clé contient le hash du select). Si l'instantané est du
+   jour, l'adapter n'est PAS monté du tout — donc `useRecords` n'existe pas, donc
+   aucune requête ne part. Le ⟳ de la carte incrémente le `nonce`, ce qui force la
+   lecture : c'est le même mécanisme qu'avant, avec une raison de plus d'exister.
+
+   ⚠️ CE QUI RESTE VRAI ET DOIT LE RESTER : rien n'est servi qui ne soit annoncé. Un
+   widget d'agrégat affiche « Instantané » (`AggregateNote`), une liste écrit la date
+   de ses lignes dans son sous-titre. Une donnée d'hier présentée comme celle de
+   maintenant serait le défaut que tout ce fichier s'applique à éviter.
+   ============================================================================ */
+
+/** Le SELECT de chaque source, par clé. Cette table existe pour UNE raison : décider s'il faut
+ *  lire AVANT de monter l'adapter, donc calculer la clé du cache sans lui.
+ *  ⚠️ Une source absente d'ici sera relue à CHAQUE ouverture (repli prudent : pas de clé, pas de
+ *  cache). Toute source ajoutée au registre doit donc y figurer aussi — c'est la seule
+ *  duplication que le mécanisme impose, et elle est vérifiée par le typage de `SourceKey`. */
+const SELECT_OF: Partial<Record<SourceKey, Record<string, string>>> = {
+  abonnes: SELECT_ABONNE,
+  notesIns: SELECT_NOTE_INS,
+  notesPro: SELECT_NOTE_PRO,
+  tachesPa: SELECT_TACHE_PA,
+  tachesPr: SELECT_TACHE_PR,
+  notifC: SELECT_NOTIF_C,
+  sav: SELECT_SAV,
+  comKpi: SELECT_COM,
+  excAbo: SELECT_EXC_ABO,
+  excPart: SELECT_EXC_PART,
+  parcAbo: SELECT_PARC_ABO,
+  parcPart: SELECT_PARC_PART,
+  contactsIns: SELECT_CONTACT_INS,
+};
+
+/* Sert un instantané SANS RIEN LIRE. Aucun `useRecords` n'est monté ici : c'est tout l'objet du
+   mécanisme, et c'est pourquoi ce composant est si court.
+   · `cached` ET `stale` : le premier dit « aucune lecture n'est en cours », le second reste vrai
+     pour que les widgets qui l'écoutent déjà (les six widgets d'agrégat) continuent d'annoncer
+     leur instantané sans une ligne de code de plus.
+   · `withDerived` : l'instantané garde les lignes BRUTES (`useSnapshot` reçoit `liveState`, donc
+     d'avant les champs calculés). Sans cette enveloppe, `contact` — le « Prénom Nom » de
+     l'annuaire — serait VIDE sur toutes les lignes servies par le cache, et la liste afficherait
+     des titres manquants un jour sur deux.
+   · pas de `write` : voir l'avertissement de `fraicheur` (§6-bis). */
+function CachedSource({ source, snap, children }: { source: SourceKey; snap: Snapshot; children: SourceChildren }) {
+  const publish = useContext(SourceRefreshCtx)?.publish;
+  /* La date remonte au bouton de la carte, qui l'affiche dans son `title` (« Données du … —
+     cliquer pour relire »). Sans ça, la seule source servie sans lecture serait aussi la seule
+     dont on ne pourrait pas dater les lignes. */
+  useEffect(() => { publish?.({ reading: false, at: snap.at }); }, [snap.at]);
+  return <>{withDerived(source, children)({ rows: snap.rows, loading: false, error: false, stale: true, cached: true, at: snap.at })}</>;
+}
+
 function feedFor(source: SourceKey, recoit: SourceChildren, drain?: boolean) {
   /* UN SEUL point d'application pour les champs calculés : tout ce qui consomme une
      source passe par ici, mock compris. Les mettre dans chaque adapter serait douze
@@ -3079,6 +3772,7 @@ function feedFor(source: SourceKey, recoit: SourceChildren, drain?: boolean) {
     case "excPart":  return <ExcPartSource>{children}</ExcPartSource>;
     case "parcPart": return <ParcPartSource>{children}</ParcPartSource>;
     case "notifC":   return <NotifCSource drain={drain}>{children}</NotifCSource>;
+    case "contactsIns": return <ContactsInsSource drain={drain}>{children}</ContactsInsSource>;
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
 }
@@ -3974,9 +4668,11 @@ function Widget({
     ? { ...CARD, backgroundColor: tint.head, border: `1px solid ${tint.pill || T.line}`,
         ...({ "--slb-row-hover": tint.pill || T.surface2 } as CSSProperties) }
     : CARD;
+  /* `position: relative` : c'est l'ancre de la barre de chargement posée en bas de l'en-tête
+     (voir plus bas). Sans elle, la barre se placerait par rapport à la page. */
   const headStyle: CSSProperties = tint.head
-    ? { ...WHEAD, borderBottom: `1px solid ${tint.pill || T.line}` }
-    : WHEAD;
+    ? { ...WHEAD, position: "relative", borderBottom: `1px solid ${tint.pill || T.line}` }
+    : { ...WHEAD, position: "relative" };
   return (
     <Card style={cardStyle}>
       {/* L'EN-TÊTE est la zone de préhension (cf. WidgetGrabCtx). `cursor: grab` suffit
@@ -4014,6 +4710,31 @@ function Widget({
             réglages propres est RENOMMABLE, donc le bouton a toujours quelque chose
             à offrir — il n'est plus décoratif pour autant. */}
         {opts && <WidgetOptionsMenu opts={opts} title={shown} defaultTitle={title} />}
+        {/* INDICATEUR DE CHARGEMENT (2026-08-19, demandé) — une barre fine sur le bord bas de
+            l'en-tête, tant que la source de ce widget lit (`busy` = `loading || draining`,
+            publié par `useSnapshot`).
+            Pourquoi ICI et pas dans chaque carte : le contexte `SourceRefreshCtx` n'existe que
+            sous un `SourceFeed`, donc cette seule ligne couvre TOUS les widgets qui lisent la
+            base — notifications, tâches, notes, SAV, performance, exceptions, annuaire — et
+            aucun de ceux qui n'ont rien à lire (horloge, pense-bête, liste à cocher).
+            Pourquoi elle ne remplace pas les squelettes : ceux-ci disent « rien à afficher
+            ENCORE » au tout premier chargement ; la barre dit « ce que tu vois n'est pas
+            encore tout », ce qui est le cas pendant TOUT le drainage — `loading` est déjà
+            retombé à faux dès la première page, et une liste de 50 lignes sur 371 paraît
+            complète. C'est exactement le mensonge silencieux que ce bloc traque ailleurs.
+            ⚠️ `position: absolute` sur un en-tête passé en `relative` : la barre chevauche le
+            filet de séparation au lieu de pousser le contenu, donc rien ne saute à l'écran
+            quand elle apparaît ou disparaît.
+            ⚠️ Pas de `role="progressbar"` : la progression est INCONNUE (on ne sait pas combien
+            de pages restent). `role="status"` annonce l'activité sans promettre un pourcentage
+            que personne ne peut donner. */}
+        {refreshCtx?.busy && (
+          <span role="status" aria-label={`Lecture des données en cours — ${shown}`}
+            title="Lecture des données en cours"
+            style={{ position: "absolute", left: 0, right: 0, bottom: -1, height: 2, overflow: "hidden", background: tint.pill || T.brand050, pointerEvents: "none" }}>
+            <span className="slb-bar" style={{ display: "block", width: "38%", height: "100%", borderRadius: 2, background: T.brand }} />
+          </span>
+        )}
       </div>
       <div>
         {children}
@@ -4842,7 +5563,13 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
           <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>{echec}</span>
         </div>
       )}
-      {items.length === 0 ? (
+      {/* ⚠️ LE CHARGEMENT PASSE AVANT LES ÉTATS VIDES (2026-08-19). Cette table est drainée
+          (2 142 lignes) : pendant plusieurs secondes, `items` est vide sans que cela veuille
+          dire quoi que ce soit, et le widget annonçait pourtant « Tout est traité » — la
+          plus trompeuse des trois réponses possibles, puisqu'elle est rassurante. */}
+      {notifs.loading ? (
+        <ListSkeleton rows={4} />
+      ) : items.length === 0 ? (
         /* TROIS états vides distincts, parce qu'ils demandent trois gestes différents :
            « tout est traité » (bonne nouvelle — la file est vide, rien à faire),
            « rien à mon nom » (le filtre propriétaire a tout écarté → proposer de
@@ -4959,9 +5686,15 @@ function TaskRow({ t, onFait }: { t: Task; onFait?: () => void }) {
    affichait « 12 » là où la table en portait quarante. Une pastille compteur est lue
    comme un total ; elle doit en être un. */
 function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires, partial,
-  onFait, faisable, mineAsked, identifiee }: {
+  onFait, faisable, mineAsked, identifiee, loading }: {
   prospects: Task[]; partenaires: Task[];
   totalProspects: number; totalPartenaires: number; partial?: boolean;
+  /** Une des deux sources lit encore. ⚠️ SANS CETTE PROP, le widget affichait « Aucune
+   *  tâche prospect en cours » pendant tout le chargement (les deux tables sont DRAINÉES,
+   *  donc plusieurs secondes) : un état vide affirmatif, montré à la place d'un état
+   *  d'attente, se lit comme une réponse — et comme une réponse fausse. C'est exactement
+   *  ce que l'indicateur de chargement doit empêcher. */
+  loading?: boolean;
   /** Clôt une tâche. `onFait` reçoit l'onglet courant : les deux tables sont
    *  différentes, donc l'écriture ne part pas au même endroit. */
   onFait?: (scope: "prospects" | "partenaires", id: string) => Promise<boolean>;
@@ -5014,7 +5747,8 @@ function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires,
        `QuickCreate` tout seul, avec son formulaire — voir « Dossiers SAV ». Ne pas recoller
        un bouton en dur ici. */
     <Widget icon={CalendarClock} title="Journal des tâches"
-      sub={mineAsked && identifiee ? "Mes tâches · prospects & partenaires" : "Prospects & partenaires"}>
+      sub={loading ? "Chargement…"
+        : mineAsked && identifiee ? "Mes tâches · prospects & partenaires" : "Prospects & partenaires"}>
       {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le dit, au lieu de servir en silence
           les tâches de toute l'équipe sous un titre qui annonce les siennes. */}
       {mineAsked && !identifiee && (
@@ -5035,7 +5769,11 @@ function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires,
         <TabBar dense tabs={tabs} activeTab={tab} onSelect={setTab} />
       </div>
       <div key={tab} role="tabpanel" style={{ animation: "slb-panel-fwd .3s cubic-bezier(.22,.61,.36,1) both" }}>
-        {rows.length === 0 ? (
+        {/* Le squelette PASSE DEVANT l'état vide, jamais l'inverse : tant qu'une des deux
+            sources lit, on ne sait pas encore s'il y a des tâches. */}
+        {loading ? (
+          <ListSkeleton rows={4} />
+        ) : rows.length === 0 ? (
           <EmptyState dense icon={Inbox}
             title={tab === "prospects" ? "Aucune tâche prospect en cours" : "Aucune tâche partenaire en cours"}
             hint={tab === "prospects" ? "Les tâches liées à vos prospects apparaîtront ici." : "Les tâches liées à vos partenaires apparaîtront ici."} />
@@ -5120,14 +5858,18 @@ type InstanceCfg = {
   create?: boolean;                               // bouton « + » (formulaire du descripteur)
   /* --- BARRE D'OUTILS de consultation (2026-08-06) ------------------------------
      `search` : champ de recherche plein-texte au-dessus de la liste.
-     `facet`  : ALIAS d'un champ dont les valeurs deviennent un filtre à cases, en
-                multi-sélection (les installateurs, par exemple). "" = pas de filtre.
+     `facets` : ALIAS des champs dont les valeurs deviennent un filtre à cases, en
+                multi-sélection (les installateurs, par exemple). Liste VIDE = pas de filtre.
+                Jusqu'à `FACETS_MAX` — trois, comme la page Softr des contacts (entreprise,
+                service, type de contact) ; au-delà, la barre passe à la ligne et ne se lit
+                plus. La clé `facet` (singulier, string) des documents d'avant le 2026-08-19
+                est toujours LUE par `coerceCfg`.
      ⚠️ Ce que l'utilisateur TAPE ou COCHE n'est PAS stocké ici : ces deux clés disent
      seulement si l'outil est OFFERT. Le terme et les cases vivent en état local
      (`LocalRefine`) — une recherche enregistrée se rappellerait au chargement suivant
      et donnerait un widget qui paraît vide sans raison visible. */
   search?: boolean;
-  facet?: string;
+  facets?: string[];
   /* « Seulement les fiches dont je suis propriétaire » (2026-08-07). N'a de sens que si
      le descripteur de la source déclare un `ownerField` ; ailleurs la clé est absente.
      ACTIF par défaut là où il existe : une liste de suivi client sert d'abord à voir SON
@@ -5157,6 +5899,10 @@ const CLIENTELES: { key: Clientele; label: string }[] = [
 const LIST_LIMIT_MAX = 50;
 const KPI_DAYS_MAX = 365;
 const TABLE_COLS_MAX = 6;
+/* Trois filtres à cases au maximum. Ce n'est pas une limite technique mais de LECTURE : la
+   barre d'outils tient la recherche, les filtres et le tri sur une ligne de carte en
+   demi-largeur ; au quatrième bouton elle passe à la ligne et le widget perd 30 px de corps. */
+const FACETS_MAX = 3;
 
 /* ---------------------------------------------------------------------------
    Coercition : cfg stockée (BRUTE, éventuellement d'une version antérieure)
@@ -5279,10 +6025,31 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
      n'affiche aucune ligne). `search !== false` et non `=== true` : les cfg déjà
      enregistrées n'ont pas la clé et doivent hériter du nouveau défaut, sinon la
      recherche n'arriverait jamais chez ceux qui ont personnalisé leur accueil.
-     La facette retombe sur `defaultFacet` du descripteur ; un alias inconnu (source
-     changée, champ retiré) est écarté plutôt que gardé — un filtre sur un champ absent
-     ne renverrait jamais rien, sans rien dire. */
-  const facet = kind === "kpi" ? "" : (known("facet" in o ? o.facet : desc.defaultFacet) ?? "");
+     Les filtres retombent sur `defaultFacet` du descripteur ; un alias inconnu (source
+     changée, champ retiré) est écarté plutôt que gardé — un filtre sur un champ absent ne
+     renverrait jamais rien, sans rien dire.
+     TROIS FORMES SONT LUES, parce que trois existent réellement : `facets` (liste, depuis le
+     2026-08-19), `facet` (chaîne, dans les layouts déjà enregistrés et dans trois presets), et
+     rien du tout (on prend le défaut du descripteur, lui aussi chaîne ou liste). Une seule est
+     ÉCRITE — `facets` — donc un document se normalise au premier « Enregistrer ». */
+  /* ⚠️ `facet` (singulier) N'EXPRIME PAS UN CHOIX D'EXCLUSION, et ce détail décide de ce que
+     voit un widget DÉJÀ POSÉ : à l'époque où cette clé a été écrite, un seul filtre était
+     possible. Une cfg qui la porte est donc COMPLÉTÉE par le défaut du descripteur quand
+     celui-ci en propose plusieurs — sans quoi l'annuaire des contacts posé le matin du
+     2026-08-19 aurait gardé pour toujours son unique filtre « entreprise », et les deux autres
+     n'auraient jamais paru arriver. La valeur enregistrée reste EN TÊTE : si elle exprimait
+     vraiment un choix, il est conservé, simplement plus seul.
+     Cas particulier PRÉSERVÉ : `facet: ""` veut dire « aucun filtre » (les deux files d'attente,
+     §10) et doit le rester — d'où le test sur la chaîne vide, qui rend une liste vide. */
+  const facetsBruts: unknown[] = Array.isArray(o.facets) ? o.facets
+    : typeof o.facets === "string" ? [o.facets]
+    : "facet" in o
+      ? (o.facet === "" || o.facet == null ? []
+         : [o.facet, ...(Array.isArray(desc.defaultFacet) ? desc.defaultFacet : [])])
+    : Array.isArray(desc.defaultFacet) ? desc.defaultFacet
+    : [desc.defaultFacet];
+  const facets = kind === "kpi" ? []
+    : [...new Set(facetsBruts.map((a) => known(a)).filter((a): a is string => !!a))].slice(0, FACETS_MAX);
 
   /* --- « mes fiches » : offert seulement si la source a un propriétaire déclaré, ACTIF
      par défaut (`!== false`, comme `search` : une cfg enregistrée avant ce réglage n'a
@@ -5306,7 +6073,7 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
     search: kind === "kpi" ? false : o.search !== false,
     ...(desc.ownerField ? { mine } : {}),
     ...(desc.clientField ? { clientele } : {}),
-    ...(facet ? { facet } : {}),
+    ...(facets.length ? { facets } : {}),
     ...(use.length ? { actions: { use } } : {}),
     ...(o.create && desc.create ? { create: true } : {}),
   };
@@ -5431,8 +6198,11 @@ const rowText = (row: Row, desc: SourceDesc): string =>
  *  au lieu de la table. C'est toute la raison de ce paramètre. */
 type LocalRefine = {
   q?: string;                                  // recherche plein-texte
-  facetField?: string;                         // alias du filtre à valeurs
-  facetValues?: string[];                      // valeurs cochées ([] = aucune restriction)
+  /** Cases cochées PAR FILTRE : alias → valeurs ([] ou absent = aucune restriction).
+   *  Un objet et non les deux clés `facetField`/`facetValues` d'avant le 2026-08-19 : avec
+   *  elles, ouvrir un second filtre ÉCRASAIT le premier — trois boutons pour un seul filtre
+   *  effectif, et sans le dire. */
+  facetSel?: Record<string, string[]>;
   sort?: { by: string; dir: "asc" | "desc" };  // tri par clic (surcharge celui de la cfg)
 };
 
@@ -5447,12 +6217,17 @@ function applyQuery(rows: Row[], cfg: InstanceCfg, local?: LocalRefine, ident?: 
   const mots = foldText(local?.q).trim().split(/\s+/).filter(Boolean);
   if (mots.length) out = out.filter((r) => { const t = rowText(r, desc); return mots.every((m) => t.includes(m)); });
 
-  // Facette : OU entre les valeurs cochées. Aucune coche = aucune restriction (et non
-  // « rien » : un filtre vide qui viderait la liste serait un piège à clics).
-  const vals = local?.facetValues ?? [];
-  if (local?.facetField && vals.length) {
-    const set = new Set(vals.map(foldText));
-    out = out.filter((r) => set.has(foldText(r[local.facetField!])));
+  /* Filtres à cases : OU entre les valeurs d'un même filtre, ET entre les filtres — l'ordre
+     des deux n'est pas un détail, c'est ce qui fait qu'on peut demander « les commerciaux OU
+     les admins, chez MC ENERGY ». Aucune coche = aucune restriction (et non « rien » : un
+     filtre vide qui viderait la liste serait un piège à clics).
+     Un alias inconnu du descripteur est ignoré : la sélection locale survit à un changement de
+     source, et filtrer sur un champ absent ne renverrait jamais rien. */
+  for (const [alias, vals] of Object.entries(local?.facetSel ?? {})) {
+    if (!vals.length || !(alias in desc.fields)) continue;
+    const coche = new Set(vals.map(foldText));
+    const multi = desc.fields[alias].multi;
+    out = out.filter((r) => matchFacet(r[alias], coche, multi));
   }
 
   const tri = local?.sort ?? cfg.query.sort;
@@ -5463,17 +6238,40 @@ function applyQuery(rows: Row[], cfg: InstanceCfg, local?: LocalRefine, ident?: 
   return out.slice(0, Math.max(1, Math.min(LIST_LIMIT_MAX, cfg.query.limit)));
 }
 
+/** La ligne porte-t-elle l'une des valeurs cochées ? OU entre les valeurs d'un même filtre.
+ *  Sur un champ multi-valeurs, la comparaison porte sur CHAQUE valeur de la cellule : un
+ *  contact « Commercial, Admin » répond donc au filtre « Commercial », ce qu'une égalité sur la
+ *  chaîne entière ratait. PURE. */
+const matchFacet = (cell: unknown, coche: Set<string>, multi?: boolean): boolean => {
+  const brut = asText(cell).trim();
+  if (!brut) return false;
+  if (!multi) return coche.has(foldText(brut));
+  return brut.split(",").some((v) => coche.has(foldText(v.trim())));
+};
+
 /** Valeurs distinctes d'un champ dans les lignes lues, les plus fréquentes d'abord.
  *  PURE. Alimente le filtre à cases : les valeurs viennent des DONNÉES et non d'une
- *  liste écrite à la main, donc un nouvel installateur apparaît tout seul. */
-function facetValues(rows: Row[], alias: string, max = 60): { value: string; count: number }[] {
+ *  liste écrite à la main, donc un nouvel installateur apparaît tout seul.
+ *  ⚠️ LE PLAFOND `max` COUPE EN SILENCE, et c'est ASSUMÉ. Le panneau a porté quelques heures
+ *  le 2026-08-19 une ligne qui annonçait la troncature (« les 60 valeurs les plus fréquentes
+ *  sur 371 ») : RETIRÉE le jour même, à la demande — sur un annuaire de 371 entreprises, elle
+ *  expliquait à chaque ouverture du filtre un plafond dont on n'a rien à faire quand on cherche
+ *  un nom, et la recherche plein-texte (qui, elle, ne tronque rien) est juste au-dessus.
+ *  Ne pas la remettre sans qu'on la redemande. */
+function facetValues(rows: Row[], alias: string, multi?: boolean, max = 60): { value: string; count: number }[] {
   const compte = new Map<string, { value: string; count: number }>();
   for (const r of rows) {
-    const v = asText(r[alias]).trim();
-    if (!v) continue;
-    const k = foldText(v);
-    const e = compte.get(k);
-    if (e) e.count++; else compte.set(k, { value: v, count: 1 });
+    const brut = asText(r[alias]).trim();
+    if (!brut) continue;
+    /* Champ multi-valeurs : on compte CHAQUE valeur de la cellule. Conséquence à connaître —
+       la somme des compteurs dépasse alors le nombre de lignes, puisqu'un contact « Commercial,
+       Admin » est compté dans les deux. C'est le comportement attendu d'un filtre à facettes,
+       pas une double comptabilisation à corriger. */
+    for (const v of multi ? brut.split(",").map((x) => x.trim()).filter(Boolean) : [brut]) {
+      const k = foldText(v);
+      const e = compte.get(k);
+      if (e) e.count++; else compte.set(k, { value: v, count: 1 });
+    }
   }
   return [...compte.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "fr")).slice(0, max);
 }
@@ -5530,11 +6328,16 @@ function AggregateNote({ api, style }: { api: SourceState; style?: CSSProperties
      s'afficherait comme un total de maintenant — le même défaut qu'un total partiel
      présenté comme un total. */
   if (api.stale) {
+    /* DEUX PHRASES, et il a fallu les séparer le 2026-08-19 : « mise à jour en cours » devient
+       FAUX quand la source est servie SANS lecture (`cached`, §6-quater). Promettre une
+       actualisation qui n'arrivera pas avant demain serait pire que de ne rien dire — on
+       attendrait un chiffre qui ne vient pas. */
     return (
       <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "12px 16px 14px", ...style }}>
         <Badge variant="neutral" dot>Instantané</Badge>
         <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
-          Chiffres {snapAge(api.at)} — mise à jour en cours.
+          Chiffres {snapAge(api.at)}
+          {api.cached ? " — relire avec le ⟳ de la carte." : " — mise à jour en cours."}
         </span>
       </div>
     );
@@ -5568,9 +6371,42 @@ function FieldValue({ row, alias, desc }: { row: Row; alias: string; desc: Sourc
       : <span style={{ color: T.ink4 }}>{DASH}</span>;
   }
   if (!text) return <span style={{ color: T.ink4 }}>{DASH}</span>;
-  if (f.kind === "badge") return <Badge variant={variantOf(desc, alias, text)}>{text}</Badge>;
+  if (f.kind === "badge") {
+    /* MULTI-SÉLECTION (2026-08-19) : « Commercial, Admin » sont DEUX valeurs, pas une. En une
+       seule pastille, elles perdaient leur couleur — aucune entrée de `variants` ne porte la
+       paire, donc le repli `statusVariant` les grisait toutes — et la ligne devenait illisible
+       dès trois services. La page Softr, elle, affiche bien une pastille par valeur.
+       ⚠️ Le découpage n'a lieu que si le descripteur DÉCLARE le champ multi-valeurs (`multi`,
+       §6-bis) : découper tout badge sur la virgule aurait coupé en deux le premier statut ou
+       la première raison sociale qui en contient une. */
+    const vals = f.multi ? text.split(",").map((v) => v.trim()).filter(Boolean) : [text];
+    if (vals.length > 1) {
+      return (
+        <span style={{ display: "inline-flex", flexWrap: "wrap", gap: "4px", verticalAlign: "middle" }}>
+          {vals.map((v) => <Badge key={v} variant={variantOf(desc, alias, v)}>{v}</Badge>)}
+        </span>
+      );
+    }
+    return <Badge variant={variantOf(desc, alias, text)}>{text}</Badge>;
+  }
   if (f.kind === "date") return <span title={fmtDate(text)}>{fmtSmart(text)}</span>;
   if (f.kind === "url") return <a href={text} target="_blank" rel="noopener noreferrer" style={{ color: T.brand700, fontWeight: 600 }}>Ouvrir</a>;
+  /* COORDONNÉES — le texte reste VISIBLE, à l'inverse d'`url` qui affiche « Ouvrir » : dans
+     un annuaire, lire l'adresse est aussi utile que cliquer dessus, et une colonne de
+     « Ouvrir » identiques ne se parcourt pas des yeux.
+     `mailto:` / `tel:` ne naviguent pas la page, donc pas de `target` : les mettre en
+     `_blank` laisserait un onglet vide derrière chaque clic. Le numéro n'est nettoyé que
+     dans l'attribut — « +33 6 24 51 56 16 » reste lisible à l'écran et composable.
+     `stopPropagation` : ces liens vivent dans une ligne cliquable (`onOpen`), et sans lui
+     écrire un mail ouvrirait aussi la fiche par-dessus. */
+  if (f.kind === "email" || f.kind === "phone") {
+    const href = f.kind === "email" ? `mailto:${text}` : `tel:${text.replace(/[^+\d]/g, "")}`;
+    return (
+      <a href={href} onClick={(e) => e.stopPropagation()}
+        style={{ color: T.brand700, fontWeight: 600, textDecoration: "none", overflowWrap: "anywhere" }}
+        title={f.kind === "email" ? `Écrire à ${text}` : `Appeler ${text}`}>{text}</a>
+    );
+  }
   if (f.kind === "number") {
     // Séparateurs de milliers : « 153 000 » plutôt que « 153000 ». Un CAPEX brut se
     // relit mal, et l'ordre de grandeur est justement ce qu'on cherche d'un coup d'œil.
@@ -5644,6 +6480,15 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
      ⚠️ Le record id de la ligne n'est un id de fiche que si la source EST la table de
      cette fiche — d'où `detailPage` porté par le descripteur et non déduit ici. */
   const fiche = ficheHref ?? (desc.detailPage ? pageUrl(desc.detailPage, { [PAGE_RECORD_PARAM]: row.id }) : "");
+  /* À DÉFAUT DE FICHE : la page qui CONTIENT cette ligne (`listPage`), avec un libellé qui le
+     dit — « Ouvrir la page … » et non « Ouvrir la fiche complète ». Nuance signalée le
+     2026-08-19 sur l'annuaire des contacts, et elle est juste : un bouton qui promet la fiche
+     d'une personne et rend un tableau de 371 lignes est un bouton qui ment, même s'il ouvre la
+     bonne page. Aucun record id n'est passé ici : la page n'en ferait rien. */
+  const lien = fiche || (desc.listPage ? pageUrl(desc.listPage) : "");
+  const libelleLien = fiche ? "Ouvrir la fiche complète"
+    : desc.pageLabel ? `Ouvrir ${desc.pageLabel}`
+    : "Ouvrir dans le CRM";
 
   const lbl: CSSProperties = { fontSize: "11px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em" };
   const val: CSSProperties = { fontSize: "13px", fontWeight: 500, color: T.ink, minWidth: 0, overflowWrap: "anywhere" };
@@ -5694,11 +6539,11 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
           })}
         </div>
 
-        {fiche && (
+        {lien && (
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 18px", borderTop: `1px solid ${T.line}`, flex: "none" }}>
-            <a href={fiche} target="_top" className="slb-btng"
+            <a href={lien} target="_top" className="slb-btng"
               style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 13px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
-              Ouvrir la fiche complète<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
+              {libelleLien}<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
             </a>
           </div>
         )}
@@ -5708,16 +6553,19 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
 }
 
 /* ---------------------------------------------------------------------------
-   BARRE D'OUTILS DE CONSULTATION — recherche, filtre à cases, tri
+   BARRE D'OUTILS DE CONSULTATION — recherche, filtres à cases, tri
    ---------------------------------------------------------------------------
    Trois outils au-dessus de la liste, tous LOCAUX (rien n'est enregistré, cf.
    `LocalRefine`) et tous génériques : ils ne connaissent que le descripteur de
    la source, donc ils marchent pour les notes comme pour les dossiers SAV.
 
    · RECHERCHE — plein-texte sur les champs déclarés, mot par mot (ET).
-   · FILTRE À CASES — les valeurs DISTINCTES d'un champ (`cfg.facet`), listées
-     par fréquence décroissante, en multi-sélection. Les valeurs viennent des
-     données : un nouvel installateur apparaît sans toucher au code.
+   · FILTRES À CASES — les valeurs DISTINCTES d'un champ, par fréquence
+     décroissante, en multi-sélection. JUSQU'À TROIS depuis le 2026-08-19
+     (`cfg.facets`, plafond `FACETS_MAX`), demandés pour l'annuaire des contacts :
+     entreprise, service, type de contact — les trois de la page Softr. Les
+     valeurs viennent des données : un nouvel installateur apparaît sans toucher
+     au code. OU entre les valeurs d'un filtre, ET entre les filtres.
    · TRI — proposé ici pour la vue LISTE, qui n'a pas d'en-têtes de colonnes où
      cliquer. En vue tableau, c'est l'en-tête qui trie (cf. `GenericTable`), et
      ce bouton n'est donc pas rendu.
@@ -5727,10 +6575,91 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
    Elle rend le widget un peu plus haut que sa taille nominale — le tassement de
    la grille mesure la hauteur réelle (§11), donc rien à corriger.
    --------------------------------------------------------------------------- */
+
+/* Styles PARTAGÉS par la barre et par chacun de ses filtres. Sortis en constantes de module le
+   2026-08-19 : les filtres sont devenus un composant à part (`FacetFilter`), et redéfinir
+   quatre objets de style dans chacun les aurait fait diverger au premier ajustement. */
+const TBTN: CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: "5px", flex: "none",
+  padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
+  background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12px",
+  fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+};
+const TBTN_ON: CSSProperties = { ...TBTN, border: `1px solid ${T.brand100}`, background: T.brand050, color: T.brand700 };
+const TITEM: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 8px", borderRadius: T.rSm, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink2, textAlign: "left" };
+const TPANEL: CSSProperties = { position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, width: 252, maxHeight: 300, overflowY: "auto", padding: "6px", background: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" };
+
+/* UN filtre à cases : son bouton et son panneau.
+   COMPOSANT À PART, et ce n'est pas un raffinement de style : chaque filtre a son état
+   d'ouverture et son `useDismissOnOutside`. Appelés dans une boucle au sein de `ListToolbar`,
+   ces hooks changeraient d'ordre dès qu'un filtre apparaît ou disparaît (source changée, champ
+   devenu uniforme) — ce que React interdit. Un composant par filtre rend l'ordre stable par
+   construction. */
+function FacetFilter({ alias, desc, rows, cochees, onChange }: {
+  alias: string; desc: SourceDesc; rows: Row[];
+  /** Valeurs cochées de CE filtre ([] = aucune restriction). */
+  cochees: string[];
+  onChange: (valeurs: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useDismissOnOutside(open, setOpen);
+  const champ = desc.fields[alias];
+  /* Les valeurs proposées ignorent VOLONTAIREMENT les autres filtres cochés. Un filtre qui se
+     réduirait à ce que les autres laissent passer devient impossible à défaire : les cases
+     disparaissent avec leurs valeurs, et on ne peut plus décocher ce qu'on ne voit plus.
+     Chaque filtre décrit donc la même population — celle du périmètre. */
+  const valeurs = facetValues(rows, alias, champ?.multi);
+  const libelle = champ?.label ?? alias;
+  /* Un filtre à une seule valeur ne filtre rien : il n'a pas sa place dans la barre. Le test
+     est APRÈS les hooks — les règles de React ne laissent pas le choix — ce qui a l'avantage de
+     faire réapparaître le bouton tout seul dès que les données s'étoffent. */
+  if (valeurs.length < 2) return null;
+  const toggle = (v: string) => {
+    const set = new Set(cochees);
+    if (set.has(v)) set.delete(v); else set.add(v);
+    onChange([...set]);
+  };
+  return (
+    <div ref={ref} style={{ position: "relative", flex: "none" }}>
+      <button style={cochees.length ? TBTN_ON : TBTN} onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog" aria-expanded={open} title={`Filtrer par ${libelle}`}>
+        <FilterIcon aria-hidden style={{ width: 13, height: 13 }} />
+        {libelle}
+        {cochees.length > 0 && ` · ${cochees.length}`}
+        <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />
+      </button>
+      {open && (
+        <div role="dialog" aria-label={`Filtrer par ${libelle}`} style={TPANEL}>
+          {/* « Tout effacer » plutôt qu'un « Tout cocher » : aucune coche signifie déjà
+              « toutes les valeurs » (cf. `applyQuery`), donc cocher tout serait un synonyme
+              inutile — et laisserait croire à un filtre là où il n'y en a pas. */}
+          <button onClick={() => onChange([])}
+            style={{ ...TITEM, fontWeight: 700, color: cochees.length ? T.brand700 : T.ink4, cursor: cochees.length ? "pointer" : "default" }}
+            disabled={!cochees.length}>
+            <RotateCcw aria-hidden style={{ width: 13, height: 13 }} />Tout effacer
+          </button>
+          <div style={{ height: 1, background: T.line, margin: "4px 6px" }} />
+          {valeurs.map(({ value, count }) => {
+            const on = cochees.includes(value);
+            return (
+              <label key={value} style={{ ...TITEM, cursor: "pointer" }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(value)}
+                  style={{ width: 14, height: 14, accentColor: T.brand, flex: "none", cursor: "pointer" }} />
+                <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
+                <span style={{ flex: "none", fontSize: "11px", fontWeight: 600, color: T.ink4 }}>{count}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
   rows: Row[]; cfg: InstanceCfg; desc: SourceDesc;
   local: LocalRefine; setLocal: (next: LocalRefine) => void;
-  /** Identité de la session — seulement pour borner les valeurs proposées par le filtre
+  /** Identité de la session — seulement pour borner les valeurs proposées par les filtres
    *  à cases au périmètre du filtre « mes fiches » (cf. ownerScope). */
   ident?: UserIdent;
   /** Vue LISTE : le bouton de tri est offert. Vue tableau : il ne l'est pas (les
@@ -5738,36 +6667,22 @@ function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
    *  finiraient par se contredire à l'écran). */
   triable: boolean;
 }) {
-  const [openFacet, setOpenFacet] = useState(false);
   const [openSort, setOpenSort] = useState(false);
-  const refFacet = useDismissOnOutside(openFacet, setOpenFacet);
   const refSort = useDismissOnOutside(openSort, setOpenSort);
 
-  const cochees = local.facetValues ?? [];
-  // Les valeurs proposées suivent le PÉRIMÈTRE : cocher un nom qui n'est pas dans son
-  // portefeuille ne ramènerait jamais rien (cf. ownerScope).
-  const valeurs = cfg.facet ? facetValues(ownerScope(rows, cfg, ident), cfg.facet) : [];
-  const toggle = (v: string) => {
-    const set = new Set(cochees);
-    if (set.has(v)) set.delete(v); else set.add(v);
-    setLocal({ ...local, facetField: cfg.facet, facetValues: [...set] });
-  };
+  /* Les valeurs des filtres suivent le PÉRIMÈTRE : cocher un nom qui n'est pas dans son
+     portefeuille ne ramènerait jamais rien (cf. ownerScope). */
+  const perimetre = ownerScope(rows, cfg, ident);
+  const facets = cfg.facets ?? [];
+  const sel = local.facetSel ?? {};
+  const setFacet = (alias: string, valeurs: string[]) =>
+    setLocal({ ...local, facetSel: { ...sel, [alias]: valeurs } });
 
   /* Champs TRIABLES : tout sauf les textes longs (trier des notes de trois lignes par
-     ordre alphabétique n'a aucun sens) et les booléens seuls. */
+     ordre alphabétique n'a aucun sens). */
   const triables = Object.keys(desc.fields).filter((a) => desc.fields[a].kind !== "longtext");
   const triCourant = local.sort ?? cfg.query.sort;
   const nomTri = triCourant.by ? desc.fields[triCourant.by]?.label ?? triCourant.by : "";
-
-  const btn: CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "5px", flex: "none",
-    padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
-    background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12px",
-    fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-  };
-  const btnActif: CSSProperties = { ...btn, border: `1px solid ${T.brand100}`, background: T.brand050, color: T.brand700 };
-  const item: CSSProperties = { display: "flex", alignItems: "center", gap: "8px", width: "100%", padding: "6px 8px", borderRadius: T.rSm, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink2, textAlign: "left" };
-  const panneau: CSSProperties = { position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, width: 252, maxHeight: 300, overflowY: "auto", padding: "6px", background: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: T.shMd, animation: "slb-fade .12s ease both" };
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "7px", flexWrap: "wrap", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
@@ -5788,45 +6703,17 @@ function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
         </label>
       )}
 
-      {cfg.facet && valeurs.length > 1 && (
-        <div ref={refFacet} style={{ position: "relative", flex: "none" }}>
-          <button style={cochees.length ? btnActif : btn} onClick={() => setOpenFacet((o) => !o)}
-            aria-haspopup="dialog" aria-expanded={openFacet}>
-            <FilterIcon aria-hidden style={{ width: 13, height: 13 }} />
-            {desc.fields[cfg.facet]?.label ?? cfg.facet}
-            {cochees.length > 0 && ` · ${cochees.length}`}
-            <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />
-          </button>
-          {openFacet && (
-            <div role="dialog" aria-label={`Filtrer par ${desc.fields[cfg.facet]?.label ?? cfg.facet}`} style={panneau}>
-              {/* « Tout effacer » plutôt qu'un « Tout cocher » : aucune coche signifie déjà
-                  « toutes les valeurs » (cf. `applyQuery`), donc cocher tout serait un
-                  synonyme inutile — et laisserait croire à un filtre là où il n'y en a pas. */}
-              <button onClick={() => setLocal({ ...local, facetField: cfg.facet, facetValues: [] })}
-                style={{ ...item, fontWeight: 700, color: cochees.length ? T.brand700 : T.ink4, cursor: cochees.length ? "pointer" : "default" }}
-                disabled={!cochees.length}>
-                <RotateCcw aria-hidden style={{ width: 13, height: 13 }} />Tout effacer
-              </button>
-              <div style={{ height: 1, background: T.line, margin: "4px 6px" }} />
-              {valeurs.map(({ value, count }) => {
-                const on = cochees.includes(value);
-                return (
-                  <label key={value} style={{ ...item, cursor: "pointer" }}>
-                    <input type="checkbox" checked={on} onChange={() => toggle(value)}
-                      style={{ width: 14, height: 14, accentColor: T.brand, flex: "none", cursor: "pointer" }} />
-                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
-                    <span style={{ flex: "none", fontSize: "11px", fontWeight: 600, color: T.ink4 }}>{count}</span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Un bouton par filtre déclaré, dans l'ordre du descripteur — cet ordre est celui de la
+          page Softr pour les contacts (entreprise, service, type), et il se lit comme la
+          question qu'on se pose : chez qui, à quel service, pour quel motif. */}
+      {facets.map((a) => (
+        <FacetFilter key={a} alias={a} desc={desc} rows={perimetre}
+          cochees={sel[a] ?? []} onChange={(v) => setFacet(a, v)} />
+      ))}
 
       {triable && triables.length > 0 && (
         <div ref={refSort} style={{ position: "relative", flex: "none" }}>
-          <button style={local.sort ? btnActif : btn} onClick={() => setOpenSort((o) => !o)}
+          <button style={local.sort ? TBTN_ON : TBTN} onClick={() => setOpenSort((o) => !o)}
             aria-haspopup="menu" aria-expanded={openSort} title={nomTri ? `Trié par ${nomTri}` : "Trier"}>
             {triCourant.dir === "asc"
               ? <ChevronUp aria-hidden style={{ width: 13, height: 13 }} />
@@ -5834,11 +6721,11 @@ function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
             Trier
           </button>
           {openSort && (
-            <div role="menu" style={panneau}>
+            <div role="menu" style={TPANEL}>
               {triables.map((a) => {
                 const actif = triCourant.by === a;
                 return (
-                  <button key={a} role="menuitem" className="slb-menu-item" style={{ ...item, color: actif ? T.brand700 : T.ink2, fontWeight: actif ? 700 : 500 }}
+                  <button key={a} role="menuitem" className="slb-menu-item" style={{ ...TITEM, color: actif ? T.brand700 : T.ink2, fontWeight: actif ? 700 : 500 }}
                     onClick={() => {
                       // Recliquer le champ actif INVERSE le sens : un seul geste pour
                       // « de A à Z » puis « de Z à A », comme un en-tête de tableau.
@@ -5925,11 +6812,13 @@ function GenericRow({ row, map, desc, actions, api, onOpen }: {
   );
 }
 
-// Squelette de lignes (mêmes métriques que le gabarit) — pas de saut visuel.
-function ListSkeleton() {
+/* Squelette de lignes (mêmes métriques que le gabarit) — pas de saut visuel quand les
+   vraies lignes arrivent. `rows` : de quoi remplir un widget haut, où trois lignes
+   flottantes au-dessus du vide font plus « cassé » que « en cours ». */
+function ListSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <div aria-busy="true" style={{ padding: "4px 0" }}>
-      {[0, 1, 2].map((k) => (
+    <div aria-busy="true" aria-label="Chargement des lignes" style={{ padding: "4px 0" }}>
+      {Array.from({ length: Math.max(1, rows) }, (_, k) => k).map((k) => (
         <div key={k} style={{ display: "flex", alignItems: "center", gap: "11px", padding: "10px 16px" }}>
           <span className="slb-skel" style={{ width: 30, height: 30, borderRadius: 8, background: T.neutral050, flex: "none" }} />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -6108,6 +6997,30 @@ function GenericKpi({ rows, cfg, desc, api, ident }: ViewProps) {
 /* --- Le widget complet. `key={cfg.source}` : changer de source REMONTE l'arbre,
    donc l'adapter (et ses hooks) est remplacé proprement. L'icône vient du
    descripteur de la source. --- */
+/* --- PIED « OUVRIR DANS LE CRM » (2026-08-19) -------------------------------------------
+   Posé sur tout widget `data` dont la source déclare une `listPage` (§6-bis). Ce n'est pas un
+   ornement : une carte d'accueil montre au mieux 50 lignes d'une table qui peut en compter
+   1 266, avec un seul filtre à cases. Sans ce lien, celui qui ne trouve pas sa ligne n'a aucun
+   chemin vers l'écran complet — sinon deviner le menu du CRM.
+   `target="_top"` : le bloc vit dans une iframe ; sans lui, le CRM s'ouvrirait DEDANS, dans un
+   cadre de la taille du widget. Même règle que les Raccourcis (§7) et que la fiche détaillée.
+   Un slug vide rend `pageUrl` = "" (§0-bis) : on n'affiche alors RIEN, plutôt qu'un bouton qui
+   n'ouvre rien — la même règle que les tuiles Outils et que le pied du SAV. */
+function ListPageFooter({ desc }: { desc: SourceDesc }) {
+  const href = desc.listPage ? pageUrl(desc.listPage) : "";
+  if (!href) return null;
+  return (
+    <a href={href} target="_top" className="slb-btng"
+      style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
+      {/* Le même libellé que le bouton de la fiche : deux chemins vers la même page ne
+          doivent pas la nommer autrement. Repli sur « dans le CRM » pour une source qui
+          déclarerait une `listPage` sans `pageLabel`. */}
+      {desc.pageLabel ? `Ouvrir ${desc.pageLabel}` : "Ouvrir dans le CRM"}
+      <ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
+    </a>
+  );
+}
+
 function DataView({ cfg }: { cfg: InstanceCfg }) {
   const desc = CATALOG[cfg.source];
   const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? "s" : ""}`;
@@ -6148,8 +7061,13 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
   const restreint = cfg.query.filter.length > 0
     || (!!cfg.mine && !!desc.ownerField)
     || (!!cfg.clientele && cfg.clientele !== "tous");
+  /* Et le cas où c'est la SOURCE qui l'exige, quel que soit le réglage du widget (`drain` du
+     descripteur, §6-bis) : un annuaire de 1 266 lignes dont la recherche ne verrait que la
+     première page répondrait « aucun contact » sans jamais dire qu'elle a cherché dans 2 % de
+     la table. C'est le mensonge silencieux d'un total partiel, transposé à la RECHERCHE. */
+  const litTout = !!desc.drain;
   return (
-    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint}>
+    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint || litTout}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
         /* Les réglages locaux (recherche, cases, tri) passent DANS `applyQuery`, donc
@@ -6167,7 +7085,8 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
            une recherche : sinon une liste plafonnée à 20 sur 25 dossiers écrit « 20
            dossiers » et cache les cinq autres sans un mot. C'est exactement ce qui est
            arrivé aux deux files d'attente le 2026-08-18. */
-        const restreint = !isKpi && ((local.q ?? "") !== "" || (local.facetValues ?? []).length > 0 || rows.length < total);
+        const filtreCoche = Object.values(local.facetSel ?? {}).some((v) => v.length > 0);
+        const restreint = !isKpi && ((local.q ?? "") !== "" || filtreCoche || rows.length < total);
         /* Le sous-titre DIT que la liste est réduite à son portefeuille : sans ça, un
            widget qui montre 4 notes sur 300 se lit comme une source presque vide. */
         /* Le périmètre CLIENTÈLE s'annonce au même endroit et pour la même raison : « 4
@@ -6175,21 +7094,34 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
         const clienteleOn = clientFilterActive(cfg, api.rows);
         const perimetre = (mineOn ? " · mes fiches" : "")
           + (clienteleOn ? (cfg.clientele === "pro" ? " · pros" : " · particuliers") : "");
+        /* La barre de l'en-tête MONTRE qu'on lit ; ce suffixe le NOMME, et distingue les deux
+           cas qui se ressemblent à l'écran : `draining` = il reste des pages, le compte va
+           monter ; `partial` = la lecture s'est arrêtée au plafond, le compte est DÉFINITIVEMENT
+           incomplet. Sans lui, « 50 sur 371 contacts » se lit comme un total dans les deux cas.
+           Rien en vue KPI : elle porte déjà ses propres badges « Calcul en cours / partiel ». */
+        /* `cached` passe DEVANT : une liste servie sans lecture doit dater ses lignes, sinon des
+           contacts d'hier se lisent comme ceux de maintenant. C'est la contrepartie assumée du
+           cache journalier (§6-quater) — on économise les requêtes, on n'économise pas l'aveu. */
+        const etatLecture = isKpi ? ""
+          : api.cached ? ` · données ${snapAge(api.at)}`
+          : api.draining ? " · lecture en cours"
+          : api.partial ? " · lecture tronquée" : "";
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
-          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}`
-          : plural(rows.length, cfg.unit) + perimetre;
+          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}${etatLecture}`
+          : plural(rows.length, cfg.unit) + perimetre + etatLecture;
         const V = cfg.view.kind === "table" ? GenericTable : isKpi ? GenericKpi : GenericList;
         /* Le mappage des rôles sert le TITRE et le badge de la fiche. En vue tableau il
            n'y en a pas (les colonnes sont libres) : on prend celui du descripteur. */
         const map: FieldRoleMap = cfg.view.kind === "list" ? cfg.view.map : desc.defaultMap ?? {};
         // La barre n'a de sens que sur une liste de lignes, et seulement si un outil est
         // offert. En KPI (aucune ligne affichée), jamais.
-        const outils = !isKpi && (cfg.search !== false || !!cfg.facet);
+        const outils = !isKpi && (cfg.search !== false || (cfg.facets ?? []).length > 0);
         return (
           <>
             <Widget icon={iconOf(desc.icon)} title={cfg.title || desc.label} sub={sub}
-              headActions={cfg.create && desc.create ? <QuickCreate desc={desc} api={api} /> : undefined}>
+              headActions={cfg.create && desc.create ? <QuickCreate desc={desc} api={api} /> : undefined}
+              footer={desc.listPage ? <ListPageFooter desc={desc} /> : undefined}>
               {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en
                   silence la liste de tout le monde sous un titre qui laisserait croire le
                   contraire. Même bandeau, même raison que dans le widget des notifications
@@ -6659,15 +7591,35 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
             <input type="checkbox" checked={cfg.search !== false} onChange={(e) => set({ search: e.target.checked })} />
             Barre de recherche
           </label>
-          <span style={lbl}>Filtre rapide (cases à cocher)</span>
-          {/* Les valeurs du filtre viennent des DONNÉES, pas d'ici : on ne choisit que le
-              CHAMP. Les longs textes sont exclus — filtrer par note entière n'a aucun sens. */}
-          <select style={field} value={cfg.facet ?? ""} onChange={(e) => set({ facet: e.target.value })}>
-            <option value="">— aucun —</option>
+          <span style={lbl}>Filtres rapides (cases à cocher)</span>
+          {/* Les VALEURS d'un filtre viennent des DONNÉES, pas d'ici : on ne choisit que les
+              CHAMPS. Un menu déroulant jusqu'au 2026-08-19, donc UN seul filtre possible ; ce
+              sont des cases depuis qu'on peut en poser trois. Les longs textes sont exclus —
+              filtrer par note entière n'a aucun sens.
+              Au-delà de `FACETS_MAX`, les cases non cochées se DÉSACTIVENT au lieu de refuser
+              le clic en silence, et la limite est écrite juste en dessous. */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 14px", marginTop: "5px" }}>
             {Object.keys(desc.fields)
               .filter((a) => desc.fields[a].kind !== "longtext")
-              .map((a) => <option key={a} value={a}>{desc.fields[a].label}</option>)}
-          </select>
+              .map((a) => {
+                const on = (cfg.facets ?? []).includes(a);
+                const plein = !on && (cfg.facets ?? []).length >= FACETS_MAX;
+                return (
+                  <label key={a} style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "12.5px", fontWeight: 500, color: plein ? T.ink4 : T.ink2 }}>
+                    <input type="checkbox" checked={on} disabled={plein}
+                      onChange={(e) => {
+                        const reste = (cfg.facets ?? []).filter((x) => x !== a);
+                        set({ facets: e.target.checked ? [...reste, a].slice(0, FACETS_MAX) : reste });
+                      }} />
+                    {desc.fields[a].label}
+                  </label>
+                );
+              })}
+          </div>
+          <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+            {FACETS_MAX} filtres au maximum. Un champ dont toutes les lignes portent la même
+            valeur n'affiche pas de bouton : il ne filtrerait rien.
+          </p>
         </>
       )}
 
@@ -6808,6 +7760,9 @@ function TachesCard() {
                 totalProspects={oPr.length}
                 totalPartenaires={oPa.length}
                 mineAsked identifiee={ident.known}
+                /* Les DEUX sources comptent : un onglet peut être prêt quand l'autre lit
+                   encore, et les pastilles des deux onglets sont visibles en même temps. */
+                loading={pa.loading || pr.loading}
                 /* ⚠️ `faisable` est déclaré PAR ONGLET, et ce n'est pas du zèle : les deux
                    onglets lisent deux tables différentes, dont une seule peut être
                    écrivable (source non connectée, session absente). Un seul booléen
@@ -7268,7 +8223,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
   ) : undefined;
 
   return (
-    <Widget icon={Ticket} title="Pilotage SAV" sub="Synthèse des dossiers" footer={footer}>
+    <Widget icon={Ticket} title="Pilotage SAV" sub={api.loading ? "Chargement…" : "Synthèse des dossiers"} footer={footer}>
       {api.error ? (
         <EmptyState icon={Ticket} dense title="Donnée indisponible" hint="La source « Tickets » n'a pas répondu. Le pilotage SAV reste accessible dans sa page." />
       ) : api.loading ? (
@@ -7415,7 +8370,7 @@ const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
    travail, pas un aperçu des derniers arrivés. 25 dossiers étaient en attente de
    solvabilité au 2026-08-18, et le plafond du générique (20) en cachait cinq sans le dire.
    Si la file dépasse un jour ce maximum, `DataView` l'annonce (« 50 sur 62 »).
-   `search: false` et `facet: ""` — pas de barre d'outils : moins il y a à régler, mieux la
+   `search: false` et `facets: []` — pas de barre d'outils : moins il y a à régler, mieux la
    carte dit ce qu'elle est. --- */
 const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
   title, unit: "dossier",
@@ -7428,7 +8383,7 @@ const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
      tiers de la file : sur un dossier pro, « Nom » est vide dans la base. */
   view: { kind: "list", map: { title: "clientNom", sub: "partenaire", date: "creeLe", badge: "statut" } },
   search: false,
-  facet: "",
+  facets: [],
 }, cfgOfSource("abonnes"));
 
 /* --- LE SEUL RÉGLAGE DE CES WIDGETS : L'ORDRE ---------------------------------------
@@ -7788,7 +8743,8 @@ function ComIndicsWidget({ api, cfg }: { api: SourceApi; cfg: ComIndicsCfg }) {
   }));
 
   return (
-    <Widget icon={BarChart3} title="Indicateurs commerciaux" sub={`Contrats et pipeline — ${periodeLabel}`}>
+    <Widget icon={BarChart3} title="Indicateurs commerciaux"
+      sub={api.loading ? "Chargement…" : `Contrats et pipeline — ${periodeLabel}`}>
       {api.error ? (
         <EmptyState icon={BarChart3} dense title="Donnée indisponible"
           hint="La source « Abonnés » n'a pas répondu. Les indicateurs complets restent dans le tableau de bord KPI." />
@@ -7956,7 +8912,8 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
     : cfg.periode === "annee" ? "sur l'année en cours" : "sur tout l'historique";
 
   return (
-    <Widget icon={Trophy} title="Podium CAPEX HT" sub={`Les trois premiers ${periodeLabel}`}>
+    <Widget icon={Trophy} title="Podium CAPEX HT"
+      sub={api.loading ? "Chargement…" : `Les trois premiers ${periodeLabel}`}>
       {api.error ? (
         <EmptyState icon={Trophy} dense title="Donnée indisponible"
           hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
@@ -8152,7 +9109,8 @@ function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: Classemen
 
   return (
     <Widget icon={Users} title="Classement des commerciaux"
-      sub={`${stats.length} commercial${stats.length > 1 ? "aux" : ""} — trié par ${COM_COLS.find((c) => c.key === cfg.tri)?.label}`}>
+      sub={api.loading ? "Chargement…"
+        : `${stats.length} commercial${stats.length > 1 ? "aux" : ""} — trié par ${COM_COLS.find((c) => c.key === cfg.tri)?.label}`}>
       {api.error ? (
         <EmptyState icon={Users} dense title="Donnée indisponible"
           hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
@@ -8633,7 +9591,8 @@ function ExcIndicsWidget({ cfg, abo, part, parcA, parcP }: {
   const muet = !CATALOG.excAbo.connected && !CATALOG.excPart.connected && !lignes.length;
 
   return (
-    <Widget icon={ClipboardList} title="Exceptions" sub="Volume, couverture du parc et intensité">
+    <Widget icon={ClipboardList} title="Exceptions"
+      sub={chargement ? "Chargement…" : "Volume, couverture du parc et intensité"}>
       {enErreur ? (
         <EmptyState icon={ClipboardList} dense title="Donnée indisponible"
           hint="Les tables d'exceptions n'ont pas répondu. Le détail complet reste dans le tableau de bord KPI." />
@@ -8755,7 +9714,8 @@ function ExcRegistreWidget({ cfg, abo, part }: { cfg: ExcRegistreCfg; abo: Sourc
 
   return (
     <Widget icon={ClipboardList} title="Registre des exceptions"
-      sub={`${filtrees.length} exception${filtrees.length > 1 ? "s" : ""}${cfg.perimetre === "tous" ? "" : ` — périmètre ${cfg.perimetre === "abonne" ? "abonné" : "partenaire"}`}`}>
+      sub={abo.loading || part.loading ? "Chargement…"
+        : `${filtrees.length} exception${filtrees.length > 1 ? "s" : ""}${cfg.perimetre === "tous" ? "" : ` — périmètre ${cfg.perimetre === "abonne" ? "abonné" : "partenaire"}`}`}>
       {abo.error || part.error ? (
         <EmptyState icon={ClipboardList} dense title="Donnée indisponible"
           hint="Les tables d'exceptions n'ont pas répondu." />
@@ -9568,6 +10528,10 @@ const GALLERY_GROUPS: { key: string; label: string; icon: string }[] = [
   { key: "abonnes", label: "Abonnés", icon: "Bell" },
   { key: "taches", label: "Tâches", icon: "CalendarClock" },
   { key: "notes", label: "Notes", icon: "HardHat" },
+  /* Ajouté le 2026-08-19 avec l'annuaire des contacts. Placé après « Notes » parce que
+     c'est le voisinage métier : on cherche un contact juste après avoir lu la note qui le
+     mentionne. Déplacer cette ligne suffit à déplacer le groupe. */
+  { key: "partenaires", label: "Partenaires", icon: "BookUser" },
   { key: "sav", label: "Dossiers SAV", icon: "Ticket" },
   { key: "comm", label: "Communication", icon: "Newspaper" },
   { key: "perf", label: "Performance", icon: "Trophy" },
@@ -9585,6 +10549,7 @@ const SOURCE_GROUP: Partial<Record<SourceKey, string>> = {
   abonnes: "abonnes",
   tachesPa: "taches", tachesPr: "taches",
   notesIns: "notes", notesPro: "notes",
+  contactsIns: "partenaires",
   sav: "sav",
 };
 const groupOfSource = (s: SourceKey): string => SOURCE_GROUP[s] ?? "autres";
@@ -10918,6 +11883,8 @@ export default function Block() {
      (c'est la même raison qui a fait sortir la mise en page de la feuille de style). */
   const rootRef = useRef<HTMLDivElement>(null);
   useHoverFX(rootRef);
+  /* Animations d'attente (§2-ter) : même conteneur, même raison — la feuille peut manquer. */
+  useMotionFX(rootRef);
 
   /* Purge au montage, UNE fois : entrées d'un autre utilisateur (poste partagé),
      d'une version périmée, ou vieilles de plus de sept jours. Ce cache contient des

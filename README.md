@@ -161,6 +161,67 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    - **Dernières notes — Installateurs** et **— Prospects** (widgets `data` génériques) —
      filtrées sur **leur propriétaire SunLib** depuis le 2026-08-07 (§4, ⚠️ deux prérequis
      Softr).
+   - **Contact partenaire** *(2026-08-19)* — l'**annuaire des contacts par installateur**, calqué
+     sur la page Softr du même nom : recherche plein-texte, **trois filtres à cases** —
+     entreprise · service · type de contact SunLib, les mêmes que la page — six colonnes
+     (contact · entreprise · mail · téléphone · service · type de contact), mail et téléphone
+     **cliquables** (`mailto:` / `tel:`), multi-sélections rendues en **une pastille par
+     valeur**, et un pied **« Ouvrir la page Contact partenaire »** qui renvoie en
+     `target="_top"` vers `/contact-partenaire` (libellé raccourci le 2026-08-19 : « Ouvrir
+     Contact partenaire » — dans un pied de carte, « la page » ne dit rien de plus). **Un seul modèle** dans la galerie (groupe **Partenaires**), en
+     tableau pleine largeur — demandé tel quel le 2026-08-19 ; une variante en liste a existé
+     quelques minutes avant d'être retirée. Sept colonnes Softr deviennent six : `contact`
+     fusionne Prénom et Nom (champ **calculé** du descripteur), le moteur en autorisant six au
+     maximum.
+     ⚠️ **Source connectée le 2026-08-19** (`acc8398e-…`). Il reste **un geste côté Softr** avant
+     de recoller le bloc : cocher les **10 champs** de la connexion `contactsIns` dans l'onglet
+     *Sources* (§4-A). Tant qu'ils ne le sont pas, ce n'est pas ce widget qui manque — c'est le
+     bloc entier qui refuse de charger.
+     ⚠️ La table fait **1 266 lignes** là où Softr en rend ~25 par page : la source déclare donc
+     `drain: true` (§6-bis). Sans lui, la recherche n'aurait fouillé que **2 %** de l'annuaire en
+     répondant « aucun contact » comme s'il n'y en avait pas — le mensonge silencieux d'un total
+     partiel, transposé à la recherche. Le prix est d'environ **51 requêtes en série** au premier
+     chargement, effacées ensuite par le cache d'instantanés (§6-ter).
+     ⚠️ **Pas de filtre « mes fiches »**, à l'inverse des notes : un annuaire se consulte en
+     entier — on y cherche justement le contact d'un installateur qu'on ne suit pas. Le
+     propriétaire est **lu** et affiché ; pour qu'il filtre, il suffira de déclarer
+     `ownerField: "proprio"`.
+   - **Indicateur de chargement** *(2026-08-19, demandé)* — une **barre fine** traverse le bas de
+     l'en-tête tant que la source du widget lit, et le sous-titre la nomme : « **· lecture en
+     cours** » pendant le drainage, « **· lecture tronquée** » si la lecture s'est arrêtée au
+     plafond de pages. Posée une seule fois, dans `Widget`, sous condition du contexte
+     `SourceRefreshCtx` : elle apparaît donc sur **tous** les widgets qui lisent la base et sur
+     **aucun** de ceux qui n'ont rien à lire (horloge, pense-bête, liste à cocher).
+     ⚠️ Elle ne remplace pas les **squelettes** : ceux-ci couvrent le **premier** chargement
+     (« rien à afficher encore »), la barre couvre tout le reste — `loading` retombe dès la
+     première page, et une liste de 50 lignes sur 371 paraît alors complète. Décorative au sens
+     du §2 : feuille absente, le segment reste immobile, mais le sous-titre dit toujours l'état.
+     ⚠️⚠️ **Les animations d'attente vivent en JS, pas en CSS** — `MotionFX`, `Block.tsx` §2-ter,
+     écrit le même jour après le constat « les loaders ne bougent pas sur les widgets ». La cause
+     est celle qui a déjà coûté tous les survols du bloc : **la feuille de `StyleInjector` peut ne
+     pas s'appliquer dans le bloc Softr**, et avec elle disparaissent toutes les `@keyframes`.
+     Squelettes et barre s'affichaient donc **immobiles** — et une forme grise figée ressemble à
+     un écran gelé, soit l'inverse exact de ce qu'un indicateur d'attente doit dire. Un
+     `MutationObserver` sur le conteneur du bloc donne son `Animation` (Web Animations API) à
+     chaque élément porteur de `slb-skel`, `slb-bar` ou `slb-spin`, à l'apparition. Même
+     doctrine que `HoverFX` (§2-bis) et que le dégradé du héro : *ce qui doit marcher ne dépend
+     pas de la feuille*. `prefers-reduced-motion` est respecté (rien n'est lancé, les formes
+     restent). ⚠️ Le reflet d'un squelette ne peut PAS passer par un `::after` — sans feuille, le
+     pseudo-élément n'existe pas : le moteur pose un dégradé **en style inline** et déplace sa
+     `background-position`. C'est aussi pourquoi la feuille ne porte plus l'animation du
+     squelette (elle ne pourrait pas produire le même effet), alors qu'elle garde celles de la
+     barre et de la rotation, **identiques des deux côtés** donc sans conflit visible.
+     Trois compléments livrés le même jour :
+     · **les squelettes ne clignotent plus, ils luisent** — un reflet traverse la forme. Un
+       clignotement se lit comme une alerte, un balayage comme un travail en cours ;
+     · **deux widgets affichaient un état vide pendant leur chargement**, ce qui est pire qu'un
+       écran d'attente parce que ça se lit comme une réponse : le **Journal des tâches**
+       annonçait « Aucune tâche en cours » et **Nouveaux dossiers abonnés** « Tout est traité »
+       — la plus rassurante des trois réponses possibles — pendant les secondes que dure le
+       drainage de leurs tables. Les deux montrent désormais un squelette de quatre lignes, et
+       l'état vide ne s'affiche plus qu'une fois la lecture terminée ;
+     · **« Chargement… » dans le sous-titre** des widgets qui n'en disaient rien : synthèse SAV,
+       indicateurs commerciaux, podium, classement des commerciaux, exceptions et registre.
    - **⋮ Réglages du widget** (2026-08-06) — une **modale** en deux colonnes (*Apparence* :
      titre, couleur ; *Contenu* : les réglages du type), et non plus un panneau de 292 px.
      Elle porte aussi le **retrait du widget** (confirmation en deux temps) et sa **largeur**
@@ -199,15 +260,31 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      Le rang reste celui du classement complet : filtrer ne renumérote pas.
    - **Barre d'outils de consultation** (2026-08-06), dans tous les widgets liste et tableau :
      **recherche** plein-texte (mot par mot, sans accents, sur les champs déclarés),
-     **filtre à cases en multi-sélection** sur un champ (`cfg.facet` — par défaut
-     l'installateur pour les notes et les dossiers, le partenaire / prospect pour les tâches,
-     l'installateur initial pour le SAV ; les valeurs sont déduites des données, triées par
-     fréquence, avec leur compte), et **tri** : par clic sur l'en-tête de colonne en vue
+     **jusqu'à trois filtres à cases** en multi-sélection (`cfg.facets` — **liste depuis le
+     2026-08-19**, un seul filtre avant : entreprise · service · type de contact pour
+     l'annuaire des contacts, l'installateur pour les notes et les dossiers, le partenaire /
+     prospect pour les tâches, l'installateur initial pour le SAV ; les valeurs sont déduites
+     des données, triées par fréquence, avec leur compte). **OU** entre les valeurs d'un même
+     filtre, **ET** entre les filtres — de quoi demander « les commerciaux ou les admins, chez
+     MC ENERGY ». Un champ déclaré **multi-valeurs** (`multi` sur son `FieldDesc`) est découpé :
+     le filtre liste « Commercial » et « Admin » séparément, et cocher l'un trouve les contacts
+     qui portent les deux. Un champ dont toutes les lignes ont la même valeur n'affiche aucun
+     bouton (il ne filtrerait rien). Puis le **tri** : par clic sur l'en-tête de colonne en vue
      tableau (recliquer inverse le sens, tri **typé** par la nature du champ), par un bouton
      « Trier » en vue liste, qui n'a pas d'en-têtes. Les trois s'appliquent **avant la limite
      de lignes**, donc sur toute la table lue. Rien n'est persisté : recharger remet à plat
      (un filtre « collant » donnerait un widget vide sans raison visible). Réglable dans ⋮ →
      *Consultation*.
+   - **Le bouton de sortie d'une fiche nomme sa destination** *(2026-08-19, signalé)*. La pop-up
+     d'une ligne affichait « **Ouvrir la fiche complète** » dès que la source déclarait une page.
+     Or la page `contact-partenaire` est une **liste** : elle ignore le `recordId` qu'on lui
+     passe, et le bouton promettait donc la fiche d'une personne pour rendre un tableau de
+     371 lignes — juste dans sa destination, faux dans son libellé. Désormais le descripteur
+     distingue les deux : `detailPage` (une fiche par `recordId`) garde « Ouvrir la fiche
+     complète » ; `listPage` + `pageLabel` donnent « **Ouvrir <nom>** », le même libellé
+     que le pied du widget — deux chemins vers la même page ne doivent pas la nommer autrement.
+     Le jour où l'espace gagne une vraie fiche de contact, une ligne (`detailPage`) suffit et le
+     libellé redevient « fiche complète » tout seul.
    - **Clic sur une ligne → fiche détaillée** (2026-08-06). Dans **tous** les widgets liste et
      tableau, ainsi que dans « Nouveaux dossiers abonnés », cliquer une ligne ouvre une pop-up
      qui affiche **tous les champs déclarés par le descripteur de la source** — pas seulement
@@ -295,7 +372,8 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 ## 4. Branchement Airtable — état au 2026-08-05
 
 **`USE_MOCK = false` : le bloc lit Airtable en direct.** **Toutes** les sources du catalogue sont
-connectées : `CATALOG` ne porte plus aucun `connected: false`.
+connectées — `contactsIns` (l'annuaire des contacts partenaires) a rejoint le registre le
+2026-08-19 : `CATALOG` ne porte de nouveau aucun `connected: false`.
 
 ### A — Datasources & champs (`Block.tsx` §6) ✅
 `datasource.define` unique, IDs en **littéraux**. Les noms de champs ont été **revérifiés
@@ -315,6 +393,7 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | `excAbo`   | « Projet solaire » (Exception)                  | ✅ `b8340293-…` | exceptions **abonné** : dossier `SL- Dossier` · description · categorie · sousCategorie · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe |
 | `excPart`  | « Partenaire » (Exception)                      | ✅ `9cf1e459-…` | exceptions **partenaire** : nom `Name` + les mêmes champs, plus statut `Statut` |
 | `parcPart` | « BDD Installateur » (Exception)                | ✅ `e82df933-…` | nom `Nom de l'entreprise` — dénominateur « % du parc partenaires » |
+| `contactsIns` | « **Détails des contacts par installateur** » (Bdd Installateurs Sunlib, `appvD32dWRPmogRgn` · `tblplaeeb843AHLqo`, **1 266 lignes**) — *lecture seule, drainée* | ✅ `acc8398e-…` | nom `Nom` · prenom `Prénom` · entreprise `Nom Entreprise` *(lien)* · mail `Mail` · tel `Téléphone` · service `Service` *(multi-sélection)* · typeContact `Type de contact SunLib` *(multi-sélection)* · commentaire `Commentaire installateur` · proprio `Propriétaire TBD (from Nom Entreprise)` *(lookup)* · creeLe `Date de création` — **les 10 à cocher côté Softr** |
 
 > ⚠️ **Les datasources `Installateurs` et `Propects` (tables principales) ne sont utilisées par
 > AUCUN widget** : les notes/tâches vivent dans les tables enfants ci-dessus.
@@ -332,6 +411,24 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 > ⚠️ **Les champs exposés sont choisis à la connexion** : la datasource de « Taches » n'en expose
 > que 3 sur 12 à ses blocs de page. Si l'éditeur signale « you have a field in your source code X
 > which is not present in your datasource » au collage, il faut **remapper la source**.
+
+#### ⚠️ 2026-08-19 — `contactsIns` : UN prérequis avant de recoller le bloc
+
+La source est branchée dans le code (id `acc8398e-…`, adapter, `connected: true`). Il reste **un
+seul geste, côté Softr**, et il n'est pas optionnel :
+
+> **Onglet *Sources* du bloc → connexion `contactsIns` → cocher les 10 champs** listés dans le
+> tableau ci-dessus (`Nom`, `Prénom`, `Nom Entreprise`, `Mail`, `Téléphone`, `Service`, `Type de
+> contact SunLib`, `Commentaire installateur`, `Propriétaire TBD (from Nom Entreprise)`,
+> `Date de création`).
+
+⚠️ Un champ lu par le code et **absent** de la datasource fait échouer la datasource **entière**,
+donc **tout le bloc** (« does not match / Remap the fields ») — pas seulement ce widget. C'est le
+piège qui a déjà coûté sur `notifC` et sur « Champs IA Config client ». Si l'éditeur signale un
+champ manquant au collage, c'est ici qu'il faut regarder avant de toucher au code.
+
+Vérifier ensuite dans cet ordre : `npm run build`, l'aperçu local (`npm run dev`), puis la page
+**publiée en étant connecté** — l'aperçu « œil » de Softr n'a pas de session.
 
 #### ⚠️ 2026-08-07 — filtres « mes fiches » : DEUX prérequis avant de recoller le bloc
 
@@ -508,7 +605,7 @@ l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en p
 | `abonnes` | `abonn-s` | liste des abonnés |
 | `partenaires` | `clients-list` | ⚠️ le slug ne suit pas le vocabulaire du CRM |
 | `prospects` | `tous-les-prospects` | ⚠️ idem |
-| `contactPartenaire` | `contact-partenaire` | ⚠️ raccourci **masqué** le 2026-08-18 (slug conservé) |
+| `contactPartenaire` | `contact-partenaire` | ⚠️ raccourci **masqué** le 2026-08-18 (slug conservé) — **repris le 2026-08-19** comme `detailPage` *et* `listPage` du widget « Contact partenaire » |
 | `sav` | `sav` | Pilotage SAV |
 | `kpi` | `dashboard-kpi` | Tableau de bord KPI |
 
@@ -550,6 +647,50 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
   l'aperçu local ne peut pas le révéler (le mock rend tout d'un coup). Si « Calcul partiel »
   s'affiche alors que le parc fait moins de 4 000 dossiers, la taille de page est plus petite que
   prévu et il faut relever `COM_MAX_PAGES`.
+### ⚡ 2026-08-19 — la page ne relit plus la base à chaque ouverture
+
+**Ce qui existait** (`§6-ter`, 2026-08-18) était un cache d'**affichage** : il servait les lignes
+de la dernière lecture complète, puis **relisait toujours**. Il supprimait l'attente, pas les
+requêtes. Or les sources drainées coûtent des dizaines d'allers-retours **en série** chacune —
+de l'ordre de **350 à 450 requêtes par visite** pour un accueil qui porte tous les widgets, à la
+taille de page déduite de ~25 lignes. Sur la page la plus visitée du CRM.
+
+**Ce qui a été arbitré** : la donnée doit être fraîche à la **première ouverture de la journée** ;
+ensuite l'instantané suffit. La règle est **déclarée par source** (`fraicheur` sur `SourceDesc`),
+parce que la réponse est métier et non technique :
+
+| `fraicheur` | Sources | Effet |
+| --- | --- | --- |
+| `"jour"` *(défaut)* | Abonnés, podium/classement, parcs, exceptions, SAV, notes, **contacts partenaires** | La 1re ouverture du jour lit ; les suivantes servent l'instantané, **zéro requête** |
+| `"ouverture"` | `notifC` (**Nouveaux dossiers abonnés**), `tachesPa` + `tachesPr` (**Journal des tâches**) | Relu à chaque ouverture — ce sont des **files à traiter** : un dossier notifié à 10 h doit se voir à 10 h 05 |
+
+**Comment** (`§6-quater`) : `SourceFeed` calcule la clé du cache **avant** de monter l'adapter (d'où
+la table `SELECT_OF`, la clé contenant le hash du select). Si l'instantané est du jour, l'adapter
+n'est **pas monté** — `useRecords` n'existe pas, donc aucune requête ne part. Le **⟳ de chaque
+carte** force la lecture quand on la veut : c'est la porte de sortie qui autorise une règle aussi
+stricte.
+
+Trois précautions qui font partie du mécanisme :
+- **Règle calendaire, pas délai glissant.** Un TTL de 24 h laisserait quelqu'un qui ouvre à 8 h
+  lundi puis 9 h mardi travailler sur les chiffres de la veille — 23 h d'écart, sous le seuil, et
+  pourtant « hier ». C'est `memeJour`.
+- **Rien n'est servi qui ne soit annoncé.** Les widgets d'agrégat affichent « Instantané » et le
+  texte a été corrigé : « mise à jour en cours » devenait **faux** quand plus aucune lecture ne
+  part, il dit maintenant « relire avec le ⟳ de la carte ». Les listes et tableaux datent leurs
+  lignes dans leur sous-titre (« · données du 18/08 à 09:14 »).
+- **L'attente de la session est nécessaire** (`SESSION_WAIT_MS = 400 ms`) : la clé du cache
+  contient l'e-mail, que Softr rend souvent au **second** render. Décider dès le premier
+  reviendrait à ne jamais trouver d'instantané — le cache serait écrit sans jamais servir.
+  Pendant cette attente, le widget montre ses squelettes ; sans session du tout, on lit.
+
+⚠️ **Deux limites connues, à vérifier en recette.** Une source dont l'instantané dépasse
+`SNAP_MAX_CHARS` (900 000 caractères) n'est **jamais** mise en cache, donc relue à chaque fois : la
+console le dit (`instantané NON gardé`), et `abonnes` est le candidat à surveiller depuis que son
+select porte 23 alias. Et une source servie par le cache **n'expose pas `write`** : ses boutons
+d'écriture disparaissent — c'est sans effet aujourd'hui puisque les trois sources dans lesquelles
+le bloc écrit sont en `"ouverture"`, mais c'est le premier point à revoir le jour où une action est
+ajoutée à une source en `"jour"`.
+
 - **Recetter le cache d'instantanés** (2026-08-18, `Block.tsx` §6-ter — détail dans
   `ARCHITECTURE.md` §4). Rien ne s'en voit en local : le mock rend tout d'un coup, donc aucun
   instantané n'est jamais *servi*. Sur la page publiée, connecté :
@@ -559,11 +700,23 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
   2. **2e visite** (aller sur une autre page de l'espace, puis revenir) : la page doit être pleine
      **immédiatement**, le chip afficher « Actualisation… », les widgets d'agrégat « Instantané ».
   3. **Cliquer le ⟳ d'une carte** (en-tête, à gauche du ⋮ — présent uniquement sur les widgets qui
-     lisent la base) : l'icône tourne, et l'onglet Réseau doit montrer des requêtes **repartir pour
-     cette source seulement**. Si rien ne part, le remontage par `key` ne suffit pas et c'est le
-     `res.refetch?.()` de `useDrainPages` qu'il faut reprendre. Vérifier aussi qu'un widget **sans
-     source** (horloge, pense-bête) n'a **pas** ce bouton, et que celui des **Exceptions** — qui lit
-     quatre sources — les relit bien toutes.
+     lisent la base) : l'icône tourne, la **barre de chargement** s'allume sous l'en-tête, et
+     l'onglet Réseau doit montrer des requêtes **repartir pour cette source seulement**. Vérifier
+     aussi qu'un widget **sans source** (horloge, pense-bête) n'a **pas** ce bouton, et que celui
+     des **Exceptions** — qui lit quatre sources — les relit bien toutes.
+     ⚠️ **Corrigé le 2026-08-19** (« on a l'impression que le bouton ne fonctionne pas »), et c'était
+     un défaut d'ACCUSÉ DE RÉCEPTION, pas de relecture. Au remontage de l'adapter, Softr rend
+     immédiatement les lignes de son cache mémoire : `isLoading` reste donc **faux**, plus rien ne
+     passait à « en cours », et sur des lignes identiques le clic ne produisait aucun signe visible.
+     Deux ajouts : l'état **`fetching`** (`isFetching`, la relecture qui a déjà des données —
+     distinct de `loading`, qui seul autorise les squelettes), et un **plancher de 650 ms**
+     (`REFRESH_FLOOR_MS`) pendant lequel la carte se montre occupée, parce qu'une relecture servie
+     par le cache dure 80 ms et disparaît avant d'être vue. Aucune donnée n'est inventée : seul
+     l'accusé de réception est tenu assez longtemps pour être lu.
+     ⚠️ Si le bouton paraît **toujours** inerte au-delà de ce plancher, ouvrir la console : une
+     ligne « `refetch` absent de l'objet useRecords » signifie que Softr ne l'expose pas et que seul
+     le remontage a eu lieu — la relecture dépend alors de son `staleTime`, qui ne nous appartient
+     pas. C'est la seule hypothèse que le code ne peut pas trancher tout seul.
   4. **Contrôle de justesse** : comparer un agrégat servi depuis le cache, puis rafraîchi, avec le
      bloc métier correspondant (dossiers SAV ouverts vs « Pilotage SAV »). Le cache ne doit jamais
      figer un total partiel.
