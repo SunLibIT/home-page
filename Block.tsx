@@ -1164,6 +1164,17 @@ const SELECT_NOTIF_C = q.select({
   statut: "Statut Dossiers (from Liens BDD)",
   // Le champ du FILTRE du widget : une ligne sans propriétaire n'est pas montrée.
   proprio: "Proprietaire (from Installateur ) (from Liens BDD)",
+  /* TYPE DE CLIENT — 6e champ ajouté, le 2026-08-20 (demandé), pour le réglage
+     « Clientèle » du widget. C'est le LOOKUP du champ formule d'« Abonnés » (« Pro » /
+     « Solo » / « Duo »), et il EXISTE DÉJÀ dans la table : relevé par l'API le
+     2026-08-20 sous `fldEimoiZuVIvuMP7`, nom exact ci-dessous. Rien à créer côté Airtable.
+     ⚠️⚠️ À COCHER DANS LA CONNEXION de la datasource `notifC` (onglet Sources du bloc),
+     comme les cinq autres champs du 2026-08-06 : non exposé, il fait échouer le BLOC
+     ENTIER (« New data source does not match / Remap the fields »), pas seulement ce
+     widget. Une fois coché, plus rien à faire — s'il arrivait vide malgré tout,
+     `clienteleRows` détecte qu'aucune ligne n'est classable et ne filtre alors RIEN,
+     le widget disant lui-même que le réglage est inopérant. */
+  client: "Champs IA Config client (from Liens BDD)",
 });
 /* WHITELIST d'écriture : la case, et rien d'autre. */
 const SELECT_NOTIF_C_W = q.select({ aLire: "Statut de lecture" });
@@ -1238,6 +1249,14 @@ const SELECT_COM = q.select({
   kwc: "Puissance installe en KWC",
   dateEdition: "Date édition contrat",
   contratNonSigne: "Contrat d abonnement non signe",
+  /* TYPE DE CLIENT (2026-08-20) — le MÊME champ formule que `SELECT_ABONNE.client`
+     (« Pro » / « Solo » / « Duo »), lu ici pour que les quatre widgets commerciaux
+     puissent se restreindre à une clientèle (§9-septies). C'est ce qui permet de lire
+     « le podium des dossiers PRO » sans ouvrir le tableau de bord KPI.
+     ⚠️ Rien à cocher côté Softr pour celui-ci : cette lecture passe par la datasource
+     `abonnes`, où le champ est déjà exposé depuis le 2026-08-18 (cf. SELECT_ABONNE). Deux
+     selects sur la même connexion — un champ exposé l'est pour les deux. */
+  client: "Champs IA Config client",
 });
 
 /* ── EXCEPTIONS ← deux tables, deux PÉRIMÈTRES ─────────────────────────────────
@@ -1336,6 +1355,9 @@ type Notif = {
   id: string;          // record id de la LIGNE Notification Center
   abonneId: string;    // record id de l'ABONNÉ lié, "" si la ligne est orpheline
   nom: string; texte: string; partenaire: string; statut: string; proprio: string;
+  /** « Pro », « Solo » ou « Duo » — le type de client du dossier lié, "" si le champ n'est
+   *  pas exposé par la datasource. Sert le réglage « Clientèle » (2026-08-20). */
+  client: string;
   creeLe: string; nonLu: boolean;
   /** La ligne BRUTE, conservée pour la pop-up de détail : `RecordDialog` est générique
    *  et lit les alias du descripteur, pas ce modèle de vue. Sans elle, il faudrait
@@ -1382,6 +1404,7 @@ const mapNotifC = (r: Row): Notif => ({
   partenaire: asText(r.partenaire),
   statut: asText(r.statut),
   proprio: asText(r.proprio),
+  client: asText(r.client),
   creeLe: asText(r.creeLe),
   nonLu: isTruthy(r.aLire),           // ⚠️ case COCHÉE = non lue (cf. SELECT_NOTIF_C)
   raw: r,
@@ -1521,25 +1544,29 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
      L'échantillon reproduit exprès les deux défauts de la table, pour que le filtre et
      le regroupement soient testés sur ce qu'ils rencontreront : une paire de JUMELLES
      (nc1 / nc1b) et une ligne SANS PROPRIÉTAIRE (nc5).
-     ⚠️ RAPPEL : `aLire: true` = NON LUE. */
+     ⚠️ RAPPEL : `aLire: true` = NON LUE.
+     `client` (2026-08-20) porte les TROIS valeurs réelles, dont un Pro et un Solo au nom
+     de l'utilisateur mock : sans ça, le réglage « Clientèle » n'aurait rien à filtrer en
+     aperçu là où le filtre « mes dossiers » est actif par défaut. La ligne orpheline le
+     laisse VIDE, comme la base — c'est le cas non classable. */
   notifC: [
     { id: "nc1", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: true, etat: "Non lue", creeLe: daysAgo(1),
       texte: "Nouveau contrat signé pour l'abonné : Mathéo et Lionel RAMBEAUX", nom: "RAMBEAUX",
-      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY" },
+      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY", client: "Duo" },
     // ⚠️ La JUMELLE de nc1 (même dossier, même texte, état inverse) : elle doit être
     // regroupée avec elle, et c'est nc1 — encore « à lire » — qui doit rester.
     { id: "nc1b", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: false, etat: "Lue", creeLe: daysAgo(1),
       texte: "Nouveau contrat signé pour l'abonné : Mathéo et Lionel RAMBEAUX", nom: "RAMBEAUX",
-      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY" },
+      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY", client: "Duo" },
     { id: "nc2", liens: [{ id: "recAAAAAAAAAAAAA2", name: "80000000572270" }], aLire: true, etat: "Non lue", creeLe: daysAgo(2),
       texte: "Nouveau abonné créé pour : Frederic Fouqueteau", nom: "Fouqueteau",
-      partenaire: "HORIZON ENERGIE", statut: "En attente de validation technique", proprio: "Fabrice MORVAN" },
+      partenaire: "HORIZON ENERGIE", statut: "En attente de validation technique", proprio: "Fabrice MORVAN", client: "Solo" },
     { id: "nc3", liens: [{ id: "recAAAAAAAAAAAAA3", name: "80000000318842" }], aLire: false, etat: "Lue", creeLe: daysAgo(2),
       texte: "Nouveau abonné créé pour : Sandrine Delaunay", nom: "Delaunay",
-      partenaire: "MC ENERGY", statut: "Contrat signé", proprio: "Philippe GERY" },
+      partenaire: "MC ENERGY", statut: "Contrat signé", proprio: "Philippe GERY", client: "Pro" },
     { id: "nc4", liens: [{ id: "recAAAAAAAAAAAAA4", name: "09185962331004" }], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
       texte: "Nouveau abonné créé pour : Julien Charrier", nom: "Charrier",
-      partenaire: "Enertec", statut: "Demande d'infos : solvabilité", proprio: "Audrey QUINTANA" },
+      partenaire: "Enertec", statut: "Demande d'infos : solvabilité", proprio: "Audrey QUINTANA", client: "Pro" },
     /* ⚠️ AU NOM DE L'UTILISATEUR MOCK (« Frédéric Martin », cf. src/lib/user.tsx) : sans
        elle, le filtre « mes dossiers » écarterait TOUT en aperçu et on ne verrait jamais
        le cas qui fonctionne — seulement l'état vide. Le mock porte donc les deux.
@@ -1548,11 +1575,18 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
        jour où on l'ajoute, il DOIT apparaître dans « à un autre propriétaire ». */
     { id: "nc6", liens: [{ id: "recAAAAAAAAAAAAA6", name: "09185962331188" }], aLire: true, etat: "Non lue", creeLe: daysAgo(4),
       texte: "Nouveau contrat signé pour l'abonné : Claire BONNET", nom: "BONNET",
-      partenaire: "Neosoleil", statut: "Contrat signé", proprio: "Frédéric Martin" },
+      partenaire: "Neosoleil", statut: "Contrat signé", proprio: "Frédéric Martin", client: "Solo" },
+    /* SECONDE ligne au nom de l'utilisateur mock, et PRO (2026-08-20) : « mes dossiers »
+       étant actif par défaut, sans elle le périmètre « Professionnels » ne laisserait
+       RIEN en aperçu et on ne saurait pas distinguer un filtre qui marche d'un filtre qui
+       vide tout. Les deux périmètres ont donc chacun une ligne, chez la même personne. */
+    { id: "nc7", liens: [{ id: "recAAAAAAAAAAAAA7", name: "09185962331402" }], aLire: true, etat: "Non lue", creeLe: daysAgo(6),
+      texte: "Nouveau abonné créé pour : Commune de Payssous", nom: "Commune de Payssous",
+      partenaire: "FLG SOLAR", statut: "En attente de solvabilité", proprio: "Frédéric Martin", client: "Pro" },
     // ⚠️ SANS PROPRIÉTAIRE : le widget doit l'ÉCARTER et la compter dans « lignes
     // écartées ». C'est le cas des ~380 lignes réelles sans lien vers un abonné.
     { id: "nc5", liens: [], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
-      texte: "Nouveau abonné créé pour :  ", nom: "", partenaire: "", statut: "", proprio: "" },
+      texte: "Nouveau abonné créé pour :  ", nom: "", partenaire: "", statut: "", proprio: "", client: "" },
   ],
 
   /* ← SELECT_SAV. Échantillon RÉALISTE plutôt qu'aléatoire : il reproduit les
@@ -1597,6 +1631,12 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
        pour que le podium ait un sens.
        Les trois gardes de `comStats` restent testables : un dossier ANNULÉ, un SANS
        contrat joint (hors portefeuille), un SANS commercial (« Non assigné », exclu). */
+    /* TYPE DE CLIENT du mock (2026-08-20) : les TROIS valeurs réelles, réparties de façon
+       déterministe (`i % 3`) pour que le réglage « Clientèle » des widgets commerciaux ait
+       quelque chose à filtrer en aperçu — et que chacun des trois périmètres rende un
+       classement non vide, sinon on ne saurait pas distinguer « filtre qui marche » de
+       « échantillon sans Duo ». */
+    const CLIENTS = ["Pro", "Solo", "Duo"];
     const gens = [
       { nom: "Edouard Da Silva", n: 26, capex: 153_000, abo: 352, pose: 0.70, delai: 28, annul: 0.08, inst: 4 },
       { nom: "Philippe GERY", n: 24, capex: 164_000, abo: 850, pose: 0.59, delai: 20, annul: 0.07, inst: 3 },
@@ -1627,13 +1667,14 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
           dateSignature: signature.toISOString(),
           installateur: `Installateur ${(i % g.inst) + 1}`,
           kwc: 9 + (i % 7) * 1.5,
+          client: CLIENTS[(gi + i) % 3],
           dateEdition: "", contratNonSigne: [],   // signé : donc hors pipeline
         });
       }
     });
     // Les deux lignes qui doivent RESTER INVISIBLES au classement.
-    rows.push({ id: "m_nocontrat", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 200, etatFacture2: "", dateCreation: "", dateSignature: "", installateur: "", kwc: 0, dateEdition: "", contratNonSigne: [] });
-    rows.push({ id: "m_nonassigne", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 300, etatFacture2: "Validée", dateCreation: "", dateSignature: "", installateur: "Installateur 1", kwc: 12, dateEdition: "", contratNonSigne: [] });
+    rows.push({ id: "m_nocontrat", commercial: "Philippe GERY", capex: 880_000, contratSigne: [], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 200, etatFacture2: "", dateCreation: "", dateSignature: "", installateur: "", kwc: 0, client: "Pro", dateEdition: "", contratNonSigne: [] });
+    rows.push({ id: "m_nonassigne", commercial: "", capex: 2_400_000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: monthAgo(0), aboMoyen: 300, etatFacture2: "Validée", dateCreation: "", dateSignature: "", installateur: "Installateur 1", kwc: 12, client: "Solo", dateEdition: "", contratNonSigne: [] });
     /* PIPELINE : contrat NON signé joint et édition récente. Deux dans la fenêtre de 30
        jours, un HORS fenêtre (édité il y a 60 j) — sans lui, rien ne prouverait que la
        borne est bien appliquée. */
@@ -1644,7 +1685,7 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
         contratSigne: [], contratNonSigne: [{ url: "#", filename: "a-signer.pdf" }],
         statutAbonne: "Actif", moisSignature: "", aboMoyen: 150, etatFacture2: "",
         dateCreation: edite.toISOString(), dateSignature: "", installateur: "Installateur 2",
-        kwc: 8.5, dateEdition: edite.toISOString(),
+        kwc: 8.5, client: CLIENTS[i % 3], dateEdition: edite.toISOString(),
       });
     });
     return rows;
@@ -1808,13 +1849,16 @@ type SourceDesc = {
      réduit ce qui est AFFICHÉ, il n'allège pas la lecture. */
   ownerField?: string;
   /* --- ALIAS DU CHAMP « TYPE DE CLIENT » (2026-08-18) --------------------------
-     Renseigné, tout widget de cette source gagne le réglage « Clientèle : tous / pro /
-     particulier » (`cfg.clientele`), à TOUS par défaut — contrairement à « mes fiches »,
-     restreindre la clientèle n'est pas le besoin le plus courant, c'est une question
-     qu'on se pose ponctuellement.
+     Renseigné, tout widget de cette source gagne le réglage « Clientèle » (`cfg.clientele`)
+     et ses CINQ périmètres — tous · Pro · Particuliers · Solo · Duo (cf. `CLIENTELES`) —,
+     à TOUS par défaut : contrairement à « mes fiches », restreindre la clientèle n'est pas
+     le besoin le plus courant, c'est une question qu'on se pose ponctuellement.
      Déclaré ici et non deviné : le champ s'appelle « Champs IA Config client » et rend
      « Pro » / « Solo » / « Duo ». Aucune de ces trois valeurs ne dit « particulier » —
-     la traduction est faite par `clientKind`, à un seul endroit. */
+     la traduction est faite par `clientKind`, à un seul endroit.
+     ⚠️ Trois sources le déclarent aujourd'hui, et TOUTES lisent la même formule :
+     `abonnes` (le champ), `comKpi` (le même champ, autre select) et `notifC` (son LOOKUP
+     « Champs IA Config client (from Liens BDD) »). */
   clientField?: string;
 };
 
@@ -2145,10 +2189,19 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       aLire: { label: "À lire (case cochée = non lue)", kind: "bool" },
       etat: { label: "Statut de la notification", kind: "badge",
               options: ["Lue", "Non lue"], variants: { "Non lue": "warn", "Lue": "neutral" } },
+      /* Type de client du dossier lié (2026-08-20) — mêmes options et mêmes couleurs que
+         sur `abonnes` : la même information doit se lire pareil sur les deux écrans. */
+      client: { label: "Type de client", kind: "badge",
+                options: ["Pro", "Solo", "Duo"],
+                variants: { Pro: "brand", Solo: "info", Duo: "solar" } },
       creeLe: { label: "Créée le", kind: "date" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
     defaultMap: { title: "nom", sub: "texte", date: "creeLe", badge: "statut" },
+    /* Déclaré pour la même raison que sur `comKpi` : le widget des notifications porte sa
+       propre cfg (`NotifsCfg.clientele`), mais la source LIT le champ — la fiche de détail
+       l'affiche, et le catalogue doit dire ce qu'elle sait. */
+    clientField: "client",
     // Pas de `presets` : source technique, absente de la galerie (voir presetsOf).
     // Pas d'`actions` : le marquage vit dans le widget dédié, pas en action de ligne.
   },
@@ -2248,8 +2301,17 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       kwc: { label: "Puissance (kWc)", kind: "number" },
       dateEdition: { label: "Date d'édition du contrat", kind: "date" },
       contratNonSigne: { label: "Contrat en attente (pièce jointe)", kind: "bool" },
+      client: { label: "Type de client", kind: "badge",
+                options: ["Pro", "Solo", "Duo"],
+                variants: { Pro: "brand", Solo: "info", Duo: "solar" } },
     },
     defaultSort: { by: "moisSignature", dir: "desc" },
+    /* Les quatre widgets commerciaux (§9-septies) lisent leur périmètre clientèle dans
+       LEUR cfg et non dans une `InstanceCfg` — ils ne sont pas des widgets `data`. Ce
+       `clientField` ne leur sert donc pas directement ; il est déclaré parce que la source
+       PORTE le champ, ce que le catalogue doit dire (fiche de détail, et tout widget `data`
+       qu'on poserait un jour dessus). */
+    clientField: "client",
   },
   /* ── SAV ── Source du bloc SUNLIB/SAV « Pilotage SAV ». Le descripteur est
      complet (les 22 alias lisibles) alors que le widget d'accueil n'en synthétise
@@ -2714,7 +2776,7 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
   return <>{children({ rows, loading: false, error: false, write })}</>;
 }
 
-/* POUR CONNECTER une source (recette complète : ARCHITECTURE-V2.md §10) :
+/* POUR CONNECTER une source (recette complète : ARCHITECTURE.md §8.4) :
    1) la connecter dans l'onglet Sources du bloc, récupérer son id (onglet Chat) ;
    2) l'ajouter comme membre de `datasource.define` (§6) ;
    3) copier un adapter ci-dessous en changeant `from`/`select`/`orderBy` — et, si la
@@ -4515,7 +4577,11 @@ function OutilsTab() {
    `cfg` : quelles informations montrer, combien de lignes, bouton « Détail » ou non.
    Le registre ci-dessous est la seule chose à toucher pour en proposer une de plus. */
 
-type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean; mesDossiers: boolean };
+type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean; mesDossiers: boolean;
+  /** PÉRIMÈTRE CLIENTÈLE (2026-08-20) — tous · Pro · Particuliers · Solo · Duo, cf.
+   *  `CLIENTELES`. À « tous » par défaut, comme partout : c'est une question ponctuelle
+   *  (« les nouveaux dossiers PRO à traiter »), pas le réglage de tous les jours. */
+  clientele: Clientele };
 
 /** Clé de regroupement des lignes jumelles : le dossier lié et le texte de
  *  l'événement. Pas la date — les deux jumelles naissent à quelques secondes d'écart,
@@ -4533,27 +4599,42 @@ const notifKey = (n: Notif): string => `${n.abonneId}|${n.texte}`;
  *  serait plus lu par personne. Le regroupement lui-même, lui, reste indispensable. */
 type NotifTri = {
   items: Notif[]; sansProprio: number; autres: number;
+  /** Écartées par le PÉRIMÈTRE CLIENTÈLE (2026-08-20). Sert l'état vide : « aucun dossier
+   *  pro à traiter » et « aucun dossier du tout » demandent deux messages différents, et
+   *  le second enverrait chercher une panne là où il n'y a qu'un réglage. */
+  horsClientele: number;
   /** Écartées parce que DÉJÀ TRAITÉES (marquées « Vu »). Sert l'état vide : « tout est
    *  traité » et « aucune notification » demandent deux messages différents. */
   lues: number;
 };
 
-/** Sélection des lignes affichables, en trois passes dans cet ordre :
+/** Sélection des lignes affichables, en quatre passes dans cet ordre :
  *    1. propriétaire RENSEIGNÉ (écarte les ~380 lignes orphelines) ;
  *    2. propriétaire = UTILISATEUR CONNECTÉ, si `mesDossiers` (cf. `ownerIsUser`) ;
- *    3. une seule ligne par événement, la jumelle « à lire » d'abord.
+ *    3. PÉRIMÈTRE CLIENTÈLE (2026-08-20), si autre que « tous » ;
+ *    4. une seule ligne par événement, la jumelle « à lire » d'abord.
  *  PURE — l'ordre d'entrée (le plus récent d'abord, tri serveur) est conservé.
  *  ⚠️ La passe 2 est SAUTÉE quand la session n'est pas identifiable (`ident.known`
  *  faux) : sans nom ni e-mail, elle écarterait TOUT et le widget serait vide sans que
  *  personne puisse comprendre pourquoi. Le widget annonce alors que le filtre est
- *  inactif — un filtre silencieusement désactivé serait pire que pas de filtre. */
-function selectNotifs(rows: Notif[], ident: UserIdent, mesDossiers: boolean, nonLuesSeulement: boolean): NotifTri {
+ *  inactif — un filtre silencieusement désactivé serait pire que pas de filtre.
+ *  ⚠️ La passe 3 est SAUTÉE de la même façon quand AUCUNE ligne n'est classable : le
+ *  champ n'est alors pas exposé par la datasource (à cocher dans l'onglet Sources), et
+ *  filtrer viderait la file sans que rien ne l'explique. Elle passe AVANT le regroupement
+ *  parce que les deux jumelles d'un événement portent le même dossier, donc le même type
+ *  de client : l'ordre n'y change rien, et filtrer d'abord évite de regrouper pour rien. */
+function selectNotifs(rows: Notif[], ident: UserIdent, mesDossiers: boolean, nonLuesSeulement: boolean,
+                      clientele: Clientele = "tous"): NotifTri {
   const parEvenement = new Map<string, Notif>();
-  let sansProprio = 0, autres = 0;
+  let sansProprio = 0, autres = 0, horsClientele = 0;
   const filtreActif = mesDossiers && ident.known;
+  // Périmètre demandé ET applicable — même arbitrage que `clienteleRows`, ici sur le
+  // modèle de vue (`Notif.client`) plutôt que sur la ligne brute.
+  const clienteleActive = clientele !== "tous" && rows.some((n) => clientKind(n.client));
   for (const n of rows) {
     if (!n.proprio.trim()) { sansProprio++; continue; }
     if (filtreActif && !ownerIsUser(n.proprio, ident)) { autres++; continue; }
+    if (clienteleActive && !clientMatch(clientKind(n.client), clientele)) { horsClientele++; continue; }
     const k = notifKey(n);
     const deja = parEvenement.get(k);
     // Première rencontrée, ou remplacée par sa jumelle encore « à lire » : c'est sur
@@ -4570,12 +4651,17 @@ function selectNotifs(rows: Notif[], ident: UserIdent, mesDossiers: boolean, non
      COCHÉE. Ce qui reste affiché est donc ce qui est COCHÉ en base, et le geste « Vu »
      DÉCOCHE — voir SELECT_NOTIF_C avant de toucher à cette ligne. */
   const items = nonLuesSeulement ? groupees.filter((n) => n.nonLu) : groupees;
-  return { items, sansProprio, autres, lues: groupees.length - items.length };
+  return { items, sansProprio, autres, horsClientele, lues: groupees.length - items.length };
 }
 
 const NOTIF_FIELDS: { key: string; label: string }[] = [
   { key: "texte", label: "Texte de la notification" },
   { key: "statut", label: "Statut du dossier" },
+  /* Affichable AUTANT que filtrable (2026-08-20) : un widget réglé sur « tous les clients »
+     gagne à montrer le type sur chaque ligne — c'est ce qui permet de trier à l'œil sans
+     rien restreindre. Décoché par défaut (cf. NOTIF_SHOW_DEFAULT) : les lignes portent déjà
+     un statut, et deux pastilles côte à côte se disputeraient le regard. */
+  { key: "client", label: "Type de client (Pro / Solo / Duo)" },
   { key: "partenaire", label: "Installateur" },
   { key: "proprio", label: "Propriétaire (SunLib)" },
   { key: "creeLe", label: "Date de création" },
@@ -4610,6 +4696,10 @@ const coerceNotifsCfg = (raw: unknown): NotifsCfg => {
        rester sur l'ancien comportement — sinon le filtre n'arriverait jamais chez les
        utilisateurs qui ont déjà personnalisé leur accueil. */
     mesDossiers: o.mesDossiers !== false,
+    /* À « tous » quand la clé est absente ou illisible (`clienteleOf`) : un périmètre
+       hérité par accident cacherait des dossiers à traiter sans que personne l'ait
+       demandé — l'inverse exact du défaut retenu pour `mesDossiers`. */
+    clientele: clienteleOf(raw),
   };
 };
 
@@ -4652,6 +4742,19 @@ function NotifsOptions({ cfg, onChange }: { cfg: NotifsCfg; onChange: (next: Not
         <input type="checkbox" style={box} checked={cfg.mesDossiers} onChange={(e) => onChange({ ...cfg, mesDossiers: e.target.checked })} />
         <span>Seulement les dossiers dont je suis propriétaire</span>
       </label>
+      {/* CLIENTÈLE — un `<select>` et non des cases, comme partout ailleurs : les cinq
+          périmètres sont exclusifs. Il se combine avec « mes dossiers » par un ET (« mes
+          nouveaux dossiers pro »), et le sous-titre annonce les deux. */}
+      <span style={lbl}>Clientèle</span>
+      <select value={cfg.clientele} aria-label="Périmètre de clientèle"
+        style={{ width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 }}
+        onChange={(e) => onChange({ ...cfg, clientele: e.target.value as Clientele })}>
+        {CLIENTELES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+      </select>
+      <p style={{ margin: "4px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        « Pro » = dossier sans civilité (entreprise, collectivité) ; « Solo » = un titulaire ;
+        « Duo » = deux titulaires. « Particuliers » regroupe Solo et Duo.
+      </p>
       <span style={lbl}>Nombre de lignes</span>
       <div style={{ display: "flex", gap: "6px" }}>
         {NOTIF_LIMITS.map((n) => (
@@ -4711,9 +4814,19 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
         {on("texte") && n.texte && n.texte !== title && (
           <div style={{ ...CLAMP2, marginTop: "3px", fontSize: "12px", fontWeight: 500, color: T.ink2 }}>{n.texte}</div>
         )}
-        {on("statut") && (
+        {/* Statut et type de client sur la MÊME rangée : deux pastilles côte à côte, qui
+            passent à la ligne si la carte est étroite (`flexWrap`). La seconde n'apparaît
+            que si elle est cochée ET renseignée — un « Type de client » vide sur une ligne
+            mal rattachée n'apprendrait rien. */}
+        {(on("statut") || (on("client") && !!n.client)) && (
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px", marginTop: "5px" }}>
-            <StatusBadge value={n.statut} />
+            {on("statut") && <StatusBadge value={n.statut} />}
+            {/* `variantOf` et non une table locale : la couleur du type de client est
+                déclarée dans le catalogue (§6-bis), et une seconde table finirait par en
+                diverger — un « Duo » ambre ici, bleu dans la fiche de détail. */}
+            {on("client") && !!n.client && (
+              <Badge variant={variantOf(CATALOG.notifC, "client", n.client)}>{n.client}</Badge>
+            )}
           </div>
         )}
         {(on("partenaire") || on("creeLe") || on("proprio")) && (
@@ -4756,11 +4869,18 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
   );
 }
 
-function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
+function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClients }: {
   tri: NotifTri; cfg: NotifsCfg; notifs: SourceApi; ident: UserIdent;
+  /** Le champ « type de client » est-il LU par la datasource ? Faux ⇒ le réglage
+   *  « Clientèle » est inopérant, et le widget doit le DIRE plutôt que de laisser croire
+   *  qu'il filtre (cf. `clientLisible`, et le champ à cocher dans l'onglet Sources). */
+  clientLu: boolean;
   /** Bascule « voir toutes les notifications » proposée dans l'état vide. Absente si
    *  le widget ne peut pas écrire sa propre cfg. */
   onVoirTout?: () => void;
+  /** Même canal, pour ROUVRIR la clientèle quand c'est elle qui a tout écarté : sinon il
+   *  faudrait retrouver le réglage dans le ⋮ pour comprendre un widget vide. */
+  onTousClients?: () => void;
 }) {
   /* Marquer comme vu = ÉCRIRE false sur « Statut de lecture ». Oui, false : dans cette
      table la case cochée signifie « à lire » (voir SELECT_NOTIF_C). C'est le seul
@@ -4810,6 +4930,9 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
      identifiable il est sauté (cf. `selectNotifs`), et le sous-titre ne doit pas
      annoncer « mes dossiers » quand ce sont ceux de tout le monde. */
   const filtreActif = cfg.mesDossiers && ident.known;
+  /* Le périmètre clientèle, lui, est actif s'il est demandé ET si la source lit le champ —
+     même règle que `mesDossiers` face à une session anonyme. */
+  const clienteleActive = cfg.clientele !== "tous" && clientLu;
   const nom = ident.name.length ? asText(ident.name.join(" ")) : ident.mail.join(" ");
   /* Fiche détaillée de la notification cliquée. Le descripteur `notifC` porte les 9
      alias lus, donc la fiche se construit toute seule (`RecordDialog`) — pas de fiche
@@ -4822,7 +4945,7 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
         On annonce ce qui reste à faire, et sur quel périmètre. */}
     <Widget icon={Bell} title="Nouveaux dossiers abonnés"
       sub={!restantes.length ? (filtreActif ? "Rien à votre nom" : "Rien à traiter")
-        : `${restantes.length} à traiter${filtreActif ? " · mes dossiers" : ""}`}>
+        : `${restantes.length} à traiter${filtreActif ? " · mes dossiers" : ""}${clienteleActive ? ` · ${clienteleCourt(cfg.clientele)}` : ""}`}>
       {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en silence
           la liste de tout le monde sous un titre qui laisserait croire le contraire. */}
       {cfg.mesDossiers && !ident.known && (
@@ -4830,6 +4953,25 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
           <Badge variant="warn" dot>Filtre inactif</Badge>
           <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
             Session non identifiée : toutes les notifications sont affichées.
+          </span>
+        </div>
+      )}
+      {/* ⚠️ MÊME BANDEAU pour la clientèle demandée mais NON LUE : le champ « Champs IA
+          Config client (from Liens BDD) » n'est pas coché dans la connexion de la
+          datasource `notifC` (onglet Sources du bloc). Sans ce message, le réglage
+          paraîtrait ne rien faire et on chercherait le défaut dans le code.
+          ⚠️⚠️ `!notifs.loading && !notifs.error` EST INDISPENSABLE, et ce n'est pas une
+          précaution de principe : `clientLu` se déduit des LIGNES LUES, donc il est faux
+          tant qu'il n'y en a aucune. Sans ces deux gardes, le bandeau s'affichait à CHAQUE
+          chargement de la page chez quiconque a réglé une clientèle — un avertissement
+          faux, et le plus visible de tous puisqu'il occupe le haut de la carte. Même
+          raison de l'exclure en erreur : la source n'a pas répondu, on ne sait rien du
+          champ. Ne pas retirer ces gardes en croyant simplifier la condition. */}
+      {cfg.clientele !== "tous" && !clientLu && !notifs.loading && !notifs.error && (
+        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+          <Badge variant="warn" dot>Filtre inactif</Badge>
+          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+            Type de client non lu par la source : toutes les notifications sont affichées.
           </span>
         </div>
       )}
@@ -4849,7 +4991,23 @@ function NotifWidget({ tri, cfg, notifs, ident, onVoirTout }: {
            l'ouvrir), « rien du tout » (la table n'a rien à montrer). Le deuxième NOMME
            l'identité cherchée : c'est la seule façon de comprendre un rapprochement qui a
            échoué parce que la base écrit le propriétaire autrement. */
-        tri.lues > 0 ? (
+        /* QUATRIÈME état vide (2026-08-20), placé EN PREMIER : c'est le périmètre clientèle
+           qui a tout écarté. Il passe avant « tout est traité » parce que c'est le réglage
+           qu'on vient de poser, et parce que le message inverse — « tout est traité » sous
+           un widget réglé sur « Pro » — ferait croire la file vide alors qu'elle contient
+           des particuliers. Comme pour « mes dossiers », on propose de ROUVRIR. */
+        clienteleActive && tri.horsClientele > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "26px 16px 30px", textAlign: "center" }}>
+            <EmptyState dense icon={Inbox} title={`Aucun dossier « ${CLIENTELES.find((c) => c.key === cfg.clientele)?.label ?? ""} » à traiter`}
+              hint={`${tri.horsClientele} notification${tri.horsClientele > 1 ? "s" : ""} écartée${tri.horsClientele > 1 ? "s" : ""} par le périmètre de clientèle.`} />
+            {onTousClients && (
+              <button className="slb-btng" onClick={onTousClients}
+                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
+                <Eye aria-hidden style={{ width: 14, height: 14 }} />Voir toutes les clientèles
+              </button>
+            )}
+          </div>
+        ) : tri.lues > 0 ? (
           <EmptyState dense icon={CheckCircle} title="Tout est traité"
             hint={`${tri.lues} notification${tri.lues > 1 ? "s" : ""} déjà vue${tri.lues > 1 ? "s" : ""}. Les nouveaux dossiers apparaîtront ici.`} />
         ) : filtreActif ? (
@@ -5136,23 +5294,47 @@ type InstanceCfg = {
      nature (cf. `ownerIsUser`) — un manager qui suit plusieurs portefeuilles, ou un nom
      écrit autrement en base, doit pouvoir ouvrir la liste. */
   mine?: boolean;
-  /* « Pro / particulier / les deux » (2026-08-18). N'a de sens que si le descripteur de
-     la source déclare un `clientField` ; ailleurs la clé est absente.
+  /* PÉRIMÈTRE CLIENTÈLE (2026-08-18, porté à cinq états le 2026-08-20) : tous · Pro ·
+     Particuliers (Solo + Duo) · Solo · Duo. N'a de sens que si le descripteur de la
+     source déclare un `clientField` ; ailleurs la clé est absente.
      À "tous" par défaut, contrairement à `mine` : un accueil montre d'abord TOUT le
      périmètre, et restreindre la clientèle répond à une question ponctuelle (« combien
      de particuliers attendent leur solvabilité ? ») plutôt qu'à un besoin permanent. */
   clientele?: Clientele;
 };
 
-/* Trois états et pas quatre : la base dit « Pro », « Solo » ou « Duo », mais l'accueil
-   raisonne en pro ↔ particulier. Séparer Solo de Duo ici offrirait un réglage que
-   personne n'a demandé, et qu'il faudrait porter dans tous les libellés. */
-type Clientele = "tous" | "pro" | "particulier";
-const CLIENTELES: { key: Clientele; label: string }[] = [
-  { key: "tous", label: "Tous les clients" },
-  { key: "pro", label: "Professionnels seulement" },
-  { key: "particulier", label: "Particuliers seulement" },
+/* CINQ états depuis le 2026-08-20 (demandé). La base ne connaît que trois valeurs — « Pro »,
+   « Solo », « Duo » (formule `Champs IA Config client`, relevée sur Airtable : civilité vide
+   → Pro · Monsieur/Madame → Solo · sinon → Duo) — mais on en tire cinq PÉRIMÈTRES, parce que
+   « particulier » est une lecture et non une valeur :
+     · `particulier` = Solo ∪ Duo — la question la plus courante (« combien de particuliers
+       attendent leur solvabilité ? ») et celle qui existait seule avant ce jour ;
+     · `solo` et `duo` — le détail du foyer, demandé pour distinguer un dossier à une seule
+       signature d'un dossier à deux (le circuit de signature et les relances diffèrent).
+   `court` est le mot du SOUS-TITRE (« 12 dossiers · particuliers ») : il vit ici et non dans
+   une condition au fil du code, sans quoi chaque widget écrirait le sien. */
+type Clientele = "tous" | "pro" | "particulier" | "solo" | "duo";
+const CLIENTELES: { key: Clientele; label: string; court: string }[] = [
+  { key: "tous", label: "Tous les clients", court: "" },
+  { key: "pro", label: "Professionnels seulement (Pro)", court: "pros" },
+  { key: "particulier", label: "Particuliers seulement (Solo + Duo)", court: "particuliers" },
+  { key: "solo", label: "Particuliers — Solo seulement", court: "solo" },
+  { key: "duo", label: "Particuliers — Duo seulement", court: "duo" },
 ];
+/** Le mot à écrire dans un sous-titre pour annoncer le périmètre, "" si aucun. PURE. */
+const clienteleCourt = (c: Clientele | undefined): string =>
+  CLIENTELES.find((x) => x.key === c)?.court ?? "";
+
+/** Le périmètre clientèle d'une cfg BRUTE, quel que soit le type de widget qui la porte
+ *  (widget `data`, file d'attente, widgets commerciaux, notifications). Validé contre
+ *  `CLIENTELES` : une valeur inconnue — cfg d'une version future, ou clé absente d'une cfg
+ *  enregistrée avant ce réglage — retombe sur « tous », jamais sur une restriction. Un
+ *  périmètre hérité par accident cacherait des dossiers sans que personne l'ait demandé.
+ *  PURE. Un seul lecteur pour tous les types : sinon chacun aurait son défaut. */
+const clienteleOf = (raw: unknown): Clientele => {
+  const c = asText(asObj(raw).clientele);
+  return CLIENTELES.some((x) => x.key === c) ? (c as Clientele) : "tous";
+};
 
 const LIST_LIMIT_MAX = 50;
 const KPI_DAYS_MAX = 365;
@@ -5294,8 +5476,7 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
   /* --- Clientèle : offerte seulement si la source déclare un `clientField`. Toute valeur
      inconnue retombe sur "tous" — un réglage illisible ne doit jamais restreindre en
      silence. La clé est écrite même à "tous", pour la même raison que `mine`. --- */
-  const clientele: Clientele =
-    desc.clientField && CLIENTELES.some((c) => c.key === o.clientele) ? (o.clientele as Clientele) : "tous";
+  const clientele: Clientele = desc.clientField ? clienteleOf(o) : "tous";
 
   return {
     title: asText(o.title ?? base.title),
@@ -5369,16 +5550,48 @@ const ownerScope = (rows: Row[], cfg: InstanceCfg, ident?: UserIdent): Row[] => 
   return rows.filter((r) => ownerIsUser(asText(r[alias]), ident!));
 };
 
-/** « Pro » ↔ « particulier » à partir de la valeur brute du champ (« Pro », « Solo »,
- *  « Duo »). Rend "" pour une valeur vide ou inconnue — non classable, et c'est une
- *  information, pas un défaut : le champ peut ne pas être exposé côté Softr. PURE.
- *  ⚠️ Tout ce qui n'est pas « pro » est un particulier : c'est vrai des deux valeurs
- *  existantes (Solo, Duo) et le restera d'une éventuelle troisième forme de foyer, alors
- *  qu'une liste blanche `["solo","duo"]` la classerait « inconnue » sans un mot. */
-const clientKind = (v: unknown): "pro" | "particulier" | "" => {
-  const t = foldText(v).trim();
-  return !t ? "" : t === "pro" ? "pro" : "particulier";
+/** Le TYPE DE CLIENT à partir de la valeur brute du champ (« Pro », « Solo », « Duo »).
+ *  Rend "" pour une valeur vide — non classable, et c'est une information, pas un défaut :
+ *  le champ peut ne pas être exposé côté Softr. PURE.
+ *  ⚠️ GRANULARITÉ (2026-08-20) : `solo` et `duo` sont désormais distingués, pour que le
+ *  réglage puisse porter sur l'un ou l'autre. Une valeur inconnue tombe sur `particulier`
+ *  et NON sur "" : tout ce qui n'est pas « Pro » est un foyer, ce qui restera vrai d'une
+ *  éventuelle troisième forme — là où une liste blanche `["solo","duo"]` la classerait
+ *  « inconnue » sans un mot, et la ferait disparaître du périmètre « Particuliers ». */
+const clientKind = (v: unknown): "pro" | "solo" | "duo" | "particulier" | "" => {
+  /* ⚠️ LA PREMIÈRE VALEUR, pas la chaîne entière. Sur `notifC` ce champ est un LOOKUP, et
+     `asText` joint un lookup multi-valeurs par « , » : une ligne liée à deux dossiers
+     arriverait en « Pro, Pro » et, comparée telle quelle, tomberait dans le fourre-tout
+     `particulier` — un dossier pro classé particulier. Aucune des trois valeurs réelles ne
+     contient de virgule, la découpe est donc sans risque. */
+  const t = foldText(v).split(",")[0].trim();
+  if (!t) return "";
+  return t === "pro" ? "pro" : t === "solo" ? "solo" : t === "duo" ? "duo" : "particulier";
 };
+
+/** Une ligne classée par `clientKind` entre-t-elle dans le périmètre demandé ? PURE.
+ *  ⚠️ `particulier` est un REGROUPEMENT (Solo ∪ Duo, plus toute forme non « Pro ») ;
+ *  `solo` et `duo` sont des égalités strictes. Une ligne non classable ("") n'entre dans
+ *  AUCUN périmètre : c'est `clientScope` qui décide s'il faut alors filtrer du tout. */
+const clientMatch = (kind: ReturnType<typeof clientKind>, veut: Clientele): boolean =>
+  veut === "tous" ? true
+  : veut === "particulier" ? kind !== "" && kind !== "pro"
+  : kind === veut;
+
+/** Périmètre clientèle appliqué à des lignes BRUTES, hors grammaire `InstanceCfg` : c'est
+ *  ce que consomment les widgets sur-mesure (commerciaux, notifications), qui portent
+ *  leur propre cfg. Même arbitrage que `clientScope` — aucune ligne classable ⇒ aucun
+ *  filtre, parce que le champ n'est alors pas exposé par la datasource. PURE. */
+const clienteleRows = <R extends Record<string, unknown>>(rows: R[], veut: Clientele, alias = "client"): R[] => {
+  if (veut === "tous") return rows;
+  if (!rows.some((r) => clientKind(r[alias]))) return rows;
+  return rows.filter((r) => clientMatch(clientKind(r[alias]), veut));
+};
+
+/** Le champ « type de client » est-il LU sur ces lignes ? Faux = non coché dans l'onglet
+ *  Sources du bloc, donc tout réglage de clientèle est inopérant et doit se DIRE. PURE. */
+const clientLisible = (rows: Record<string, unknown>[], alias = "client"): boolean =>
+  rows.some((r) => clientKind(r[alias]) !== "");
 
 /** Périmètre CLIENTÈLE, appliqué comme `ownerScope` : avant les filtres, donc aussi aux
  *  agrégats. Une ligne non classable est écartée quand un périmètre est demandé — sinon
@@ -5389,17 +5602,16 @@ const clientKind = (v: unknown): "pro" | "particulier" | "" => {
  *  inactif » — même arbitrage que pour « mes fiches » sans session identifiable. */
 const clientScope = (rows: Row[], cfg: InstanceCfg): Row[] => {
   const alias = CATALOG[cfg.source].clientField;
-  const veut = cfg.clientele;
-  if (!alias || !veut || veut === "tous") return rows;
-  if (!rows.some((r) => clientKind(r[alias]))) return rows;
-  return rows.filter((r) => clientKind(r[alias]) === veut);
+  // Le filtrage lui-même vit dans `clienteleRows` : ici, on ne fait que résoudre l'alias
+  // depuis le catalogue. Deux implémentations du même arbitrage finiraient par diverger.
+  return alias ? clienteleRows(rows, cfg.clientele ?? "tous", alias) : rows;
 };
 
 /** Le périmètre clientèle est-il RÉELLEMENT applicable ? Demandé dans la cfg ne suffit
  *  pas : il faut que les lignes portent le champ (voir `clientScope`). */
 const clientFilterActive = (cfg: InstanceCfg, rows: Row[]): boolean => {
   const alias = CATALOG[cfg.source].clientField;
-  return !!alias && !!cfg.clientele && cfg.clientele !== "tous" && rows.some((r) => clientKind(r[alias]));
+  return !!alias && !!cfg.clientele && cfg.clientele !== "tous" && clientLisible(rows, alias);
 };
 
 /** Lignes retenues par les filtres (ET), sans tri ni limite — base des agrégats.
@@ -6173,8 +6385,10 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
         /* Le périmètre CLIENTÈLE s'annonce au même endroit et pour la même raison : « 4
            dossiers » sous un titre neutre ne dit pas qu'on n'en montre qu'une part. */
         const clienteleOn = clientFilterActive(cfg, api.rows);
+        /* Le mot vient de `CLIENTELES` (`court`) et non d'un ternaire : à cinq périmètres,
+           une condition écrite ici aurait dit « particuliers » d'un widget réglé sur Duo. */
         const perimetre = (mineOn ? " · mes fiches" : "")
-          + (clienteleOn ? (cfg.clientele === "pro" ? " · pros" : " · particuliers") : "");
+          + (clienteleOn ? ` · ${clienteleCourt(cfg.clientele)}` : "");
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
           : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}`
@@ -6207,7 +6421,13 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
                   l'onglet Sources du bloc). On le DIT — sans ce bandeau, le réglage
                   paraîtrait simplement ne rien faire, et on chercherait le défaut dans le
                   code plutôt que dans la configuration Softr. */}
-              {!!cfg.clientele && cfg.clientele !== "tous" && !clientFilterActive(cfg, api.rows) && (
+              {/* ⚠️ `!api.loading && !api.error` : même piège que dans le widget des
+                  notifications (§9) — `clientFilterActive` se déduit des lignes lues, donc
+                  il est faux tant qu'il n'y en a aucune, et le bandeau s'affichait pendant
+                  tout le chargement. Défaut présent depuis l'introduction du réglage le
+                  2026-08-18, corrigé le 2026-08-20. */}
+              {!!cfg.clientele && cfg.clientele !== "tous" && !api.loading && !api.error
+                && !clientFilterActive(cfg, api.rows) && (
                 <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
                   <Badge variant="warn" dot>Filtre inactif</Badge>
                   <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
@@ -6588,8 +6808,8 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
 
       {/* CLIENTÈLE — même famille que « mes fiches » : un PÉRIMÈTRE, pas un critère de
           consultation. Sous le même intertitre quand les deux existent. Un `<select>` et
-          non deux cases : les trois états sont exclusifs, et deux cases laisseraient
-          poser « ni pro ni particulier », qui ne veut rien dire. */}
+          non des cases : les cinq états sont EXCLUSIFS, et des cases laisseraient poser
+          « ni pro ni particulier », qui ne veut rien dire. */}
       {desc.clientField && (
         <>
           {!desc.ownerField && <div style={lbl}>Périmètre</div>}
@@ -6598,8 +6818,9 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
             {CLIENTELES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
           <p style={{ margin: "2px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-            « Particuliers » regroupe les dossiers Solo et Duo — la base ne connaît que ces
-            deux formes de foyer, et « Pro » pour tout le reste.
+            La base classe chaque dossier en « Pro » (pas de civilité), « Solo » (Monsieur ou
+            Madame) ou « Duo » (deux titulaires). « Particuliers » regroupe Solo et Duo ; les
+            deux dernières entrées permettent de n'en garder qu'une des deux.
           </p>
         </>
       )}
@@ -6755,10 +6976,14 @@ function NotifsCard({ cfg }: { cfg: NotifsCfg }) {
            l'option qui active l'état « Non lu » et le bouton « Vu ». Cohérent dans les
            deux sens : qui gère une file veut voir ce qui reste à faire ; qui décoche
            l'option ne gère plus de file, et revoit alors tout l'historique. */
-        const tri = selectNotifs(nc.rows.map(mapNotifC), ident, cfg.mesDossiers, cfg.marquage);
+        /* 5e argument : le PÉRIMÈTRE CLIENTÈLE (2026-08-20). Il se combine par un ET avec
+           « mes dossiers » — « mes nouveaux dossiers pro » est la lecture visée. */
+        const tri = selectNotifs(nc.rows.map(mapNotifC), ident, cfg.mesDossiers, cfg.marquage, cfg.clientele);
         return (
           <NotifWidget cfg={cfg} notifs={nc} tri={tri} ident={ident}
-            onVoirTout={writer ? () => writer.save({ ...cfg, mesDossiers: false }) : undefined} />
+            clientLu={clientLisible(nc.rows)}
+            onVoirTout={writer ? () => writer.save({ ...cfg, mesDossiers: false }) : undefined}
+            onTousClients={writer ? () => writer.save({ ...cfg, clientele: "tous" }) : undefined} />
         );
       }}
     </SourceFeed>
@@ -7408,8 +7633,9 @@ const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
    clientèle, recherche… soit une dizaine de réglages pour un widget dont la raison d'être
    tient en une phrase — « les dossiers en attente de solvabilité, point ». On pouvait même
    lui changer sa source, donc lui faire afficher tout autre chose sous le même titre.
-   Ces deux-là sont donc devenues des TYPES à part entière, sans `Options` (§10) : le ⋮ n'y
-   propose plus que le nom et la couleur, et le contenu ne bouge pas.
+   Ces deux-là sont donc devenues des TYPES à part entière, dont le formulaire ne propose
+   que deux réglages (§10, `FileOptions`) : l'ORDRE, et la CLIENTÈLE rétablie le 2026-08-20.
+   Le reste du contenu — source, statut suivi, colonnes — ne bouge pas.
 
    `limit: LIST_LIMIT_MAX` — une file d'attente se montre ENTIÈRE : c'est une charge de
    travail, pas un aperçu des derniers arrivés. 25 dossiers étaient en attente de
@@ -7447,6 +7673,7 @@ type FileTri = (typeof FILE_TRIS)[number]["key"];
 /* Par défaut l'ancienneté : c'est une FILE, et ce qui traîne doit se voir en premier. */
 const fileTriOf = (raw: unknown): (typeof FILE_TRIS)[number] =>
   FILE_TRIS.find((t) => t.key === asText(asObj(raw).tri)) ?? FILE_TRIS[0];
+
 
 /* ⚠️ `eq` et non `contains` : « contient solvabilité » ramasserait CINQ statuts, dont
    « Refusé : solvabilité » et « Demande d'infos : solvabilité » — des dossiers morts et
@@ -7631,12 +7858,51 @@ const PODIUM_PERIODES = [
   { key: "mois", label: "Mois" },
 ] as const;
 type PodiumPeriode = (typeof PODIUM_PERIODES)[number]["key"];
-type PodiumCfg = { periode: PodiumPeriode };
+type PodiumCfg = { periode: PodiumPeriode; clientele: Clientele };
 
 const coercePodiumCfg = (raw: unknown): PodiumCfg => {
   const p = asText(asObj(raw).periode);
-  return { periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee" };
+  return {
+    periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee",
+    clientele: clienteleOf(raw),
+  };
 };
+
+/* ── PÉRIMÈTRE CLIENTÈLE DES WIDGETS COMMERCIAUX (2026-08-20, demandé) ─────────
+   Les quatre widgets de ce § agrègent, ils ne listent pas : le périmètre doit donc être
+   appliqué AVANT le calcul, sur les lignes brutes, exactement comme `clientScope` le fait
+   pour les widgets `data`. Un filtre posé après coup aurait laissé les CAPEX, les taux de
+   pose et les délais se calculer sur tout le parc, sous un titre annonçant les pros.
+   `SEG_CLIENTELE` est le formulaire, partagé par les quatre : un `<select>` et non des
+   segments, parce qu'à cinq entrées des boutons côte à côte deviendraient illisibles dans
+   un panneau de 292 px. Le mot du sous-titre vient de `clienteleCourt`.
+   ⚠️ Si le champ n'est pas lu (datasource sans « Champs IA Config client »),
+   `clienteleRows` ne filtre RIEN plutôt que de vider le classement, et le sous-titre
+   n'annonce alors aucun périmètre : c'est `clientLisible` qui fait la différence. */
+function ClienteleSelect({ value, onChange, note }: {
+  value: Clientele; onChange: (c: Clientele) => void; note?: string;
+}) {
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "10px 0 4px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "7px 9px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  return (
+    <>
+      <span style={lbl}>Clientèle</span>
+      <select style={field} value={value} aria-label="Périmètre de clientèle"
+        onChange={(e) => onChange(e.target.value as Clientele)}>
+        {CLIENTELES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+      </select>
+      <p style={{ margin: "4px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+        {note ?? "« Particuliers » regroupe les dossiers Solo et Duo ; « Pro » désigne les dossiers sans civilité (entreprises, collectivités)."}
+      </p>
+    </>
+  );
+}
+
+/** Le mot de périmètre à accrocher au sous-titre d'un widget commercial : "" quand rien
+ *  n'est demandé, mais aussi quand la source ne lit pas le champ — annoncer « pros » sur
+ *  un classement qui porte tout le parc serait un mensonge. PURE. */
+const perimetreCom = (rows: Row[], c: Clientele): string =>
+  c === "tous" || !clientLisible(rows) ? "" : ` · ${clienteleCourt(c)}`;
 
 /* ── INDICATEURS GLOBAUX — la rangée de tuiles du bloc KPI ─────────────────────
    Les mêmes chiffres que `comStats`, mais TOUS COMMERCIAUX CONFONDUS, plus deux que le
@@ -7725,16 +7991,17 @@ const COM_METRICS: ComMetric[] = [
 ];
 const COM_SHOW_DEFAULT = COM_METRICS.map((m) => m.key);
 
-type ComIndicsCfg = { periode: PodiumPeriode; show: string[] };
+type ComIndicsCfg = { periode: PodiumPeriode; show: string[]; clientele: Clientele };
 const coerceComIndicsCfg = (raw: unknown): ComIndicsCfg => {
   const o = asObj(raw);
   const p = asText(o.periode);
   const known = new Set(COM_METRICS.map((m) => m.key));
   const periode: PodiumPeriode = PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "tout";
+  const clientele = clienteleOf(raw);
   /* `show` ABSENT → tout ; PRÉSENT même vide → choix explicite respecté. Même règle que
      `coerceSavCfg`, pour que les deux panneaux se comportent pareil. */
-  if (!Array.isArray(o.show)) return { periode, show: [...COM_SHOW_DEFAULT] };
-  return { periode, show: Array.from(new Set(o.show.filter((x: unknown): x is string => typeof x === "string" && known.has(x)))) };
+  if (!Array.isArray(o.show)) return { periode, clientele, show: [...COM_SHOW_DEFAULT] };
+  return { periode, clientele, show: Array.from(new Set(o.show.filter((x: unknown): x is string => typeof x === "string" && known.has(x)))) };
 };
 
 function ComIndicsOptions({ cfg, onChange }: { cfg: ComIndicsCfg; onChange: (next: ComIndicsCfg) => void }) {
@@ -7756,6 +8023,7 @@ function ComIndicsOptions({ cfg, onChange }: { cfg: ComIndicsCfg; onChange: (nex
             aria-pressed={cfg.periode === p.key}>{p.label}</button>
         ))}
       </div>
+      <ClienteleSelect value={cfg.clientele} onChange={(c) => onChange({ ...cfg, clientele: c })} />
       <span style={{ ...lbl, marginTop: "10px" }}>Indicateurs affichés</span>
       {COM_METRICS.map((m) => (
         <label key={m.key} style={line}>
@@ -7772,7 +8040,8 @@ function ComIndicsOptions({ cfg, onChange }: { cfg: ComIndicsCfg; onChange: (nex
 }
 
 function ComIndicsWidget({ api, cfg }: { api: SourceApi; cfg: ComIndicsCfg }) {
-  const g = comGlobal(api.rows, cfg.periode, new Date());
+  /* Périmètre AVANT le calcul : les tuiles sont des agrégats (§9-septies, `perimetreCom`). */
+  const g = comGlobal(clienteleRows(api.rows, cfg.clientele), cfg.periode, new Date());
   const zone = tintOf(useContext(WidgetTintCtx)).head || T.surface2;
   const periodeLabel = cfg.periode === "mois" ? "sur le mois en cours"
     : cfg.periode === "annee" ? "sur l'année en cours" : "toutes périodes";
@@ -7788,7 +8057,8 @@ function ComIndicsWidget({ api, cfg }: { api: SourceApi; cfg: ComIndicsCfg }) {
   }));
 
   return (
-    <Widget icon={BarChart3} title="Indicateurs commerciaux" sub={`Contrats et pipeline — ${periodeLabel}`}>
+    <Widget icon={BarChart3} title="Indicateurs commerciaux"
+      sub={`Contrats et pipeline — ${periodeLabel}${perimetreCom(api.rows, cfg.clientele)}`}>
       {api.error ? (
         <EmptyState icon={BarChart3} dense title="Donnée indisponible"
           hint="La source « Abonnés » n'a pas répondu. Les indicateurs complets restent dans le tableau de bord KPI." />
@@ -7931,10 +8201,11 @@ function PodiumOptions({ cfg, onChange }: { cfg: PodiumCfg; onChange: (next: Pod
       <span style={lbl}>Période</span>
       <div style={{ display: "flex", gap: "6px" }}>
         {PODIUM_PERIODES.map((p) => (
-          <button key={p.key} style={seg(cfg.periode === p.key)} onClick={() => onChange({ periode: p.key })}
+          <button key={p.key} style={seg(cfg.periode === p.key)} onClick={() => onChange({ ...cfg, periode: p.key })}
             aria-pressed={cfg.periode === p.key}>{p.label}</button>
         ))}
       </div>
+      <ClienteleSelect value={cfg.clientele} onChange={(c) => onChange({ ...cfg, clientele: c })} />
       <p style={{ margin: "8px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
         Contrats signés (PDF joint), hors dossiers annulés et hors « Non assigné ».
       </p>
@@ -7943,7 +8214,9 @@ function PodiumOptions({ cfg, onChange }: { cfg: PodiumCfg; onChange: (next: Pod
 }
 
 function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
-  const top3 = comStats(api.rows, cfg.periode, new Date()).stats
+  /* Périmètre clientèle AVANT `comStats` : un podium filtré après coup aurait classé les
+     commerciaux sur tout le parc puis affiché le mot « pros » (cf. `perimetreCom`). */
+  const top3 = comStats(clienteleRows(api.rows, cfg.clientele), cfg.periode, new Date()).stats
     .sort((a, b) => b.capex - a.capex).slice(0, 3);
   /* ORDRE VISUEL 2 · 1 · 3 — le premier au centre, comme sur un vrai podium. Le
      tableau peut contenir des trous (moins de trois commerciaux sur la période) : les
@@ -7956,7 +8229,8 @@ function PodiumWidget({ api, cfg }: { api: SourceApi; cfg: PodiumCfg }) {
     : cfg.periode === "annee" ? "sur l'année en cours" : "sur tout l'historique";
 
   return (
-    <Widget icon={Trophy} title="Podium CAPEX HT" sub={`Les trois premiers ${periodeLabel}`}>
+    <Widget icon={Trophy} title="Podium CAPEX HT"
+      sub={`Les trois premiers ${periodeLabel}${perimetreCom(api.rows, cfg.clientele)}`}>
       {api.error ? (
         <EmptyState icon={Trophy} dense title="Donnée indisponible"
           hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
@@ -8044,7 +8318,7 @@ const COM_COLS = [
   { key: "delaiMoy", label: "Délai sig." },
 ] as const;
 type ComCol = (typeof COM_COLS)[number]["key"];
-type ClassementCfg = { periode: PodiumPeriode; tri: ComCol; dir: "asc" | "desc" };
+type ClassementCfg = { periode: PodiumPeriode; tri: ComCol; dir: "asc" | "desc"; clientele: Clientele };
 
 const coerceClassementCfg = (raw: unknown): ClassementCfg => {
   const o = asObj(raw);
@@ -8054,6 +8328,7 @@ const coerceClassementCfg = (raw: unknown): ClassementCfg => {
     periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee",
     tri: COM_COLS.some((c) => c.key === t) ? (t as ComCol) : "capex",
     dir: o.dir === "asc" ? "asc" : "desc",
+    clientele: clienteleOf(raw),
   };
 };
 
@@ -8061,8 +8336,8 @@ const coerceClassementCfg = (raw: unknown): ClassementCfg => {
    période, même tri, même sens — seule la liste des colonnes triables change. Les deux
    `Options` du registre en sont des habillages d'une ligne. */
 function RankOptions<C extends string>({ cfg, onChange, cols }: {
-  cfg: { periode: PodiumPeriode; tri: C; dir: "asc" | "desc" };
-  onChange: (next: { periode: PodiumPeriode; tri: C; dir: "asc" | "desc" }) => void;
+  cfg: { periode: PodiumPeriode; tri: C; dir: "asc" | "desc"; clientele: Clientele };
+  onChange: (next: { periode: PodiumPeriode; tri: C; dir: "asc" | "desc"; clientele: Clientele }) => void;
   cols: readonly { key: C; label: string }[];
 }) {
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 4px" };
@@ -8088,6 +8363,10 @@ function RankOptions<C extends string>({ cfg, onChange, cols }: {
         <button style={seg(cfg.dir === "asc")} onClick={() => onChange({ ...cfg, dir: "asc" })}
           aria-pressed={cfg.dir === "asc"}>Croissant</button>
       </div>
+      {/* CLIENTÈLE — commune aux deux classements : « qui vend aux pros ? » et « quels
+          installateurs travaillent avec des particuliers ? » sont deux lectures du même
+          tableau, et c'est le même réglage qui les sépare. */}
+      <ClienteleSelect value={cfg.clientele} onChange={(c) => onChange({ ...cfg, clientele: c })} />
       <p style={{ margin: "8px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
         Les en-têtes du tableau trient aussi, d'un clic.
       </p>
@@ -8119,7 +8398,8 @@ function Sparkline({ data }: { data: number[] }) {
 }
 
 function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: ClassementCfg; onSort: (col: ComCol) => void }) {
-  const { stats } = comStats(api.rows, cfg.periode, new Date());
+  // Périmètre clientèle appliqué aux lignes, donc au calcul (cf. `perimetreCom`).
+  const { stats } = comStats(clienteleRows(api.rows, cfg.clientele), cfg.periode, new Date());
   const signe = cfg.dir === "asc" ? 1 : -1;
   const tries = [...stats].sort((a, b) => (a[cfg.tri] - b[cfg.tri]) * signe);
   const maxCapex = Math.max(1, ...stats.map((c) => c.capex));
@@ -8152,7 +8432,7 @@ function ClassementWidget({ api, cfg, onSort }: { api: SourceApi; cfg: Classemen
 
   return (
     <Widget icon={Users} title="Classement des commerciaux"
-      sub={`${stats.length} commercial${stats.length > 1 ? "aux" : ""} — trié par ${COM_COLS.find((c) => c.key === cfg.tri)?.label}`}>
+      sub={`${stats.length} commercial${stats.length > 1 ? "aux" : ""} — trié par ${COM_COLS.find((c) => c.key === cfg.tri)?.label}${perimetreCom(api.rows, cfg.clientele)}`}>
       {api.error ? (
         <EmptyState icon={Users} dense title="Donnée indisponible"
           hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
@@ -8301,7 +8581,7 @@ const INST_COLS = [
   { key: "tauxPose", label: "Taux pose" },
 ] as const;
 type InstCol = (typeof INST_COLS)[number]["key"];
-type InstCfg = { periode: PodiumPeriode; tri: InstCol; dir: "asc" | "desc" };
+type InstCfg = { periode: PodiumPeriode; tri: InstCol; dir: "asc" | "desc"; clientele: Clientele };
 
 const coerceInstCfg = (raw: unknown): InstCfg => {
   const o = asObj(raw);
@@ -8311,6 +8591,7 @@ const coerceInstCfg = (raw: unknown): InstCfg => {
     periode: PODIUM_PERIODES.some((x) => x.key === p) ? (p as PodiumPeriode) : "annee",
     tri: INST_COLS.some((c) => c.key === t) ? (t as InstCol) : "contrats",
     dir: o.dir === "asc" ? "asc" : "desc",
+    clientele: clienteleOf(raw),
   };
 };
 
@@ -8326,7 +8607,7 @@ const fmtCapexCourt = (n: number): string =>
 
 function InstWidget({ api, cfg, onSort }: { api: SourceApi; cfg: InstCfg; onSort: (col: InstCol) => void }) {
   const [q, setQ] = useState("");
-  const { stats } = comStats(api.rows, cfg.periode, new Date(), "installateur");
+  const { stats } = comStats(clienteleRows(api.rows, cfg.clientele), cfg.periode, new Date(), "installateur");
   const signe = cfg.dir === "asc" ? 1 : -1;
   const tries = [...stats].sort((a, b) => (a[cfg.tri] - b[cfg.tri]) * signe);
   // Le RANG est celui du classement complet : filtrer ne renumérote pas (chercher un
@@ -8343,7 +8624,7 @@ function InstWidget({ api, cfg, onSort }: { api: SourceApi; cfg: InstCfg; onSort
 
   return (
     <Widget icon={HardHat} title="Tous les installateurs"
-      sub={api.loading ? "Chargement…" : `${stats.length} installateur${stats.length > 1 ? "s" : ""} · ${PODIUM_PERIODES.find((p) => p.key === cfg.periode)?.label ?? ""}`}>
+      sub={api.loading ? "Chargement…" : `${stats.length} installateur${stats.length > 1 ? "s" : ""} · ${PODIUM_PERIODES.find((p) => p.key === cfg.periode)?.label ?? ""}${perimetreCom(api.rows, cfg.clientele)}`}>
       {api.error ? (
         <EmptyState dense icon={XCircle} title="Classement indisponible"
           hint="La source « Abonnés » n'a pas répondu. Le classement complet reste dans le tableau de bord KPI." />
@@ -9257,38 +9538,56 @@ const dataType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTyp
 });
 
 /* Fabrique d'une FILE D'ATTENTE. La cfg enregistrée n'est PAS la cfg du widget : `coerce`
-   n'y lit qu'une chose, l'ordre, et reconstruit tout le reste depuis la constante figée.
-   Deux conséquences voulues :
+   n'y lit que DEUX choses — l'ordre et le périmètre clientèle — et reconstruit tout le
+   reste depuis la constante figée. Deux conséquences voulues :
      · rien de ce que porte le document de disposition ne peut détourner ces widgets —
-       ni leur source, ni leur filtre, ni leurs colonnes ;
+       ni leur source, ni leur filtre de statut, ni leurs colonnes ;
      · une instance posée hier suit automatiquement une correction de filtre faite ici.
-   `Options` n'offre donc que le tri (`FileOptions`), et le ⋮ le nom et la couleur. */
+   `Options` n'offre donc que ces deux réglages (`FileOptions`), et le ⋮ le nom et la
+   couleur.
+   ⚠️ LA CLIENTÈLE EST REVENUE le 2026-08-20 (demandée). Elle avait disparu le 08-18 avec
+   tout le formulaire générique, et c'est le seul de ses réglages à être rétabli : « qui
+   attend sa solvabilité ? » et « quels PARTICULIERS attendent leur solvabilité ? » sont
+   deux charges de travail différentes, traitées par des personnes différentes. Elle ne
+   rouvre pas la porte pour autant — c'est un PÉRIMÈTRE validé contre `CLIENTELES`, pas un
+   filtre libre : la source, le statut et les colonnes restent hors d'atteinte. */
 const fileType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTypeDef => ({
   title,
   icon,
   Render: ({ cfg }) => <DataView cfg={cfg} />,
   coerce: (raw) => {
     const t = fileTriOf(raw);
-    return { ...base, tri: t.key, query: { ...base.query, sort: { by: t.by, dir: t.dir } } };
+    return { ...base, tri: t.key, clientele: clienteleOf(raw),
+             query: { ...base.query, sort: { by: t.by, dir: t.dir } } };
   },
   Options: FileOptions,
 });
 
-/** Le formulaire d'une file : UN sélecteur. Il rend `{ tri }` et RIEN d'autre — la cfg
- *  stockée dans le layout tient donc en une clé, et `coerce` reconstruit le reste. */
+/** Le formulaire d'une file : DEUX sélecteurs. Il rend `{ tri, clientele }` et RIEN
+ *  d'autre — la cfg stockée dans le layout tient donc en deux clés, et `coerce`
+ *  reconstruit le reste. */
 function FileOptions({ cfg, onChange }: { cfg: any; onChange: (next: any) => void }) {
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 5px" };
   const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  const tri = fileTriOf(cfg).key;
+  const clientele = clienteleOf(cfg);
   return (
     <>
       <div style={lbl}>Ordre d'affichage</div>
-      <select value={cfg?.tri ?? FILE_TRIS[0].key} style={field}
-        onChange={(e) => onChange({ tri: e.target.value as FileTri })}>
+      <select value={tri} style={field}
+        onChange={(e) => onChange({ tri: e.target.value as FileTri, clientele })}>
         {FILE_TRIS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
       </select>
+      {/* CLIENTÈLE — le second et dernier réglage. Même liste que le widget générique
+          (`CLIENTELES`), pour que le même mot désigne partout le même périmètre. */}
+      <div style={{ ...lbl, marginTop: "10px" }}>Clientèle</div>
+      <select value={clientele} style={field}
+        onChange={(e) => onChange({ tri, clientele: e.target.value as Clientele })}>
+        {CLIENTELES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+      </select>
       <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-        C'est le seul réglage de ce widget : ce qu'il montre — les dossiers du statut, tous,
-        sans filtre ni périmètre — ne se change pas.
+        Ce sont les deux seuls réglages de ce widget : le statut qu'il suit, sa source et ses
+        colonnes ne se changent pas. « Particuliers » regroupe les dossiers Solo et Duo.
       </p>
     </>
   );
@@ -9366,7 +9665,7 @@ const typeDefOf = (type: string): WidgetTypeDef | undefined =>
 /* ============================================================================
    10-bis. MODÈLE DE DISPOSITION v2 — instances, seeding, migration
    ----------------------------------------------------------------------------
-   Trois concepts SÉPARÉS (cf. ARCHITECTURE-V2.md §0) :
+   Trois concepts SÉPARÉS (cf. ARCHITECTURE.md §8.2) :
      · le TYPE   → ce qu'on affiche          → WIDGET_REGISTRY[type]
      · l'INSTANCE→ ce que CET utilisateur a posé sur SON accueil → Layout.items[]
      · la SOURCE → d'où viennent les données (phase 1, pas encore introduite)

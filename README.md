@@ -7,9 +7,11 @@ Bloc de la **page d'accueil** du CRM SunLib, rendu dans le bloc *vibe coding* de
 > 📐 **[`ARCHITECTURE.md`](ARCHITECTURE.md)** — état des lieux détaillé : contraintes Softr,
 > mécanique des widgets (couches + registre des types + descripteur de sources), modèle de
 > layout, **persistance** (table Airtable `Home Preferences`) et limites connues.
-> 🎯 **[`ARCHITECTURE-V2.md`](ARCHITECTURE-V2.md)** — la cible du système de widgets, son plan
-> de migration et la **recette « j'ai une table, j'en veux un widget »** (~50 lignes, dont 35
-> de pur JSON descriptif ; elle a servi 5 fois le 2026-08-04).
+> 🎯 **La recette « j'ai une table, j'en veux un widget »** (~50 lignes, dont 35 de pur JSON
+> descriptif ; elle a servi 5 fois le 2026-08-04) vit au **§8.4 d'[`ARCHITECTURE.md`](ARCHITECTURE.md)**,
+> avec le principe directeur et les pistes restées ouvertes. *`ARCHITECTURE-V2.md` a été absorbé
+> dans ce document le 2026-08-20 : sa migration étant terminée, son plan par phases n'avait plus
+> d'objet.*
 
 > **Livrable unique : `Block.tsx`.** On copie-colle **uniquement** le contenu de ce
 > fichier dans le bloc vibe coding Softr. Le reste du repo (`src/`, `package.json`,
@@ -126,16 +128,20 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      du 2026-08-06 : avant, il lisait `Abonnés` et joignait l'état de lecture, et un preset de
      galerie affichait la même liste — deux widgets jumeaux). Avatar, texte de la notification,
      badge de statut, temps relatif, lien « Détail », pastille « Non lu » et bouton « Vu »,
-     et un ⋮ Options pour choisir les informations affichées et le nombre de lignes.
+     et un ⋮ Options pour choisir les informations affichées, le nombre de lignes et le
+     **périmètre de clientèle** (2026-08-20 : tous · Pro · Particuliers · Solo · Duo). Le type de
+     client est aussi **affichable en pastille** sur chaque ligne, à côté du statut.
      **C'est une FILE À TRAITER** : seules les notifications pas encore marquées « Vu » sont
      affichées, et cliquer « Vu » fait **disparaître la ligne immédiatement** (masquage local
      optimiste, annulé avec un message si l'écriture échoue — ce n'est donc pas l'ancien
      masquage sans écriture retiré le 2026-08-03). Quand la file est vide : « Tout est traité ».
      Décocher « File à traiter » dans ⋮ redonne l'historique complet.
-     Quatre filtres **assumés en code** (`selectNotifs`, pure) : propriétaire **non vide**,
-     propriétaire = **utilisateur connecté** (`cfg.mesDossiers`, actif par défaut),
-     regroupement des **jumelles** (chaque événement crée 2 lignes), et **non traitées
-     seulement**. En pied de liste, un
+     Cinq filtres **assumés en code** (`selectNotifs`, pure) : propriétaire **non vide**,
+     propriétaire = **utilisateur connecté** (`cfg.mesDossiers`, actif par défaut), **périmètre de
+     clientèle** (`cfg.clientele`, à « tous » par défaut), regroupement des **jumelles** (chaque
+     événement crée 2 lignes), et **non traitées seulement**. Quand c'est la clientèle qui a tout
+     écarté, l'état vide le **dit** et propose de la rouvrir — au lieu d'annoncer « tout est traité »
+     sur une file qui contient encore des particuliers. En pied de liste, un
      **« Voir 10 de plus · N restantes »** (2026-08-07) déroule le palier suivant sous les
      précédentes, dans le même corps scrollable — état local, jamais persisté. Le libellé
      dit **combien arrive** et **combien reste** ; quand le reste tient dans un palier, il
@@ -193,7 +199,8 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      rang, installateur, **signés** (avec barre de volume), CAPEX, puissance kWc, taux de pose
      et **courbe sur 12 mois**. Quatre colonnes de chiffres au lieu de neuf, les deux graphiques
      gardés ; annulés, taux d'annulation, poses et délai restent dans le bloc KPI, fait pour
-     l'analyse. Recherche par nom (le parc compte ~112 installateurs), tri par en-tête persisté.
+     l'analyse. Recherche par nom (le parc compte ~112 installateurs), tri par en-tête persisté,
+     **clientèle** réglable (2026-08-20) : « quels installateurs travaillent avec des pros ? ».
      ⚠️ **Aucun calcul propre** : `comStats(…, "installateur")` réutilise celui du classement
      commercial — deux agrégats concurrents sur les mêmes dossiers finiraient par se contredire.
      Le rang reste celui du classement complet : filtrer ne renumérote pas.
@@ -228,13 +235,17 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      document n'étant jamais « réparé ».
    - **Indicateurs commerciaux** — rangée de tuiles : contrats signés, annulés (+ taux), CAPEX
      signé HT et kWc, installateurs actifs, et le pipeline **« à signer (30 j) »** avec son CAPEX
-     restant. Période réglable, sauf le pipeline qui reste sur sa fenêtre glissante.
+     restant. Période réglable, sauf le pipeline qui reste sur sa fenêtre glissante ; **clientèle**
+     réglable aussi (2026-08-20).
    - **Podium CAPEX HT** — les trois premiers commerciaux, marches 2·1·3, période réglable
-     (mois / année / tout).
+     (mois / année / tout) et **clientèle** réglable (2026-08-20) : « les trois premiers sur les
+     dossiers pros » est une autre question, et elle a sa réponse ici.
    - **Classement des commerciaux** — le tableau du bloc KPI : rang, avatar et abonnement moyen,
      CAPEX HT avec barre, tendance, signés, annulés, taux de pose, délai de signature, courbe sur
      12 mois, installateurs. **Les en-têtes trient d'un clic**, et le tri est persisté.
-     À poser en **pleine largeur** : dix colonnes ne tiennent pas dans une demi-colonne.
+     À poser en **pleine largeur** : dix colonnes ne tiennent pas dans une demi-colonne. **Clientèle**
+     réglable (2026-08-20), comme sur « Tous les installateurs » — le calcul est le même, seul le
+     regroupement change.
    - **Exceptions** — les 8 tuiles de volume et de **couverture du parc** (dossiers et
      installateurs concernés, intensité par dossier), et le **Registre des exceptions** ligne par
      ligne. *Leurs trois tables sont connectées depuis le 2026-08-05, dénominateur inclus.*
@@ -309,9 +320,9 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 | `tachesPa` | « Taches » (Bdd Installateurs)                 | ✅ `7198b954-…` | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` · **⚠️ à exposer** : assignee `Assignee` |
 | `tachesPr` | « **Tâches** » (**BDD Propect Sunlib**) *(id confirmé le 2026-08-07)* | ✅ `9414183e-…` | desc `Description` · associe `Prospect associé` · fin `Date de fin` · fait `Fait` · **⚠️ à exposer** : assignee `Assignee` |
 | `sav`      | « Tickets » (SAV) — *lecture seule*            | ✅ `3f5f8f6c-…` | 22 alias : ticket, client, installateur, dates, 12 catégories, fabricant, priorité, statut, tiers, coût |
-| `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` |
+| `comKpi`   | « Abonnés » **relue** — *lecture seule, paginée* | ✅ (même `8fc957d0-…`) | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` · aboMoyen `Prix En nombre` · etatFacture2 `Etat facture 2` · dateSignature `Date signature contrat` · dateCreation `date de création` · installateur `Nom de l'entreprise (from Installateur)` · **client `Champs IA Config client`** *(2026-08-20 — rien à cocher : même datasource qu`abonnes`)* |
 | `parcAbo`  | « Abonnés » **relue en 1 champ**, paginée       | ✅ (même `8fc957d0-…`) | ref `Contrat abonné` — dénominateur « % du parc » |
-| `notifC`   | « Notification Center » (BDD Abonné) — *écrivable*, **seule source du widget « Nouveaux dossiers abonnés »** | ✅ `fecd4e37-…` | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` · **⚠️ à exposer dans Softr** : texte `Notification` · nom `Nom (from Liens BDD)` · partenaire `Installateur (from Liens BDD)` · statut `Statut Dossiers (from Liens BDD)` · proprio `Proprietaire (from Installateur ) (from Liens BDD)` |
+| `notifC`   | « Notification Center » (BDD Abonné) — *écrivable*, **seule source du widget « Nouveaux dossiers abonnés »** | ✅ `fecd4e37-…` | liens `Liens BDD` · aLire `Statut de lecture` · etat `Statut de la notification` · creeLe `Created Date` · **⚠️ à exposer dans Softr** : texte `Notification` · nom `Nom (from Liens BDD)` · partenaire `Installateur (from Liens BDD)` · statut `Statut Dossiers (from Liens BDD)` · proprio `Proprietaire (from Installateur ) (from Liens BDD)` · **client `Champs IA Config client (from Liens BDD)`** *(2026-08-20)* |
 | `excAbo`   | « Projet solaire » (Exception)                  | ✅ `b8340293-…` | exceptions **abonné** : dossier `SL- Dossier` · description · categorie · sousCategorie · service `Tag` · valideur · justificatif · installateur `BDD Installateur` · creeLe |
 | `excPart`  | « Partenaire » (Exception)                      | ✅ `9cf1e459-…` | exceptions **partenaire** : nom `Name` + les mêmes champs, plus statut `Statut` |
 | `parcPart` | « BDD Installateur » (Exception)                | ✅ `e82df933-…` | nom `Nom de l'entreprise` — dénominateur « % du parc partenaires » |
@@ -579,15 +590,31 @@ convention Softr la plus courante) — ouvrir une fiche depuis l'app et lire son
   `Nom de l'entreprise` porte le **nom des clients pros** : dans la base, un dossier pro a un
   « Nom » **vide**. Sans ce champ, les listes de dossiers affichent une ligne sans titre pour les
   deux tiers de la file d'attente.
-  Une fois coché, le réglage **« Clientèle : tous / professionnels / particuliers »** apparaît dans
-  le ⋮ de tout widget branché sur « Abonnés ». S'il reste sans effet et affiche « Filtre inactif »,
-  c'est que le champ n'est pas exposé — le widget le dit au lieu de se vider en silence.
+  Une fois coché, le réglage **« Clientèle »** apparaît dans le ⋮ de tout widget branché sur
+  « Abonnés ». Il compte **cinq** périmètres depuis le 2026-08-20 : tous · **Pro** · **Particuliers
+  (Solo + Duo)** · **Solo** · **Duo**. S'il reste sans effet et affiche « Filtre inactif », c'est que
+  le champ n'est pas exposé — le widget le dit au lieu de se vider en silence.
+- **⚠️ BLOQUANT — cocher UN champ de plus** dans l'onglet **Sources**, pour la datasource `notifC`
+  (2026-08-20) : **`Champs IA Config client (from Liens BDD)`**. Même piège, même conséquence — non
+  coché, il fait tomber le **bloc entier** (« does not match / Remap the fields »), pas seulement le
+  widget. Le lookup **existe déjà** dans la table « Notification Center » (`fldEimoiZuVIvuMP7`,
+  relevé par l'API le 2026-08-20) : rien à créer côté Airtable, seulement à exposer.
+  C'est ce champ qui donne au widget **« Nouveaux dossiers abonnés »** son réglage de clientèle, et
+  la pastille « Pro / Solo / Duo » sur chaque ligne (à cocher dans « Informations affichées »).
+  Rien à faire en revanche pour les **quatre widgets commerciaux** (podium, deux classements,
+  indicateurs) : leur lecture passe par la datasource `abonnes`, où le champ est déjà exposé.
 - **Poser les deux nouveaux widgets** depuis « Ajouter un widget » → groupe des dossiers :
-  **« En attente de solvabilité »** et **« Demandes d'infos »**. Ce sont des widgets **figés** : leur
-  ⋮ ne propose que le nom et la couleur, pas de réglage de contenu. Vérifier que le dossier le PLUS
+  **« En attente de solvabilité »** et **« Demandes d'infos »**. Ce sont des widgets **presque
+  figés** : leur ⋮ ne propose que le nom, la couleur, l'**ordre** et la **clientèle** — pas de
+  réglage de source, de statut ni de colonnes. Vérifier que le dossier le PLUS
   ANCIEN sort en tête (tri ascendant, c'est une file d'attente) et que le compte correspond à
   Airtable — **25 dossiers** « En attente de solvabilité » au 2026-08-18, 14 en « Demande d'infos ».
   Si le sous-titre affiche « N sur M », c'est que la file dépasse 50 dossiers : c'est dit, pas caché.
+  Puis régler la clientèle sur **Particuliers**, puis sur **Duo** : le sous-titre doit annoncer le
+  périmètre (« N dossiers · particuliers ») et le compte doit **baisser** à chaque cran. Ordre de
+  grandeur attendu : sur les 39 dossiers en attente relevés le 2026-08-18, 31 étaient Pro, 7 Solo et
+  1 Duo — donc une poignée de particuliers seulement, et **un seul** dossier sur le périmètre Duo.
+  Ces nombres bougent chaque semaine : c'est la mécanique qu'on vérifie, pas le chiffre.
 
 ## 5. Règles Softr respectées
 

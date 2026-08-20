@@ -2,9 +2,12 @@
 
 > État des lieux du fonctionnement **actuel** du bloc : plateforme, anatomie du code,
 > mécanique des widgets, et surtout **où et comment la data est persistée**.
-> Document de référence destiné à préparer la refonte du système de widgets ;
-> la cible et son plan de migration vivent dans `ARCHITECTURE-V2.md`.
-> Dernière mise à jour : 2026-08-04 — **la cible v2 est livrée jusqu'à sa RÉVISION 2** :
+> **Document unique** : `ARCHITECTURE-V2.md`, qui portait la cible de la refonte et son plan de
+> migration, a été **absorbé ici le 2026-08-20** — la migration étant terminée, son plan par phases
+> n'avait plus d'objet. Ce qui en valait la peine vit au **§8** : le principe directeur, la
+> frontière code ↔ JSON, **la recette « une table de plus → un widget »** et les pistes restées
+> ouvertes.
+> Dernière mise à jour : 2026-08-20 — **la cible v2 est livrée jusqu'à sa RÉVISION 2** :
 > disposition par instances (`migrateV1`, `seeded`/`parked`) ; couche SOURCES et **descripteur
 > `CATALOG`** ; **type générique unique `data`** (grammaire `query`/`view` → vues liste, tableau,
 > indicateur) avec un **formulaire d'options unique** ; multi-instances (galerie de presets
@@ -382,7 +385,7 @@ Ce que cette couche apporte :
 
 ### Le DESCRIPTEUR de source — `CATALOG` (§6-bis)
 
-C'est le « tout-en-JSON » de la cible rév. 2 : une entrée de **pure donnée** par source, qui décrit
+C'est le « tout-en-JSON » du principe directeur (§8.1) : une entrée de **pure donnée** par source, qui décrit
 la table aux widgets génériques. Aucun nom de champ brut n'y figure — les noms Airtable exacts ne
 vivent que dans les `SELECT_*`.
 
@@ -443,8 +446,8 @@ portait encore les anciennes offres « Duo / Solo / Pro », supprimées d'Airtab
 > **pas protégées contre les régressions**. C'est l'écart le plus silencieux du projet : les
 > vérifications ont été faites, mais elles ne se rejouent pas.
 
-**Ajouter une source** = 6 gestes, ~30 lignes, sans toucher au moteur : recette `ARCHITECTURE-V2.md`
-§6 (connecter dans l'onglet *Sources* → membre du `define` → `SELECT_*` → adapter → `case` →
+**Ajouter une source** = 6 gestes, ~30 lignes, sans toucher au moteur : **recette du §8.4**
+(connecter dans l'onglet *Sources* → membre du `define` → `SELECT_*` → adapter → `case` →
 entrée `CATALOG` avec `connected: true`). Elle est alors immédiatement disponible dans le sélecteur
 de source de tout widget liste.
 
@@ -695,7 +698,7 @@ grille**. Désormais `gridAutoRows: 4px` (`DASH_ROW`) et chaque widget occupe `s
 ### Modèle de layout v2 + fonctions pures (§10-bis)
 
 Le layout porte des **instances**, pas des types : `instance.id` (clé de persistance) est
-distinct de `instance.type` (entrée de registre). C'est la phase 0 de `ARCHITECTURE-V2.md`.
+distinct de `instance.type` (entrée de registre). C'est la première pièce posée par la refonte.
 
 ```ts
 type Instance = {
@@ -1150,10 +1153,68 @@ sinon → **`Duo`**. La base ne dit donc **jamais « particulier »** : c'est no
 2026-08-18 : 31 Pro, 7 Solo, 1 Duo, aucune valeur vide.
 
 **Le réglage.** `clientField` sur `SourceDesc` — même patron que `ownerField` : renseigné, tout
-widget de la source gagne un `<select>` « Tous / Professionnels / Particuliers » (`cfg.clientele`),
-à **`tous`** par défaut. Le filtrage passe par `clientScope`, appliqué dans `selectRows` **avant**
-les filtres, donc aussi aux agrégats — un KPI ne doit pas compter tout le monde au-dessus d'une
-liste qui n'en montre qu'une part.
+widget de la source gagne un `<select>` de clientèle (`cfg.clientele`), à **`tous`** par défaut. Le
+filtrage passe par `clientScope`, appliqué dans `selectRows` **avant** les filtres, donc aussi aux
+agrégats — un KPI ne doit pas compter tout le monde au-dessus d'une liste qui n'en montre qu'une
+part.
+
+#### CINQ périmètres, et non trois (2026-08-20 — demandé)
+
+La base garde ses trois valeurs ; le réglage en propose **cinq**, parce que « particulier » est une
+lecture et non une valeur :
+
+| Clé | Libellé | Ce qu'elle retient |
+|---|---|---|
+| `tous` | Tous les clients | tout, y compris les lignes non classables |
+| `pro` | Professionnels seulement (Pro) | `Pro` |
+| `particulier` | Particuliers seulement (Solo + Duo) | tout ce qui **n'est pas** `Pro` |
+| `solo` | Particuliers — Solo seulement | `Solo` |
+| `duo` | Particuliers — Duo seulement | `Duo` |
+
+Le détail Solo / Duo a été demandé parce qu'un dossier à **deux** titulaires n'a ni le même circuit
+de signature ni les mêmes relances qu'un dossier à un seul.
+
+Trois fonctions pures, un seul endroit chacune : `clientKind` classe une valeur brute
+(`pro` / `solo` / `duo` / `particulier` / `""`), `clientMatch` dit si un genre entre dans un
+périmètre, `clienteleRows` applique le périmètre à des lignes. `clientScope` (widgets `data`) ne fait
+plus que résoudre l'alias depuis le catalogue puis déléguer — deux implémentations du même arbitrage
+finiraient par diverger. `clienteleCourt` porte le mot des sous-titres (« 12 dossiers ·
+particuliers »), pour qu'aucun widget n'écrive le sien.
+
+> ⚠️ `clientKind` ne lit que la **première** valeur d'un lookup multi-valeurs (`asText` les joint par
+> « , ») : sur `notifC`, une ligne liée à deux dossiers arrivait en « Pro, Pro » et tombait dans le
+> fourre-tout `particulier`. Aucune des trois valeurs réelles ne contient de virgule.
+
+> ⚠️ Une valeur **inconnue** non vide est classée `particulier`, pas `""` : tout ce qui n'est pas
+> « Pro » est un foyer, ce qui restera vrai d'une éventuelle quatrième forme — là où une liste
+> blanche `["solo","duo"]` la ferait disparaître du périmètre « Particuliers » sans un mot.
+
+#### Où le réglage est offert (2026-08-20)
+
+| Widget | Source | Réglage |
+|---|---|---|
+| Tout widget `data` | `abonnes` | `cfg.clientele`, formulaire générique (`DataOptions`) |
+| **Les deux files d'attente** | `abonnes` | `FileOptions` — **second et dernier** réglage, à côté de l'ordre |
+| **Nouveaux dossiers abonnés** | `notifC` | `NotifsCfg.clientele` + le type de client **affichable** en pastille sur la ligne (`NOTIF_FIELDS`) |
+| **Podium CAPEX · Classement commerciaux · Tous les installateurs · Indicateurs commerciaux** | `comKpi` | `ClienteleSelect`, appliqué **avant** `comStats` / `comGlobal` |
+
+Les quatre widgets commerciaux agrègent : le périmètre est donc appliqué aux **lignes**, jamais aux
+résultats — un filtre posé après coup aurait laissé les CAPEX, taux de pose et délais se calculer
+sur tout le parc sous un titre annonçant les pros. `perimetreCom` n'ajoute le mot au sous-titre que
+si le champ est réellement lu (`clientLisible`) : annoncer « pros » sur un classement qui porte tout
+le parc serait un mensonge.
+
+**Deux champs à lire en plus**, pour ces deux familles :
+
+| Source | Nom du champ | À cocher côté Softr ? |
+|---|---|---|
+| `comKpi` | `Champs IA Config client` | **non** — cette lecture passe par la datasource `abonnes`, où le champ est exposé depuis le 2026-08-18 |
+| `notifC` | `Champs IA Config client (from Liens BDD)` (`fldEimoiZuVIvuMP7`) | **OUI** — sinon le bloc entier tombe (« does not match / Remap the fields ») |
+
+> Le lookup de `notifC` **existait déjà** dans la table « Notification Center » : relevé par l'API le
+> 2026-08-20, rien à créer côté Airtable. Le widget dit lui-même « Filtre inactif » si le champ
+> arrive vide sur toutes les lignes, et son état vide « Aucun dossier « … » à traiter » propose de
+> **rouvrir** la clientèle — comme « mes dossiers » le fait déjà pour le propriétaire.
 
 > ⚠️ **Le champ doit être coché dans l'onglet Sources du bloc** pour la datasource `abonnes`, sinon
 > Softr refuse la datasource entière (« does not match / Remap the fields »). S'il arrive vide sur
@@ -1190,21 +1251,30 @@ par le haut, le dossier qui traîne depuis décembre doit passer devant celui d'
 > permettait de leur faire afficher tout autre chose sous le même titre. Leur `limit: 20` cachait
 > par ailleurs 5 des 25 dossiers en attente, sans le dire.
 >
-> Ce sont donc des `WidgetTypeDef` **sans `Options`** (fabrique `fileType`), avec une cfg figée en
-> constante. Pas de `coerce` non plus : la cfg enregistrée est ignorée, si bien qu'une instance
-> posée hier suit automatiquement une correction de filtre faite dans le code. Le ⋮ n'y propose
-> plus que le **nom** et la **couleur**. Les deux modèles d'origine sont `hidden` — masqués et non
-> supprimés, la clé de galerie étant `abonnes:<index>`.
+> Ce sont donc des `WidgetTypeDef` à cfg **figée en constante** (fabrique `fileType`), dont le
+> `coerce` ne lit que deux clés de la cfg enregistrée — `tri` et `clientele` — et **reconstruit tout
+> le reste** depuis la constante : une instance posée hier suit automatiquement une correction de
+> filtre faite dans le code, et rien de ce que porte le document de disposition ne peut détourner le
+> widget. Le ⋮ n'y propose que le **nom**, la **couleur**, l'**ordre** et la **clientèle**. Les deux
+> modèles d'origine sont `hidden` — masqués et non supprimés, la clé de galerie étant
+> `abonnes:<index>`.
 >
 > Au passage, `DataView` annonce désormais « **N sur M** » quand c'est la **limite** qui coupe, et
 > plus seulement une recherche : une liste plafonnée à 20 sur 25 écrivait « 20 dossiers » et cachait
 > les cinq autres. Le compte de référence vient de `selectRows` et non d'`applyQuery`, qui applique
 > lui-même la limite — « 3 sur 12 » comparait donc à la fenêtre, pas à ce qui existe.
 
-**Leur seul réglage : l'ordre.** `FileOptions` n'offre qu'un `<select>` — plus ancien / plus récent
-/ CAPEX élevé / CAPEX faible. Une file se lit de deux façons, par l'ancienneté et par l'enjeu ; le
-reste (source, filtre, colonnes) serait une invitation à détourner le widget. La cfg stockée ne
-porte **que** la clé `tri` : `coerce` reconstruit tout le reste depuis la constante figée.
+**Leurs réglages : l'ordre, et la clientèle.** `FileOptions` offre deux `<select>` — l'**ordre**
+(plus ancien / plus récent / CAPEX élevé / CAPEX faible), parce qu'une file se lit par l'ancienneté
+et par l'enjeu ; et la **clientèle**, rétablie le **2026-08-20** (demandée). La cfg stockée ne porte
+que ces deux clés (`tri`, `clientele`) : `coerce` reconstruit tout le reste depuis la constante
+figée, si bien que la source, le statut suivi et les colonnes restent hors d'atteinte.
+
+> Pourquoi la clientèle revient, alors que le 08-18 l'avait retirée avec tout le formulaire : « qui
+> attend sa solvabilité ? » et « quels **particuliers** attendent leur solvabilité ? » sont deux
+> charges de travail différentes, traitées par des personnes différentes. Ce n'est pas la
+> réouverture du formulaire générique — c'est un **périmètre** validé contre `CLIENTELES`
+> (`clienteleOf`), pas un filtre libre.
 
 ### Champs CALCULÉS — `derive` (2026-08-18)
 
@@ -1296,7 +1366,7 @@ tâches, bien que la datasource Softr de « Taches » ne l'expose pas à ses blo
 `notifC` reste catalogué `connected: false` : `SourceFeed` lui sert son mock (aperçu) ou une liste
 vide (live), **sans jamais appeler `useRecords`** sur un id absent du `define`. Conséquence
 visible : le widget des dossiers abonnés s'affiche **sans état lu / non lu ni bouton « Vu »** —
-dégradation prévue (`matchNotifC`), pas une panne. Le brancher : recette `ARCHITECTURE-V2.md` §10,
+dégradation prévue (`matchNotifC`), pas une panne. Le brancher : **recette du §8.4**,
 en connectant la table à **ce** bloc (un id de datasource appartient à une connexion d'un bloc).
 
 **Écritures ouvertes** : `fait` sur les deux tables de tâches (whitelists `SELECT_TACHE_*_W`), et
@@ -1381,7 +1451,11 @@ const PAGE_RECORD_PARAM = "recordId";     // paramètre des pages de détail
 
 ## 7. Limites connues de l'architecture actuelle
 
-Les points qui bloquent l'objectif « widgets complètement indépendants et personnalisables » :
+Les points qui bloquent l'objectif « widgets complètement indépendants et personnalisables ».
+
+> ⚠️ À ne pas confondre avec le **§8.6**, qui liste ce qui est **hors périmètre par décision** —
+> grille libre (x, y), layout mobile distinct, pagination serveur. Les points 4 et 5 ci-dessous en
+> sont la contrepartie vue d'ici : ce sont des limites **assumées**, pas des dettes à rembourser.
 
 1. ~~**Pas encore de widget paramétrable par source**~~ **résolu (phases 1 et 2)** : le type
    générique `data` et son formulaire unique existent ; la contrainte Softr sur `from` reste
@@ -1497,3 +1571,171 @@ Les points qui bloquent l'objectif « widgets complètement indépendants et per
     publiée, connecté : glisser un widget par son en-tête hors mode Personnaliser, régler une
     poignée sans tremblement, dérouler un `<select>` du panneau d'options, cocher « Fait » sur une
     tâche (première écriture réelle du bloc).
+
+
+---
+
+## 8. Principes de conception, recette et pistes ouvertes
+
+> Cette section est ce qui reste d'`ARCHITECTURE-V2.md`, absorbé ici le **2026-08-20**. Le reste de
+> ce document décrit **ce que le bloc fait** ; celle-ci dit **pourquoi il est bâti ainsi** et
+> **comment l'étendre**. Ce qui a été jeté au passage : le plan de migration par phases (les six
+> phases sont livrées), la liste des écarts code ↔ cible (tous traités), et tous les extraits de
+> types et de code qui reproduisaient — avec une ou deux semaines de retard — ce que `Block.tsx` dit
+> déjà. **Le code fait foi ; ici on ne garde que ce qu'il ne peut pas dire de lui-même.**
+
+### 8.1 Le principe directeur
+
+La question d'origine était : « comment faire pour que le maximum — les données véhiculées, le type
+d'affichage, les actions — soit stocké en JSON ? » La réponse tient en une phrase, et c'est elle qui
+explique la forme de tout le fichier :
+
+> **Les moteurs sont du code ; tout ce qu'ils lisent est du JSON.**
+
+Le JSON porte des **clés** et des **valeurs** ; le code détient les **implémentations** derrière ces
+clés — un renderer, un adapter, une icône, un opérateur de filtre. Le code incompressible par
+source, celui qu'impose Softr, tient en ~15 lignes ; tout le reste peut devenir de la donnée.
+
+Corollaire pratique, et c'est le rendement de l'affaire : **ajouter un style d'affichage = un
+renderer écrit une fois, disponible pour toutes les sources pour toujours**. Ajouter une source =
+~15 lignes de code contraint + ~35 lignes de JSON descriptif (§8.4).
+
+### 8.2 Deux JSON, deux portées — la distinction centrale
+
+C'est la confusion à ne jamais faire : le bloc manipule **deux** documents JSON, qui ne changent ni
+au même moment ni pour les mêmes personnes.
+
+| | **Descripteur de source** (`CATALOG`) | **cfg d'instance** |
+|---|---|---|
+| Décrit | la **table** : champs, kinds, badges, presets, actions possibles | **UN widget posé** : quelle source, quels filtres, quelle vue, quelles actions activées |
+| Portée | **partagé**, identique pour tout le monde | **par utilisateur** |
+| Vit dans | une constante de `Block.tsx` (§6-bis) | `layout_json` (table `Home Preferences`) |
+| Change quand | on branche ou on décrit une table | l'utilisateur personnalise son accueil |
+
+```
+   layout_json — PAR UTILISATEUR              CATALOG — PARTAGÉ (constante JSON)
+   items: [{ id, type, cfg, w, h }, …]        descripteurs de sources : champs,
+   cfg = { source, query, view, actions }     kinds, badges, presets, actions
+                  │                                        │
+                  ▼                                        │
+        WIDGET_REGISTRY["data"]  ◄─────────────────────────┘
+        renderers liste / tableau / indicateur · Options générique · RowActions
+                  │  cfg.source
+                  ▼
+        <SourceFeed> → dispatch statique → adapters (useRecords + mutations)
+                  │                                        ▲
+                  ▼ lecture (SELECT_X)                     │ écriture (SELECT_X_W)
+              Airtable / Softr Tables ─────────────────────┘
+```
+
+**Les presets sont COPIÉS, pas référencés.** À la pose d'un modèle de galerie, sa `cfg` est recopiée
+dans l'instance. L'instance est donc autoportante : elle survit aux évolutions du catalogue, et
+retoucher un preset ne réécrit **pas** les accueils déjà personnalisés. Compromis assumé — c'est le
+prix de « le maximum d'informations dans le JSON de l'utilisateur ».
+
+**`writable` sur un champ n'a PAS été retenu**, et ce n'est pas un oubli : ce qui est écrivable est
+déterminé par le `SELECT_*_W` de l'adapter — la seule barrière réelle — et non par une donnée
+falsifiable côté client. L'ordre complet des garde-fous est au cadenas du §3.
+
+### 8.3 La frontière code ↔ JSON, tracée précisément
+
+Le tableau à consulter avant de se demander « où est-ce que je mets ça ? » :
+
+| Information | JSON | Code | Pourquoi |
+|---|---|---|---|
+| ID de datasource | | ✅ `datasource.define`, littéral | contrainte Softr **dure** |
+| `from` des hooks | | ✅ 1 adapter par source | contrainte Softr **dure** |
+| Noms de champs exacts / FIELD IDs | *(piste §8.5)* | ✅ `SELECT_*` | seul endroit toléré ; c'est aussi la whitelist d'écriture |
+| Alias, libellés, kinds, options | ✅ descripteur | | |
+| Couleurs de badge par valeur métier | ✅ descripteur | `statusVariant` en repli | |
+| Presets « prêts à poser » | ✅ descripteur | | |
+| Actions (écritures, liens) | ✅ descripteur + cfg | exécuteur générique `RowActions` | |
+| Type d'affichage + réglages | ✅ `cfg.view` | renderers génériques | |
+| Filtres / tri / limite / périmètres | ✅ `cfg.query`, `cfg.mine`, `cfg.clientele` | `applyQuery` pure | |
+| Disposition (ordre, largeur, hauteur) | ✅ `layout_json` | moteur de grille | |
+| Icônes | ✅ clé string | map `ICONS` | un JSON ne peut pas porter un composant |
+
+Trois conséquences qui comptent quand on branche « beaucoup de projets » :
+
+- **Autant de sources qu'on veut.** `define` n'a pas de limite connue, et seules les instances
+  **présentes sur la grille** montent leur adapter : une source connectée qu'aucun widget n'affiche
+  ne coûte **aucun** fetch.
+- **Seul `from` est verrouillé.** `where`, `orderBy` et leurs valeurs peuvent être dynamiques — la
+  persistance le prouve (`q.text("email").is(email)`). C'est la porte ouverte à du **filtrage
+  serveur par instance** le jour où une table deviendra trop grosse pour être filtrée côté bloc.
+- **Changer de source dans Options remonte le widget** (`key={cfg.source}`) : l'arbre de hooks de
+  l'adapter est remplacé proprement, sans violer les règles de hooks.
+
+### 8.4 LA RECETTE — « une table de plus → un widget »
+
+À donner telle quelle à une future session. C'est le passage le plus utile de l'ancien document :
+elle a servi **5 fois le 2026-08-04**, sans toucher au moteur une seule fois.
+
+| # | Où | Quoi | Volume |
+|---|---|---|---|
+| 1 | Softr Studio | `/home-copy` → bloc → onglet **Sources** : connecter la table, noter l'ID, **cocher tous les champs** dont le `SELECT` aura besoin | 0 ligne |
+| 2 | `Block.tsx` | le littéral dans `datasource.define` | 1 ligne |
+| 3 | `Block.tsx` | `SELECT_X` lecture (+ `SELECT_X_W` si écriture) — noms Airtable **exacts** / FIELD IDs | 6–10 lignes |
+| 4 | Couche Sources | l'adapter `XSource` (copier-coller) + un `case` dans `SourceFeed` | ~12 lignes |
+| 5 | `CATALOG` | **le descripteur, pur JSON** — champs, kinds, options, variants, defaultSort, defaultMap, presets, actions | ~35 lignes |
+| 6 | (option) | `MOCK_ROWS.x`, à la forme des alias | ~8 lignes |
+
+**≈ 50 lignes, dont ~35 de pur JSON descriptif. Zéro toucher au moteur, aux renderers, à la
+persistance.** La source apparaît alors dans le sélecteur, ses presets dans la galerie, ses actions
+dans Options.
+
+Vérifications, dans cet ordre : `npm run build` ; puis la page **publiée, connecté** — l'aperçu
+« œil » n'a pas de session, donc aucune écriture n'y est testable ; puis la parité mock / live.
+
+Cas rare : un rendu vraiment spécifique → un `WidgetTypeDef` dédié **en plus**, qui consomme le même
+`SourceFeed` (c'est ce que sont le podium, les classements et le pilotage SAV).
+
+#### Prompt-type
+
+> Nouvelle source pour l'accueil : table Airtable « … » (base …), datasource ID `xxxx-…`, déjà
+> connectée dans l'onglet Sources du bloc `/home-copy`. Champs : `alias` « Nom Airtable exact », …
+> (avec les valeurs possibles pour les singleSelect). Applique la **recette du §8.4
+> d'`ARCHITECTURE.md`** : SELECT lecture (+ écriture sur …), adapter, `case` dans `SourceFeed`,
+> descripteur `CATALOG` complet avec un preset liste et un preset indicateur, les actions …, et un
+> mock de 5 lignes. Vérifie les noms de champs contre Airtable **avant** d'ouvrir la lecture.
+
+> ⚠️ **Vérifier les noms contre Airtable, jamais contre un README.** Les 7 pièges attendus (espaces
+> finaux, casses irrégulières, « Proprietaire » sans accent) se sont tous révélés exacts — mais
+> c'est la vérification qui l'a prouvé, pas la confiance.
+
+### 8.5 Les deux pistes restées ouvertes
+
+**A — Le `select` dynamique** (jamais tenté). La dernière information encore en code qui *pourrait*
+passer en JSON : les noms de champs exacts. Rien dans les contraintes documentées n'interdit
+`q.select(obj)` avec un objet construit à l'exécution — **seul `from` est explicitement verrouillé**.
+Mais l'éditeur Softr analyse le bloc (l'erreur « Remap the fields » le prouve), donc c'est à
+**tester**, pas à supposer. Protocole, 15 min, sur **une** source secondaire :
+
+1. ajouter `at:` à chaque champ du descripteur (`client: { at: "Client", … }`) et générer
+   `q.select(Object.fromEntries(Object.entries(desc.fields).map(([a, f]) => [a, f.at])))` ;
+2. coller, **rouvrir l'onglet Sources** pour observer le remap, publier, tester **lecture ET
+   écriture** en étant connecté ;
+3. ✅ → les noms de champs migrent dans le descripteur et la recette perd une étape.
+   ❌ (« Remap the fields », 400, lecture vide) → on reste sur `SELECT_*` en code : 6 lignes par
+   source, chemin éprouvé. **Ne rien généraliser avant ce test** — les contraintes Softr ont déjà
+   surpris plus d'une fois.
+
+**B — Le catalogue en table** (pas fait, et c'est délibéré). Le descripteur vit en constante parce
+qu'**ajouter une source impose de toute façon un collage** (littéral `define` + adapter) : le JSON
+voyage donc gratuitement avec le code, versionné par git et vérifié par TypeScript. Si le besoin de
+retoucher **sans recoller** devenait réel — libellés, couleurs, presets — l'extension est prête :
+une table `Catalog` lue au démarrage et fusionnée par-dessus la constante, qui resterait le repli.
+Tant que personne ne le demande, ce serait une lecture de plus au chargement pour un bénéfice nul.
+
+### 8.6 Hors périmètre — assumé
+
+Décidé une fois, et pas rediscuté à chaque session :
+
+- **grille libre (x, y)** — le schéma `Instance` reste extensible par champs additifs, donc rien
+  n'est fermé ; l'ordre linéaire + largeur binaire suffit à ce que cette page doit faire ;
+- **`layout_mobile_json`** — la grille responsive suffit ; un second document par breakpoint
+  doublerait la surface de bugs de persistance ;
+- **pagination serveur** — porte ouverte via `where`/`orderBy` dynamiques (§8.3), à n'ouvrir que sur
+  une table qui l'exige vraiment ;
+- **dédoublonnage des fetches** entre deux widgets sur la même source — seulement si c'est un jour
+  **mesuré** comme un problème, pas par principe.
