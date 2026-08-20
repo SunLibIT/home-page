@@ -39,6 +39,8 @@ export const DS_IDS = {
   excPart: "9cf1e459-e689-48b1-9876-487b8084db84",  // Exception · « Partenaire »
   parcPart: "e82df933-0c1b-434c-9970-f9a341777e74", // Exception · « BDD Installateur »
   notifC: "fecd4e37-cc12-4780-ae87-e412b431a852",   // BDD Abonné · « Notification Center »
+  // Bdd Installateurs · « Détails des contacts par installateur » (annuaire, 2026-08-19)
+  contactsIns: "acc8398e-5798-4e1c-9b57-f13ee1cbb2b1",
 } as const;
 
 /* ============================ Types ============================ */
@@ -58,6 +60,7 @@ const store: Record<string, Rec[]> = {
   [DS_IDS.excPart]: [],
   [DS_IDS.parcPart]: [],
   [DS_IDS.notifC]: [],
+  [DS_IDS.contactsIns]: [],
 };
 
 let version = 0;
@@ -194,9 +197,19 @@ export function useRecords(args: {
 }): {
   data: { pages: { items: Rec[] }[] };
   isLoading: boolean;
+  /** Relecture en cours ALORS QUE des données sont déjà là. Softr (react-query) le rend ;
+   *  le bloc s'en sert pour allumer la barre de chargement de la carte pendant un
+   *  rafraîchissement — sans lui, `isLoading` restant faux, le bouton « relire » paraissait
+   *  inerte. Toujours faux ici : ce mock est synchrone. */
+  isFetching: boolean;
   error: null;
   fetchNextPage: () => void;
   hasNextPage: boolean;
+  /** Relance la requête. Le bloc l'appelle au remontage d'un adapter qui suit un clic sur
+   *  « relire » (cf. `useDrainPages`), parce que le remontage seul ne suffit pas si un cache
+   *  mémoire se trouve par-dessus. Ici il n'y a rien à re-chercher : on notifie le store, ce
+   *  qui suffit à refaire rendre les abonnés — et à vérifier que le chemin est bien appelé. */
+  refetch: () => void;
 } {
   useVersion();
   let rows = [...(store[args.from] ?? [])];
@@ -218,9 +231,11 @@ export function useRecords(args: {
   return {
     data: { pages: [{ items: rows }] },
     isLoading: false,
+    isFetching: false,
     error: null,
     fetchNextPage: () => {},
     hasNextPage: false,
+    refetch: () => emit(),
   };
 }
 

@@ -14,6 +14,24 @@
 > **déclarés dans le catalogue**, regroupés en dépliants par famille) ; **actions d'écriture déclaratives**
 > (`RowActions`) ; persistance passée **sur Airtable**.
 >
+> ### ⚠️ CE QUE CE DOCUMENT NE DÉCRIT PAS ENCORE (commit du 2026-08-19)
+>
+> Le commit `b956fdb` — « L'annuaire des contacts partenaires, et la page qui ne relit plus la base
+> à chaque ouverture » — a apporté cinq chantiers que les sections ci-dessous **ignorent
+> totalement**. Ils sont documentés dans le **`README.md`** (§3 et §5), et le code fait foi :
+>
+> | Apport du 2026-08-19 | Où le lire en attendant |
+> |---|---|
+> | source **`contactsIns`** (« Détails des contacts par installateur », 1 266 lignes) + son modèle de galerie en tableau six colonnes | `README.md`, `CATALOG` |
+> | natures de champ **`email`** et **`phone`**, multi-sélections rendues en une pastille par valeur | `FieldValue` |
+> | **jusqu'à trois filtres à cases** par widget — `cfg.facet` (singulier) devient **`cfg.facets`**, l'ancienne clé restant lue | `coerceCfg`, `ListToolbar` |
+> | **`MotionFX` (§2-ter)** — les animations d'attente passent en **JS** (Web Animations API), la feuille de `StyleInjector` pouvant ne pas s'appliquer dans Softr, exactement comme pour les survols | `useMotionFX` |
+> | **les squelettes de chargement** : deux widgets répondaient « Aucune tâche en cours » / « Tout est traité » **pendant** leur lecture — une réponse fausse et rassurante à la place d'une attente | `ListSkeleton` |
+>
+> Ces sections restent donc à écrire. Le §8, lui, est à jour : les principes qu'il énonce n'ont pas
+> bougé, et le commit du 08-19 en est une application (un nouveau `kind` de champ = un renderer
+> écrit une fois, disponible pour toutes les sources).
+
 > **Le bloc lit Airtable EN DIRECT depuis le 2026-08-04** : `USE_MOCK = false`, 6 des 7 sources
 > du catalogue sont connectées. S'ajoutent ce jour-là : les **widgets utilitaires sans source**
 > (heure, pense-bête, liste à cocher), le **marquage lu persistant** des dossiers abonnés, la
