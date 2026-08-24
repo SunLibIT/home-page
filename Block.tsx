@@ -3427,27 +3427,38 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
    · `isFetchingNextPage` empêche de tirer deux pages en parallèle à chaque render.
    Et un PLAFOND, parce qu'une boucle qui dépend de la réponse du serveur doit toujours
    pouvoir s'arrêter : atteint, il rend `partial: true`, que le widget AFFICHE. --- */
-/* ⚠️⚠️ RELEVÉ DE 40 À 120 LE 2026-08-06, sur une observation à l'écran : le bandeau
-   « Calcul partiel » s'affichait sur le classement commercial alors que la table
-   « Abonnés » ne compte que 1 774 lignes (relevé par l'API ce jour-là).
+/* ⚠️⚠️ LE PLAFOND SE COMPTE EN LIGNES DEPUIS LE 2026-08-24, ET PLUS EN PAGES.
 
-   Ce que ça prouve, par l'arithmétique : 40 pages n'ont pas suffi à lire 1 774 lignes,
-   donc une page Softr fait MOINS DE 45 lignes (1774 / 40 = 44,4) — et non les 100 que
-   supposait l'ancienne valeur. C'est exactement le cas prévu dans le README §4-F :
-   « si le message s'affiche alors que le parc fait moins de 4 000 dossiers, la taille de
-   page est plus petite que prévu et il faut relever COM_MAX_PAGES ».
+   HISTORIQUE, parce qu'il explique la correction. Le plafond valait 40 pages, puis 120 le
+   2026-08-06 : le bandeau « Calcul partiel » s'affichait alors que « Abonnés » ne comptait
+   que 1 774 lignes. L'arithmétique disait déjà l'essentiel — 40 pages n'ayant pas suffi,
+   une page Softr fait moins de 45 lignes — mais on ne savait toujours pas COMBIEN, et
+   120 × 25 = 3 000 restait une hypothèse.
 
-   120 pages couvrent 3 000 lignes à 25 par page — le parc actuel, plus une marge de
-   croissance confortable. Le plafond RESTE indispensable : une boucle qui dépend de la
-   réponse du serveur doit toujours pouvoir s'arrêter, et `partial` reste affiché s'il est
-   atteint. Ne pas le supprimer, seulement le recalibrer.
+   CE QUI L'A TRANCHÉE : un widget de dossiers annonçant « 12 sur 145 éléments · lecture
+   tronquée » (2026-08-24), et un dossier de MARS introuvable. La lecture est triée côté
+   serveur (`orderBy: q.desc("creeLe")`), donc ce qu'un plafond coupe, ce sont TOUJOURS les
+   lignes LES PLUS ANCIENNES — celles qu'aucun filtre ni aucune recherche ne pourra ensuite
+   retrouver, puisqu'elles ne sont jamais arrivées. Un plafond en pages est aveugle à ce qui
+   compte : il borne des ALLERS-RETOURS, pas des DONNÉES. Si Softr sert des pages de 8
+   lignes, 120 pages ne couvrent que 960 dossiers — la moitié du parc, sans que le calibrage
+   ait l'air faux.
 
-   ⚠️ CE N'EST PAS GRATUIT : le drainage tire une page par cycle d'effet, donc relever le
-   plafond allonge le temps avant qu'un agrégat soit juste (des dizaines d'allers-retours
-   sur le parc entier). Les widgets concernés affichent leurs squelettes pendant ce
-   temps-là. La vraie sortie serait d'obtenir de plus grandes pages côté API (le mock
-   documente un `count`, non vérifié contre Softr) : à tester un jour, pas à supposer. */
-const COM_MAX_PAGES = 120;
+   LA RÈGLE EST DONC : on lit jusqu'à `DRAIN_MAX_ROWS` LIGNES, quel que soit le nombre de
+   pages qu'il faut pour les obtenir. Le compte en pages ne disparaît pas — il devient une
+   GARDE ABSOLUE contre la boucle infinie (une pagination qui répondrait toujours « il en
+   reste » doit pouvoir s'arrêter), et c'est tout ce qu'il est désormais.
+
+   ⚠️ CE N'EST PAS GRATUIT, et c'est le vrai arbitrage : le drainage tire UNE PAGE PAR CYCLE
+   D'EFFET. Lire 2 000 lignes par pages de 8 fait 250 allers-retours en série. Ce qui rend la
+   chose tenable, c'est que l'affichage est PROGRESSIF — `loading` ne couvre que la première
+   requête, donc les lignes déjà lues sont à l'écran et se complètent, le sous-titre disant
+   « lecture en cours ». On ne fait pas attendre pour tout montrer d'un coup ; on montre tout
+   de suite, et ça s'étoffe.
+   ⚠️ La vraie sortie reste d'obtenir de plus grandes pages côté API (`SOFTR_PAGE_SIZE`
+   ci-dessous) : à tester un jour, pas à supposer. */
+const DRAIN_MAX_ROWS = 20_000;
+const COM_MAX_PAGES = 1_000;
 
 /* ⚠️ EXPÉRIENCE À MENER SUR LA PAGE PUBLIÉE — LA TAILLE DE PAGE DE SOFTR.
    C'est le levier le moins cher de tout le chantier de performance, et il n'a jamais été
@@ -3507,11 +3518,40 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
     console.info("[SunLib] relecture : `refetch` absent de l'objet useRecords — seul le remontage de l'adapter a eu lieu.");
   }, []);
 
+  /* Les LIGNES déjà reçues — c'est sur elles que porte le plafond depuis le 2026-08-24
+     (cf. `DRAIN_MAX_ROWS`) : borner des allers-retours ne dit rien de ce qu'on a lu, et
+     c'est ainsi qu'un parc entier passait sous un plafond qui avait l'air suffisant. */
+  const pages: any[] = Array.isArray(res?.data?.pages) ? res.data.pages : [];
+  const lignes = pages.reduce((n: number, p: any) => n + (p?.items?.length ?? 0), 0);
+
+  /* ⚠️⚠️ LE GARDE-FOU DE LA PAGE VIDE — repris du bloc partenaire, où il a été écrit le
+     2026-08-21 sur un symptôme observé : « même quand on a toutes les informations, ça
+     continue de tourner infiniment ». Il manquait ici, et le relèvement du plafond le rend
+     INDISPENSABLE : une boucle qui tournait 120 fois à vide en tournerait maintenant 1 000.
+     LA CAUSE : ce drainage s'arrête sur `hasNextPage`, c'est-à-dire sur une PROMESSE du
+     serveur. Rien ne garantit qu'elle devienne fausse — une implémentation qui la calcule
+     depuis un curseur non nul la laisse VRAIE sur la dernière page. La boucle réclame alors
+     page après page, vides, jusqu'au plafond, `draining` restant vrai : le widget tourne
+     sans que rien ne soit faux à l'écran, ce qui rend le symptôme incompréhensible.
+     LA CORRECTION : on s'arrête aussi sur un FAIT — une page revenue VIDE. Un serveur qui
+     rend zéro ligne n'en a plus, quoi qu'en dise son curseur. C'est un test sur ce qui est
+     ARRIVÉ, pas sur ce qui est annoncé ; il ne peut donc pas mentir.
+     ⚠️ Ne pas « simplifier » en retirant `hasNext` : sans lui, on tirerait une page de trop
+     à chaque lecture, sur toutes les sources. Les deux conditions se complètent. */
+  const dernierePageVide = nPages > 0 && (pages[nPages - 1]?.items?.length ?? 0) === 0;
+
+  /* Trois bornes, trois rôles : `DRAIN_MAX_ROWS` est la borne MÉTIER (au-delà, on renonce
+     sciemment), `maxPages` la garde ABSOLUE contre une pagination qui ne finirait jamais,
+     et la page vide le FAIT qui dit que tout est lu. */
+  const stop = lignes >= DRAIN_MAX_ROWS || nPages >= maxPages || dernierePageVide;
   useEffect(() => {
-    if (enabled && hasNext && canFetch && !fetching && nPages < maxPages) res.fetchNextPage();
-  }, [enabled, hasNext, canFetch, fetching, nPages, maxPages]);
-  // Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
-  const partial = enabled && hasNext && nPages >= maxPages;
+    if (enabled && hasNext && canFetch && !fetching && !stop) res.fetchNextPage();
+  }, [enabled, hasNext, canFetch, fetching, nPages, stop]);
+  /* Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
+     ⚠️ Sauf si la dernière page est vide : on a bien tout lu, c'est le curseur du serveur
+     qui se trompe. Annoncer « lecture tronquée » dans ce cas serait un faux positif — et un
+     faux positif sur ce bandeau-là, c'est un utilisateur qui doute de chiffres justes. */
+  const partial = enabled && hasNext && stop && !dernierePageVide;
   /* DRAINAGE EN COURS — il reste des pages, mais le plafond n'est pas atteint : le total
      finira JUSTE, il n'est simplement pas encore complet.
      ⚠️ Sans ce drapeau, un agrégat affiche pendant quelques secondes un chiffre qui MONTE
@@ -3520,7 +3560,7 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
      que le relèvement du plafond a rendu visible : avant, on finissait par voir « Calcul
      partiel » ; maintenant on lit tout, donc il faut annoncer l'attente au lieu d'une
      troncature. */
-  const draining = enabled && hasNext && nPages < maxPages;
+  const draining = enabled && hasNext && !stop;
 
   /* TRACE DE DIAGNOSTIC — la TAILLE DE PAGE de Softr n'est écrite nulle part, et c'est
      elle qui décide si `maxPages` est bien calibré. On l'a déduite une fois par
@@ -3536,10 +3576,9 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
   useEffect(() => {
     if (dit.current || !(partial || (TRACE_PAGES && fini))) return;
     dit.current = true;
-    const lignes = (res?.data?.pages ?? []).reduce((n: number, p: any) => n + (p?.items?.length ?? 0), 0);
     const mesure = `${nPages} pages, ${lignes} lignes (~${Math.round(lignes / Math.max(1, nPages))} par page)`;
     console.info(partial
-      ? `[SunLib] lecture TRONQUÉE au plafond : ${mesure}. Relever COM_MAX_PAGES.`
+      ? `[SunLib] lecture TRONQUÉE : ${mesure}. Borne atteinte — ${lignes >= DRAIN_MAX_ROWS ? `DRAIN_MAX_ROWS (${DRAIN_MAX_ROWS} lignes)` : `COM_MAX_PAGES (${maxPages} pages)`}.`
       : `[SunLib] lecture complète : ${mesure}.`);
   }, [partial, fini, nPages]);
 
@@ -7553,13 +7592,27 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
   const restreint = cfg.query.filter.length > 0
     || (!!cfg.mine && !!desc.ownerField)
     || (!!cfg.clientele && cfg.clientele !== "tous");
+  /* --- ET LE TRI (2026-08-24) ------------------------------------------------------
+     Trier est aussi une raison de tout lire, et elle manquait. Le serveur sert ses pages
+     dans UN ordre (l'`orderBy` des adapters, aligné sur le `defaultSort` du descripteur) ;
+     tant qu'on garde cet ordre-là, la première page contient bien les premières lignes et
+     une liste non drainée dit vrai — « les 12 plus récents » sont les 12 plus récents.
+     Dès qu'on trie AUTREMENT, ce n'est plus le cas : trier par CAPEX décroissant sans avoir
+     tout lu classe un ÉCHANTILLON ARBITRAIRE, et affiche « les plus gros dossiers » d'une
+     page prise au hasard. Faux, crédible, et silencieux — le défaut que ce fichier traque.
+     ⚠️ Le tri LOCAL compte autant que celui de la cfg : cliquer sur un en-tête de colonne
+     doit déclencher la lecture complète, sinon le classement obtenu au clic ne vaut que
+     pour ce qui était déjà chargé. */
+  const triEffectif = local.sort ?? cfg.query.sort;
+  const triAutre = !!triEffectif.by
+    && (triEffectif.by !== desc.defaultSort.by || triEffectif.dir !== desc.defaultSort.dir);
   /* Et le cas où c'est la SOURCE qui l'exige, quel que soit le réglage du widget (`drain` du
      descripteur, §6-bis) : un annuaire de 1 266 lignes dont la recherche ne verrait que la
      première page répondrait « aucun contact » sans jamais dire qu'elle a cherché dans 2 % de
      la table. C'est le mensonge silencieux d'un total partiel, transposé à la RECHERCHE. */
   const litTout = !!desc.drain;
   return (
-    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint || litTout}>
+    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint || triAutre || litTout}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
         /* Les lignes LUES (avant tout filtre du widget) sont notées pour le formulaire

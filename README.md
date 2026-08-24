@@ -909,6 +909,43 @@ clé de filtre prend le défaut entier ; une cfg portant l'ancienne clé `facet`
 2026-08-19) est gardée telle quelle. Beaucoup de widgets déjà posés verront donc ces filtres
 arriver seuls ; ceux réglés depuis le 08-19 non, et pour ceux-là c'est ⋮ → Options.
 
+### Pourquoi un dossier ancien pouvait manquer — et ce qui a changé (2026-08-24)
+
+**Le symptôme** : un widget annonçant *« 12 sur 145 éléments · lecture tronquée »*, et un dossier
+de **mars** introuvable — ni par un filtre, ni par la recherche.
+
+**Deux limites différentes**, et il faut les distinguer :
+
+1. **« 12 sur 145 »** — la limite d'AFFICHAGE du widget (⋮ → Options → « Nombre de lignes »,
+   12 par défaut, 50 au maximum). Rien n'est perdu : les 145 sont là, seuls 12 sont montrés.
+2. **« lecture tronquée »** — la lecture s'est arrêtée **avant d'avoir tout lu**. C'est la vraie
+   cause : la lecture est triée côté serveur du plus récent au plus ancien, donc ce qu'un plafond
+   coupe, ce sont **toujours les dossiers les plus anciens**. Ils ne sont jamais arrivés dans le
+   navigateur — aucun filtre ni aucune recherche ne peut donc les retrouver.
+
+**Le correctif** : le plafond se compte désormais en **LIGNES** (`DRAIN_MAX_ROWS` = 20 000) et non
+plus en pages. Un plafond en pages borne des *allers-retours*, pas des *données* : avec des pages
+de 8 lignes, les 120 pages d'avant ne couvraient que 960 dossiers — la moitié du parc, sans que le
+calibrage ait l'air faux. Le compte en pages subsiste comme **garde absolue** contre une pagination
+qui ne finirait jamais.
+
+**Le tri déclenche aussi la lecture complète.** Tant qu'on garde l'ordre du serveur, une liste non
+drainée dit vrai (« les 12 plus récents » le sont). Dès qu'on trie autrement — par CAPEX, ou en
+cliquant un en-tête de colonne — trier sans avoir tout lu classerait un **échantillon arbitraire**
+et afficherait « les plus gros dossiers » d'une page prise au hasard. Faux, crédible, silencieux.
+
+⚠️ **L'affichage reste progressif**, et c'est ce qui rend le tout tenable : `loading` ne couvre que
+la première requête, donc les lignes déjà lues sont à l'écran et **s'étoffent** page après page,
+le sous-titre disant « lecture en cours ». On ne fait pas attendre pour tout montrer d'un coup.
+En contrepartie, un widget qui draine met plus longtemps à être **complet** qu'avant — c'est le
+prix de ne plus rien perdre.
+
+⚠️ **Un garde-fou est venu du bloc partenaire** (écrit là-bas le 2026-08-21) : on s'arrête aussi
+sur une **page revenue vide**. Le drainage s'arrête sinon sur `hasNextPage`, c'est-à-dire sur une
+*promesse* du serveur — une implémentation qui la calcule depuis un curseur non nul la laisse vraie
+sur la dernière page, et la boucle réclame des pages vides jusqu'au plafond. Relever celui-ci de
+120 à 1 000 rendait ce garde-fou indispensable.
+
 ## 5. Règles Softr respectées
 
 - `from` sur chaque hook data ; **un seul** `datasource.define`, IDs littéraux inline.
