@@ -82,6 +82,7 @@ home-page/
 | **Container queries : non** | Le nombre de colonnes se mesure en JS (`ResizeObserver` sur la grille), pour la même raison. |
 | **Animations** | Une animation nécessaire doit passer par la **Web Animations API** (`element.animate()`), pas par des `@keyframes` injectés — c'est ainsi qu'est animé le dégradé du héro. Les `@keyframes` restants ne portent que des effets dont l'absence ne casse rien. |
 | **Survol (`:hover`) : en JS** | Même cause, même remède (constaté à l'écran le 2026-08-06 : *« les animations de survol ne fonctionnent pas dans Softr »*). La feuille ne s'appliquant pas, **tous** les `:hover` tombaient d'un coup — tuiles Raccourcis et Outils, boutons, lignes de widget, podium, poignées. `useHoverFX` (§2-bis) pose désormais ces états **en style inline via le CSSOM**, depuis un écouteur délégué unique sur le conteneur du bloc : indépendant de toute feuille, et prioritaire sur le Tailwind de Softr. La table `HOVER_RULES` reprend règle pour règle les `:hover` de `StyleInjector`, qui restent en place comme repli. **Deux invariants** : un élément ne matche qu'UNE règle déclenchante, et on n'écrit que des **longhands** (`background-color`, jamais `background` — sur un raccourci, la restauration effacerait la valeur posée par React). |
+| **Sélection du texte : jamais `document.getSelection()`** | **Le bloc est rendu dans un shadow DOM** — l'hypothèse déjà retenue au §Elfsight (`platform.js` scanne `document` et ne voit pas le conteneur React) a été **confirmée par l'usage le 2026-08-24** : `document.getSelection()` ne renvoie pas les nœuds d'un arbre d'ombre, il donne le conteneur hôte. Le pense-bête tout neuf marchait donc en local et **pas dans Softr** — la frappe passait, mais la barre d'outils (gras, couleurs, puces) était **entièrement inerte**, faute de savoir sur quoi s'appliquer. Passer par `memoSelection()` / `memoRange()`, qui interrogent l'arbre réel (`getRootNode()`) : `shadowRoot.getSelection()` (Chrome/Edge), `getComposedRanges()` (standard, Safari) et `document.getSelection()` (Firefox, et hors shadow DOM). Même cause pour `selectionchange`, qu'il faut écouter **sur le document ET sur l'arbre d'ombre**. |
 | **Imports autorisés** | UNIQUEMENT `react`, `lucide-react`, `@/components/ui/card`, `@/lib/datasource`, `@/lib/user`. Aucune lib externe, aucune Google Font. |
 | **`datasource.define`** | Un seul appel, IDs en **littéraux inline**. Ne doit contenir QUE des IDs réellement connectés dans l'onglet *Sources* du bloc — un ID placeholder fait planter le bloc (« New data source does not match / Remap the fields »). |
 | **`from` des hooks** | Doit être **directement** un membre du `define` (`DS.abonnes`) ou un littéral string. **Jamais** une prop, une variable ou un élément de tableau. → *Il est impossible d'écrire un composant générique `<Feed from={x}>`* (approche testée et abandonnée). C'est LA contrainte structurante. |
@@ -902,16 +903,78 @@ sur la source qui convient.
 `CHECK_MAX` (40 lignes) et `CHECK_TEXT_MAX` (160) ne sont pas décoratifs — `layout_json` est
 rechargé à chaque affichage de la page.
 
-**Le pense-bête n'est pas un éditeur HTML, et c'est un choix de sécurité.** `contentEditable` +
-`execCommand` serait plus court à écrire, mais imposerait de stocker du HTML et de le rendre via
-`dangerouslySetInnerHTML` — donc d'écrire un assainisseur maison, la pièce la plus facile à rater du
-fichier, sur un contenu qui fait l'aller-retour par la base (`execCommand` est de surcroît
-déprécié). Ici le stockage est du **texte balisé** (`**gras**`, `*italique*`, `~~barré~~`,
-`{rouge}…{/}`, `- ` en début de ligne) et `memoInline` produit des **éléments React** : aucune
-chaîne n'est jamais interprétée comme du HTML, l'injection est impossible **par construction, pas
-par vigilance**. `cfg.text` reste une simple chaîne, donc les notes déjà écrites restent valides.
+**Le pense-bête s'édite en montrant sa mise en forme, et ce n'est toujours pas un éditeur HTML**
+(réécrit le **2026-08-24**). La saisie se faisait dans un `<textarea>` : la barre d'outils y écrivait
+`**gras**` ou `{rouge}…{/}`, et l'auteur relisait ses marqueurs au lieu de son texte. Ces marqueurs
+ne sont plus jamais affichés — ils restent le **format de stockage**, rien de plus.
+
+Le stockage est du **texte balisé** (`**gras**`, `*italique*`, `~~barré~~`, `{rouge}…{/}`, `- ` en
+début de ligne, et `\` qui échappe le caractère suivant) ; `cfg.text` reste une simple chaîne, donc
+les notes déjà écrites restent valides sans migration. Ce qui a changé, c'est la surface de saisie :
+un `contentEditable` dont le contenu est **construit par nous, nœud par nœud**. Trois invariants
+tiennent la sécurité **par construction, pas par vigilance** :
+
+1. la source de vérité reste le texte balisé — **aucun HTML ne part vers la base**, donc aucun n'en
+   revient : il n'y a rien à assainir ;
+2. le DOM est bâti avec `createElement` + `textContent` — ni `innerHTML`, ni
+   `dangerouslySetInnerHTML`, ni `execCommand` (déprécié) nulle part ;
+3. `memoDomLines` ne reconnaît qu'une **liste fermée** de balises et d'attributs ; tout le reste est
+   aplati en texte. Un collage riche est donc neutralisé sans filtre — et le collage comme le dépôt
+   sont de toute façon interceptés et réinsérés **en texte brut**.
+
+Le mécanisme, en une phrase : **le texte balisé est le modèle, le DOM n'est qu'une surface de
+frappe, et les deux sont réconciliés par sérialisation.** À la frappe ordinaire, on relit le DOM et
+on le sérialise ; comme le DOM du navigateur sérialise vers le même texte, il est **conservé tel
+quel** et le curseur ne bouge pas. Pour la mise en forme, les puces et le collage, on transforme le
+**modèle**, on rebâtit le DOM, et on replace la sélection par son **décalage en caractères**
+(`memoOffsets` / `memoSelect`). Toutes les retouches passent par un aplatissement caractère par
+caractère (`memoCars`), si bien que l'index d'un caractère **est** son décalage.
+
+Deux effets de bord assumés : l'écriture **échappe** désormais `* ~ { } \` (sans quoi une note
+contenant « 3 * 4 * 5 » se relirait en italique), et la grammaire est devenue **ligne à ligne** —
+une vieille note qui ouvrait un gras sur deux lignes perd la seconde.
+
+Deux défauts relevés le **2026-08-21 sur le bloc partenaire** (`Home pages/home-page-partenaire`)
+sont couverts par cette réécriture, et les deux blocs sont désormais alignés : le **gras n'écrase
+plus la couleur** (`memoStyle` fait gagner la couleur), et les **couleurs s'empilent** —
+« {rouge}a {vert}b{/} c{/} » rend « c » en rouge, au lieu de refermer toute couleur au premier
+`{/}` et d'afficher le second en clair au milieu du texte. L'éditeur n'écrit plus jamais de
+couleurs imbriquées (le modèle est plat), mais les notes déjà écrites en contiennent.
+
 L'enregistrement se fait à la **perte de focus** (ou Ctrl/⌘+Entrée), pas à chaque frappe :
 `persistCfg` réécrit tout le document, une écriture par caractère saturerait la base.
+
+⚠️ **Le champ est un composant partagé, `RichText`** (extrait le 2026-08-24). Il porte tout ce
+qui touche au DOM d'édition, à la sélection et à la barre d'outils ; le pense-bête et la liste à
+cocher ne gardent que ce qu'ils enregistrent et quand. Deux régimes : **multiligne** (Entrée saute
+une ligne, puces proposées, Ctrl/⌘+Entrée valide) et **monoligne** (Entrée valide, Échap annule, un
+collage multi-ligne est aplati en espaces — une ligne de liste reste une ligne).
+
+### La liste à cocher — enrichie le 2026-08-24
+
+Trois apports, chacun avec la raison de sa forme :
+
+1. **Le texte d'une ligne est mis en forme** (gras, italique, couleurs, applicables à un mot),
+   avec la grammaire et le champ du pense-bête. Le **barré est volontairement absent** de la barre :
+   la case cochée le pose déjà, et deux barrés de sens différents sur la même ligne ne se
+   distingueraient pas. ⚠️ Les lignes écrites **avant** cette date sont du texte brut relu comme du
+   texte balisé — une ancienne ligne contenant « 3 * 4 * 5 » s'affiche en italique. Même arbitrage
+   que pour le pense-bête, assumé pour n'avoir qu'**une** grammaire dans le bloc. `CHECK_TEXT_MAX`
+   passe de 160 à **240** parce que les marqueurs comptent dans la borne.
+2. **Une échéance facultative** (`due`, date ISO `AAAA-MM-JJ`). Elle **affiche et alerte, elle ne
+   trie pas** : une liste de rappels se lit dans l'ordre où on compte les faire. Le retard remonte
+   dans le sous-titre du widget. ⚠️ Le jour courant vient de `useJour` et se recalcule tout seul (un
+   tableau de bord reste ouvert la nuit), et `checkJour` construit la date en **heure locale** —
+   `toISOString()` rend le jour **UTC** et ferait basculer « aujourd'hui » en « en retard » dès 22 h.
+   Les dates ISO se comparent **comme des chaînes**, donc aucun `Date` à construire côté tri.
+3. **Trois gestes** : modifier une ligne (impossible avant — il fallait la supprimer et la
+   retaper), replier les lignes faites, monter/descendre une ligne. ⚠️ Le réordonnancement se fait
+   aux **flèches** et non au glisser, qui sert déjà à déplacer le widget dans la grille (§11) ; et
+   quand les lignes faites sont repliées, les flèches déplacent d'un **voisin visible** à l'autre —
+   échanger avec une ligne masquée donnerait l'impression que rien ne bouge.
+
+Le widget n'a toujours **pas d'`Options`** dans le registre : tous ses réglages sont son contenu,
+et s'éditent dans la carte.
 
 ### ~~Cycle du mode Personnaliser~~ — SUPPRIMÉ le 2026-08-07 (section conservée pour l'historique)
 

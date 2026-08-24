@@ -69,6 +69,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ClipboardEvent as ReactClipboardEvent,
   type DragEvent as ReactDragEvent,
   type FC,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -81,7 +82,7 @@ import {
   FileSignature, Calculator, LayoutGrid, Briefcase, Ticket, Mail, Pencil, Bold, Italic, Strikethrough, List,
   ChevronRight, Bell,
   Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
-  Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, Home,
+  Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, EyeOff, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
   Save, X, Newspaper, Megaphone, Sparkles, Trophy, RefreshCw,
   // ⚠️ `Filter` est renommé : le fichier a déjà un TYPE `Filter` (§9-bis, les filtres
@@ -10100,7 +10101,11 @@ function ExcRegistreCard({ cfg }: { cfg: ExcRegistreCfg }) {
    ============================================================================ */
 const MEMO_MAX = 2000;        // caractères d'un pense-bête
 const CHECK_MAX = 40;         // lignes d'une liste à cocher
-const CHECK_TEXT_MAX = 160;   // caractères par ligne
+/* Caractères d'une ligne — du texte BALISÉ depuis le 2026-08-24, donc les marqueurs
+   comptent : « **urgent** » pèse 10 pour 6 affichés. Relevé de 160 à 240 à cette
+   occasion, pour que la mise en forme ne coûte pas la moitié de la ligne. Au pire
+   40 × 240 ≈ 9,4 ko dans `layout_json`, qui est rechargé à chaque affichage. */
+const CHECK_TEXT_MAX = 240;
 
 /** Accès en écriture à sa propre cfg. `null` seulement si le widget est rendu hors du
  *  tableau de bord (aucun `WidgetCfgCtx` au-dessus) — la grille, elle, le fournit
@@ -10160,25 +10165,45 @@ function HorlogeOptions({ cfg, onChange }: { cfg: HorlogeCfg; onChange: (next: H
   );
 }
 
-/* --- PENSE-BÊTE, avec mise en forme ------------------------------------------
-   Deux modes : LECTURE (le texte mis en forme) et ÉDITION (une zone de saisie + une
-   barre d'outils). Le contenu reste `cfg.text`, une simple CHAÎNE — donc les notes
-   déjà écrites restent valides, sans migration.
+/* --- PENSE-BÊTE, mis en forme À L'ÉCRAN --------------------------------------
+   Deux modes : LECTURE (le texte mis en forme) et ÉDITION (la même mise en forme,
+   modifiable). Le contenu reste `cfg.text`, une simple CHAÎNE de TEXTE BALISÉ — donc
+   les notes déjà écrites restent valides, sans migration.
 
-   ⚠️ POURQUOI PAS UN ÉDITEUR HTML (`contentEditable` + `execCommand`). Ce serait plus
-   court à écrire, mais il faudrait stocker du HTML et le réafficher via
-   `dangerouslySetInnerHTML` — donc écrire un assainisseur maison, c'est-à-dire la
-   pièce la plus facile à rater de tout ce fichier, sur un contenu qui fait
-   l'aller-retour par la base. `execCommand` est de surcroît déprécié.
-   Ici le stockage est du TEXTE BALISÉ et le rendu produit des éléments React : aucune
-   chaîne n'est jamais interprétée comme du HTML, l'injection est donc impossible par
-   construction, pas par vigilance.
+   ⚠️ CE QUI A CHANGÉ LE 2026-08-24 — L'ÉDITION MONTRE LE RÉSULTAT, PLUS LE BALISAGE.
+   La saisie se faisait dans un `<textarea>` : la barre d'outils écrivait « **gras** »
+   ou « {rouge}…{/} » et l'auteur relisait ses marqueurs au lieu de son texte. Ces
+   marqueurs ne sont plus jamais affichés — ils restent le FORMAT DE STOCKAGE, rien de
+   plus. La zone de saisie est un `contentEditable` dont le contenu est CONSTRUIT PAR
+   NOUS, nœud par nœud.
 
-   Le balisage est volontairement minuscule (la barre d'outils l'écrit pour vous) :
+   ⚠️ POURQUOI CE N'EST PAS « UN ÉDITEUR HTML » (la crainte, justifiée, de l'ancienne
+   version). Trois invariants tiennent la sécurité par CONSTRUCTION, pas par vigilance :
+     1. La source de vérité reste le texte balisé. Aucun HTML ne part vers la base, donc
+        aucun HTML n'en revient : il n'y a rien à assainir.
+     2. Le DOM d'édition est bâti avec `createElement` + `textContent`. Ni `innerHTML`,
+        ni `dangerouslySetInnerHTML`, ni `execCommand` (déprécié) nulle part : une
+        chaîne n'est JAMAIS interprétée comme du balisage.
+     3. La lecture du DOM (`memoDomLines`) ne reconnaît qu'une liste FERMÉE de balises
+        et d'attributs ; tout le reste est aplati en texte. Un collage riche est donc
+        neutralisé sans qu'on ait à le filtrer — d'ailleurs le collage est intercepté et
+        réinséré en texte brut.
+
+   L'ARCHITECTURE, en une phrase : le texte balisé est le modèle, le DOM n'est qu'une
+   surface de frappe, et les deux sont réconciliés par SÉRIALISATION.
+     · frappe ordinaire → on relit le DOM, on le sérialise, on range le résultat dans
+       l'état. Le DOM produit par le navigateur est CONSERVÉ TEL QUEL (il sérialise vers
+       le même texte), donc le curseur ne bouge pas : c'est ce qui rend la frappe fluide.
+     · mise en forme, puces, collage → on transforme le MODÈLE, on rebâtit le DOM, et on
+       replace la sélection par son décalage en caractères (`memoOffsets` / `memoSelect`).
+
+   Le balisage (jamais montré, la barre d'outils l'écrit) :
      **gras**   *italique*   ~~barré~~   {rouge}coloré{/}   « - » en début de ligne
-   ESPACES ET RETOURS À LA LIGNE sont conservés tels quels, en édition comme en
-   lecture (`white-space: pre-wrap`) : deux espaces restent deux espaces, une ligne
-   vide reste une ligne vide.
+   `\` échappe le caractère suivant : depuis le 2026-08-24 l'écriture échappe tout
+   `* ~ { } \` du texte, sinon une note contenant « 3 * 4 * 5 » se relirait en italique.
+   La grammaire est LIGNE À LIGNE (une paire de marqueurs ne franchit pas un saut de
+   ligne) : les notes d'avant qui ouvraient un gras sur deux lignes perdent la seconde,
+   cas assez rare pour ne pas mériter de migration.
 
    L'enregistrement se fait à la PERTE DE FOCUS et non à chaque frappe : `persistCfg`
    réécrit tout le document `layout_json`, une écriture par caractère saturerait la
@@ -10196,57 +10221,777 @@ const MEMO_COLORS: { key: string; label: string; color: string }[] = [
   { key: "teal", label: "Teal", color: T.brand },
 ];
 const MEMO_COLOR_OF: Record<string, string> = Object.fromEntries(MEMO_COLORS.map((c) => [c.key, c.color]));
+/* Index INVERSE (valeur CSS → clé de la palette), sous les deux écritures qu'un
+   navigateur peut rendre dans `style.color`. Il ne sert qu'en secours : un fragment
+   dupliqué par le navigateur garde normalement son `data-c`. */
+const MEMO_KEY_OF_CSS: Record<string, string> = Object.fromEntries(
+  MEMO_COLORS.flatMap((c) => {
+    const n = parseInt(c.color.slice(1), 16);
+    return [[c.color.toLowerCase(), c.key], [`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`, c.key]];
+  }),
+);
 
-/* ⚠️ L'ORDRE DES ALTERNATIVES COMPTE : `**` doit être tenté avant `*`, sinon
-   « **gras** » se lirait comme un italique vide suivi de « gras ». Les quantificateurs
-   sont paresseux et exigent au moins un caractère, ce qui garantit que chaque tour de
-   boucle consomme du texte — pas de boucle infinie possible. */
-const MEMO_INLINE_RE = /\{(rouge|ambre|vert|teal)\}([\s\S]*?)\{\/\}|\*\*([\s\S]+?)\*\*|~~([\s\S]+?)~~|\*([\s\S]+?)\*/;
+/* ---- LE MODÈLE --------------------------------------------------------------
+   Une note est une LISTE DE LIGNES, chaque ligne portant son statut de puce et une
+   suite de fragments homogènes (mêmes attributs). Toutes les opérations d'édition
+   travaillent là-dessus, jamais sur la chaîne balisée : le balisage n'est qu'une
+   sérialisation d'entrée/sortie. */
+type MemoAttrs = { b?: 1; i?: 1; s?: 1; c?: string };
+type MemoSpan = MemoAttrs & { t: string };
+type MemoLine = { puce: boolean; spans: MemoSpan[] };
 
-/** Texte balisé → éléments React. Récursive (une couleur peut contenir du gras). */
-function memoInline(text: string, k: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let rest = text, n = 0;
-  while (rest) {
-    const m = MEMO_INLINE_RE.exec(rest);
-    if (!m) { out.push(rest); break; }
-    if (m.index > 0) out.push(rest.slice(0, m.index));
-    const key = `${k}-${n++}`;
-    if (m[1] !== undefined) out.push(<span key={key} style={{ color: MEMO_COLOR_OF[m[1]] }}>{memoInline(m[2], key)}</span>);
-    else if (m[3] !== undefined) out.push(<strong key={key} style={{ fontWeight: 700, color: T.ink }}>{memoInline(m[3], key)}</strong>);
-    else if (m[4] !== undefined) out.push(<s key={key}>{memoInline(m[4], key)}</s>);
-    else out.push(<em key={key}>{memoInline(m[5], key)}</em>);
-    rest = rest.slice(m.index + m[0].length);
+const memoSame = (x: MemoAttrs, y: MemoAttrs) => x.b === y.b && x.i === y.i && x.s === y.s && x.c === y.c;
+const memoAttrs = (a: MemoAttrs): MemoAttrs => ({ b: a.b, i: a.i, s: a.s, c: a.c });
+/** Recolle les fragments voisins de mêmes attributs et jette les vides. Appelé à
+ *  chaque construction : sans lui le balisage produit se couvrirait de marqueurs
+ *  redondants (« **a****b** ») au fil des retouches. */
+function memoFuse(spans: MemoSpan[]): MemoSpan[] {
+  const out: MemoSpan[] = [];
+  for (const sp of spans) {
+    if (!sp.t) continue;
+    const last = out.length ? out[out.length - 1] : null;
+    if (last && memoSame(last, sp)) last.t += sp.t;
+    else out.push({ ...sp });
   }
   return out;
 }
+
+/** Texte balisé → modèle. Scanner à pile : chaque marqueur de style BASCULE son attribut
+ *  jusqu'à la fin de la ligne, et `\x` rend `x` littéral. Un marqueur orphelin laisse donc
+ *  son attribut ouvert jusqu'au saut de ligne — comportement volontaire : c'est ce qui rend
+ *  le tour de piste « lire → réécrire » stable.
+ *
+ *  ⚠️ LES COULEURS, elles, s'EMPILENT : « {rouge}a {vert}b{/} c{/} » rend « c » en ROUGE,
+ *  pas en noir. Sans cette pile, le premier `{/}` refermerait toute couleur et le second
+ *  s'afficherait tel quel, marqueur visible au milieu du texte. Le cas n'a rien d'exotique :
+ *  il suffit de recolorer une portion d'un passage déjà coloré, ce que la barre d'outils
+ *  invite à faire — c'est le défaut relevé le 2026-08-21 sur le bloc partenaire. L'éditeur
+ *  n'écrit plus jamais de couleurs imbriquées (le modèle est plat), mais les notes déjà
+ *  écrites en contiennent, et elles doivent se relire à l'identique. */
+function memoScanLine(src: string): MemoSpan[] {
+  const out: MemoSpan[] = [];
+  let a: MemoAttrs = {}, buf = "", i = 0;
+  const pileC: (string | undefined)[] = [];
+  const vider = () => { if (buf) { out.push({ ...a, t: buf }); buf = ""; } };
+  const bascule = (k: "b" | "i" | "s") => { vider(); a = { ...a }; if (a[k]) delete a[k]; else a[k] = 1; };
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\" && i + 1 < src.length) { buf += src[i + 1]; i += 2; continue; }
+    if (c === "*" && src[i + 1] === "*") { bascule("b"); i += 2; continue; }
+    if (c === "~" && src[i + 1] === "~") { bascule("s"); i += 2; continue; }
+    if (c === "*") { bascule("i"); i += 1; continue; }
+    if (c === "{") {
+      const j = src.indexOf("}", i + 1);
+      const nom = j === -1 ? "" : src.slice(i + 1, j);
+      if (nom === "/" && pileC.length) { vider(); a = { ...a, c: pileC.pop() }; i = j + 1; continue; }
+      if (MEMO_COLOR_OF[nom]) { vider(); pileC.push(a.c); a = { ...a, c: nom }; i = j + 1; continue; }
+    }
+    buf += c; i += 1;
+  }
+  vider();
+  return memoFuse(out);
+}
+const memoParse = (text: string): MemoLine[] =>
+  text.split("\n").map((ln) => ({ puce: ln.startsWith("- "), spans: memoScanLine(ln.startsWith("- ") ? ln.slice(2) : ln) }));
+
+/** Modèle → texte balisé. Ordre d'imbrication FIXE (couleur, gras, barré, italique) :
+ *  un contenu donné n'a qu'une écriture possible, donc « Modifications non
+ *  enregistrées » ne s'allume pas sur du bruit de balisage. */
+const memoEsc = (t: string) => t.replace(/[\\*~{}]/g, "\\$&");
+const memoWrite = (lines: MemoLine[]): string =>
+  lines.map((l) => (l.puce ? "- " : "") + memoFuse(l.spans).map((sp) => {
+    let t = memoEsc(sp.t);
+    if (sp.i) t = `*${t}*`;
+    if (sp.s) t = `~~${t}~~`;
+    if (sp.b) t = `**${t}**`;
+    if (sp.c) t = `{${sp.c}}${t}{/}`;
+    return t;
+  }).join("")).join("\n");
+
+/* ---- DÉCALAGES ET RETOUCHES -------------------------------------------------
+   Un DÉCALAGE (« offset ») compte les caractères VISIBLES, saut de ligne compris et
+   « - » de puce exclu : c'est l'unité commune au modèle et à la sélection du navigateur,
+   celle qui permet de replacer un curseur après avoir rebâti le DOM. Les retouches
+   passent toutes par un aplatissement caractère par caractère : à ce prix (une note
+   fait 2 000 signes au plus) l'index d'un caractère EST son décalage, et il ne reste
+   aucune arithmétique de bornes où se tromper. */
+type MemoCar = MemoAttrs & { ch: string; puce: boolean };
+const memoNu = (lines: MemoLine[]) => lines.map((l) => l.spans.map((s) => s.t).join("")).join("\n");
+function memoCars(lines: MemoLine[]): MemoCar[] {
+  const out: MemoCar[] = [];
+  lines.forEach((l, i) => {
+    if (i > 0) out.push({ ch: "\n", puce: false });
+    for (const sp of l.spans) for (let k = 0; k < sp.t.length; k++) out.push({ ...memoAttrs(sp), ch: sp.t[k], puce: l.puce });
+  });
+  return out;
+}
+/** L'inverse. Une ligne prend la puce de son premier caractère : une ligne à puce VIDE
+ *  la perd donc en repassant par ici — sans conséquence, elle n'affiche rien. */
+const memoLignes = (cars: MemoCar[]): MemoLine[] => {
+  const bloc: MemoCar[][] = [[]];
+  for (const c of cars) { if (c.ch === "\n") bloc.push([]); else bloc[bloc.length - 1].push(c); }
+  return bloc.map((cs) => ({ puce: cs.length > 0 && cs[0].puce, spans: memoFuse(cs.map((c) => ({ ...memoAttrs(c), t: c.ch }))) }));
+};
+/** Réécrit les attributs des caractères de [a,b). Les sauts de ligne sont épargnés. */
+function memoMapAttrs(lines: MemoLine[], a: number, b: number, fn: (at: MemoAttrs) => MemoAttrs): MemoLine[] {
+  const cars = memoCars(lines);
+  for (let i = Math.max(0, a); i < Math.min(cars.length, b); i++) {
+    if (cars[i].ch === "\n") continue;
+    cars[i] = { ...fn(memoAttrs(cars[i])), ch: cars[i].ch, puce: cars[i].puce };
+  }
+  return memoLignes(cars);
+}
+/** Vrai si TOUS les caractères de [a,b) vérifient `pred` — c'est ce qui fait des
+ *  boutons des BASCULES : une sélection déjà toute en gras se dégrasse. */
+function memoTous(lines: MemoLine[], a: number, b: number, pred: (at: MemoAttrs) => boolean): boolean {
+  const cars = memoCars(lines);
+  let vu = false;
+  for (let i = Math.max(0, a); i < Math.min(cars.length, b); i++) {
+    if (cars[i].ch === "\n") continue;
+    vu = true;
+    if (!pred(cars[i])) return false;
+  }
+  return vu;
+}
+/** Le caractère « du point d'insertion » : celui de gauche (comme tout traitement de
+ *  texte), à défaut celui de droite. */
+const memoCarAt = (lines: MemoLine[], off: number): MemoCar | null => {
+  const cars = memoCars(lines);
+  const c = (off > 0 ? cars[off - 1] : undefined) ?? cars[off];
+  return c && c.ch !== "\n" ? c : null;
+};
+const memoAt = (lines: MemoLine[], off: number): MemoAttrs => memoAttrs(memoCarAt(lines, off) ?? {});
+/** Remplace [a,b) par du texte brut (sauts de ligne compris), aux attributs donnés. */
+function memoRemplace(lines: MemoLine[], a: number, b: number, ins: string, at: MemoAttrs, puce: boolean): MemoLine[] {
+  const cars = memoCars(lines);
+  const ajout: MemoCar[] = [];
+  for (const ch of ins.replace(/\r\n?/g, "\n")) ajout.push(ch === "\n" ? { ch, puce: false } : { ...at, ch, puce });
+  cars.splice(a, b - a, ...ajout);
+  return memoLignes(cars);
+}
+/** Bascule la puce sur toutes les lignes touchées par [a,b). */
+function memoBasculePuces(lines: MemoLine[], a: number, b: number): MemoLine[] {
+  const bornes: { d: number; f: number }[] = [];
+  let p = 0;
+  lines.forEach((l, i) => {
+    if (i > 0) p += 1;
+    const len = l.spans.reduce((n, s) => n + s.t.length, 0);
+    bornes.push({ d: p, f: p + len });
+    p += len;
+  });
+  const cibles = lines.map((_, i) => i).filter((i) => bornes[i].d <= b && bornes[i].f >= a);
+  const toutes = cibles.length > 0 && cibles.every((i) => lines[i].puce);
+  return lines.map((l, i) => (cibles.indexOf(i) === -1 ? l : { ...l, puce: !toutes }));
+}
+
+/* ---- RENDU (la lecture et l'édition partagent ces styles) ------------------- */
+const memoStyle = (a: MemoAttrs): CSSProperties => ({
+  fontWeight: a.b ? 700 : undefined,
+  fontStyle: a.i ? "italic" : undefined,
+  textDecoration: a.s ? "line-through" : undefined,
+  color: a.c ? MEMO_COLOR_OF[a.c] : a.b ? T.ink : undefined,
+});
+const MEMO_UL: CSSProperties = { margin: "2px 0 6px", paddingLeft: 18 };
+const MEMO_LI: CSSProperties = { margin: "2px 0" };
+const MEMO_TEXTE: CSSProperties = { fontSize: "13px", fontWeight: 500, color: T.ink2, lineHeight: 1.55, overflowWrap: "anywhere" };
+const memoSpansUI = (l: MemoLine, k: string) =>
+  l.spans.map((sp, i) => <span key={`${k}-${i}`} style={memoStyle(sp)}>{sp.t}</span>);
 
 /** Rendu en lecture : les lignes « - » deviennent des puces, regroupées en une seule
  *  liste tant qu'elles se suivent. Le reste garde ses espaces et ses sauts de ligne. */
 function MemoRead({ text }: { text: string }) {
   const blocs: ReactNode[] = [];
-  const lignes = text.split("\n");
-  let puces: string[] = [];
+  let puces: { i: number; l: MemoLine }[] = [];
   const viderPuces = () => {
     if (!puces.length) return;
-    blocs.push(
-      <ul key={`u${blocs.length}`} style={{ margin: "2px 0 6px", paddingLeft: 18 }}>
-        {puces.map((p, i) => <li key={i} style={{ margin: "2px 0" }}>{memoInline(p, `u${blocs.length}-${i}`)}</li>)}
-      </ul>,
-    );
+    blocs.push(<ul key={`u${blocs.length}`} style={MEMO_UL}>{puces.map(({ i, l }) => <li key={i} style={MEMO_LI}>{memoSpansUI(l, `u${i}`)}</li>)}</ul>);
     puces = [];
   };
-  lignes.forEach((ln, i) => {
-    if (ln.startsWith("- ")) { puces.push(ln.slice(2)); return; }
+  memoParse(text).forEach((l, i) => {
+    if (l.puce) { puces.push({ i, l }); return; }
     viderPuces();
     blocs.push(
-      <div key={`l${i}`} style={{ whiteSpace: "pre-wrap", minHeight: ln ? undefined : "1em" }}>
-        {memoInline(ln, `l${i}`)}
+      <div key={`l${i}`} style={{ whiteSpace: "pre-wrap", minHeight: l.spans.length ? undefined : "1em" }}>
+        {memoSpansUI(l, `l${i}`)}
       </div>,
     );
   });
   viderPuces();
-  return <div style={{ fontSize: "13px", fontWeight: 500, color: T.ink2, lineHeight: 1.55, overflowWrap: "anywhere" }}>{blocs}</div>;
+  return <div style={MEMO_TEXTE}>{blocs}</div>;
+}
+
+/* ---- LE DOM D'ÉDITION : construction, puis relecture ------------------------
+   ⚠️ `textContent`, jamais `innerHTML` : aucune chaîne n'est interprétée comme du
+   balisage, dans un sens comme dans l'autre. Les `data-*` portent l'attribut de façon
+   explicite ; les styles ne sont là que pour l'œil (la relecture sait les lire aussi,
+   au cas où le navigateur duplique un fragment). */
+function memoSpanEl(doc: Document, sp: MemoSpan): HTMLElement {
+  const el = doc.createElement("span");
+  el.textContent = sp.t;
+  if (sp.b) { el.dataset.b = "1"; el.style.fontWeight = "700"; el.style.color = T.ink; }
+  if (sp.i) { el.dataset.i = "1"; el.style.fontStyle = "italic"; }
+  if (sp.s) { el.dataset.s = "1"; el.style.textDecoration = "line-through"; }
+  if (sp.c) { el.dataset.c = sp.c; el.style.color = MEMO_COLOR_OF[sp.c]; }
+  return el;
+}
+function memoBuild(root: HTMLElement, lines: MemoLine[]) {
+  const doc = root.ownerDocument;
+  while (root.firstChild) root.removeChild(root.firstChild);
+  let ul: HTMLElement | null = null;
+  for (const l of lines) {
+    let hote: HTMLElement;
+    if (l.puce) {
+      if (!ul) {
+        ul = doc.createElement("ul");
+        ul.style.margin = String(MEMO_UL.margin);
+        ul.style.paddingLeft = "18px";
+        root.appendChild(ul);
+      }
+      hote = doc.createElement("li");
+      hote.style.margin = String(MEMO_LI.margin);
+      ul.appendChild(hote);
+    } else {
+      ul = null;
+      hote = doc.createElement("div");
+      root.appendChild(hote);
+    }
+    const spans = memoFuse(l.spans);
+    /* Une ligne vide a besoin d'un <br> : sans lui le navigateur ne sait pas y poser un
+       curseur, et la ligne n'occupe aucune hauteur. */
+    if (!spans.length) hote.appendChild(doc.createElement("br"));
+    else for (const sp of spans) hote.appendChild(memoSpanEl(doc, sp));
+  }
+}
+
+const MEMO_BLOC = /^(DIV|P|LI|UL|OL|H[1-6]|BLOCKQUOTE|PRE|SECTION|ARTICLE|TABLE|TBODY|THEAD|TR|TD|TH|FIGURE|FIGCAPTION|HEADER|FOOTER|MAIN|ASIDE|NAV|HR)$/;
+const memoEstBloc = (n: Node): boolean => n.nodeType === 1 && MEMO_BLOC.test((n as HTMLElement).tagName);
+/** Attributs portés par un élément. LISTE FERMÉE : tout ce qui n'est pas ici (fond,
+ *  police, taille, lien…) est ignoré, donc aplati en texte. C'est là que le collage
+ *  riche est neutralisé — par construction, pas par filtrage. */
+function memoAttrsDe(el: HTMLElement, a: MemoAttrs): MemoAttrs {
+  const n: MemoAttrs = { ...a }, st = el.style, tag = el.tagName, d = el.dataset;
+  const fw = st.fontWeight;
+  if (tag === "STRONG" || tag === "B" || d.b === "1" || fw === "bold" || fw === "bolder" || (/^\d+$/.test(fw) && Number(fw) >= 600)) n.b = 1;
+  if (tag === "EM" || tag === "I" || d.i === "1" || st.fontStyle === "italic") n.i = 1;
+  if (tag === "S" || tag === "STRIKE" || tag === "DEL" || d.s === "1" || `${st.textDecoration} ${st.textDecorationLine}`.indexOf("line-through") !== -1) n.s = 1;
+  const c = d.c && MEMO_COLOR_OF[d.c] ? d.c : MEMO_KEY_OF_CSS[st.color.trim().toLowerCase()];
+  if (c) n.c = c;
+  return n;
+}
+/** DOM → modèle. Le seul point de vérité sur « ce que contient la zone de saisie » :
+ *  c'est lui qui décide si la frappe du navigateur a produit quelque chose de nouveau. */
+function memoDomLines(root: Node): MemoLine[] {
+  const out: MemoLine[] = [];
+  let cur: MemoLine | null = null;
+  const ouvre = (puce: boolean) => { cur = { puce, spans: [] }; out.push(cur); };
+  const pose = (t: string, a: MemoAttrs) => {
+    if (!t) return;
+    if (!cur) ouvre(false);
+    out[out.length - 1].spans.push({ ...a, t });
+  };
+  const enligne = (nodes: Node[], a: MemoAttrs, puce: boolean) => {
+    nodes.forEach((n, i) => {
+      /* L'insécable que les navigateurs sèment pour tenir les espaces de fin redevient
+         une espace ordinaire : le modèle n'a pas à connaître ce détail de rendu. */
+      if (n.nodeType === 3) return pose((n.nodeValue ?? "").replace(/\u00A0/g, " "), a);
+      if (n.nodeType !== 1) return;
+      const el = n as HTMLElement;
+      if (el.tagName === "BR") {
+        /* Le <br> de remplissage que les navigateurs posent dans un bloc vide ne compte
+           PAS pour un saut de ligne : sinon chaque ligne vide en vaudrait deux. */
+        const suite = nodes.slice(i + 1).some((x) => x.nodeType === 1 || (x.nodeValue ?? "").length > 0);
+        if (suite || !cur) ouvre(puce);
+        return;
+      }
+      if (memoEstBloc(el)) return bloc(el, a);
+      enligne(Array.from(el.childNodes), memoAttrsDe(el, a), puce);
+    });
+  };
+  const bloc = (el: HTMLElement, a: MemoAttrs) => {
+    const tag = el.tagName;
+    if (tag === "HR") return;
+    const at = memoAttrsDe(el, a);
+    const kids = Array.from(el.childNodes);
+    if (tag === "UL" || tag === "OL" || kids.some(memoEstBloc)) {
+      kids.forEach((k) => (memoEstBloc(k) ? bloc(k as HTMLElement, at) : enligne([k], at, tag === "LI")));
+      return;
+    }
+    ouvre(tag === "LI");
+    enligne(kids, at, tag === "LI");
+  };
+  const kids = Array.from(root.childNodes);
+  if (kids.some(memoEstBloc)) kids.forEach((k) => (memoEstBloc(k) ? bloc(k as HTMLElement, {}) : enligne([k], {}, false)));
+  else enligne(kids, {}, false);
+  return out.map((l) => ({ puce: l.puce, spans: memoFuse(l.spans) }));
+}
+
+/* ---- SÉLECTION : DOM ↔ décalages --------------------------------------------
+   Le décalage d'un point du DOM s'obtient en CLONANT tout ce qui le précède et en le
+   passant au même sérialiseur — de cette façon les deux comptages ne peuvent pas
+   divergier sur une convention (le <br> de remplissage, l'espace insécable, la puce…). */
+/** Un point de sélection peut être exprimé « entre deux enfants » d'un élément
+ *  (`(root, 1)` = juste avant le 2ᵉ bloc). Tel quel, le clonage laisserait tomber le
+ *  saut de ligne qui précède : on descend donc jusqu'au nœud le plus profond. */
+function memoNorm(node: Node, off: number): [Node, number] {
+  while (node.nodeType === 1) {
+    const kids = node.childNodes;
+    if (!kids.length) break;
+    if (off <= 0) { node = kids[0]; off = 0; continue; }
+    if (off >= kids.length) {
+      const last = kids[kids.length - 1];
+      node = last;
+      off = last.nodeType === 3 ? (last.nodeValue ?? "").length : last.childNodes.length;
+      continue;
+    }
+    node = kids[off];
+    off = 0;
+  }
+  return [node, off];
+}
+function memoOffset(root: HTMLElement, node: Node, off: number): number {
+  const doc = root.ownerDocument;
+  const r = doc.createRange();
+  r.setStart(root, 0);
+  const [n2, o2] = memoNorm(node, off);
+  try { r.setEnd(n2, o2); } catch { return 0; }
+  const box = doc.createElement("div");
+  box.appendChild(r.cloneContents());
+  return memoNu(memoDomLines(box)).length;
+}
+/* ---- LA SÉLECTION SOUS SOFTR — corrigé le 2026-08-24 -------------------------
+   ⚠️ LE BLOC VIBE CODE EST RENDU DANS UN SHADOW DOM. C'est l'hypothèse déjà retenue
+   ailleurs dans ce projet (le `platform.js` d'Elfsight scanne `document` et ne voit pas
+   le conteneur rendu par React), et elle a une conséquence directe ici :
+   `document.getSelection()` ne renvoie PAS les nœuds d'un arbre d'ombre — il donne le
+   conteneur hôte, ou rien. `memoOffsets` retournait donc `null` dans Softr, et TOUTE la
+   barre d'outils (gras, couleurs, puces) devenait inerte, alors que la frappe, elle,
+   continuait de marcher. En local, hors shadow DOM, le même code fonctionne : d'où un
+   défaut invisible au développement et systématique en production.
+
+   ⚠️ NE JAMAIS APPELER `document.getSelection()` DIRECTEMENT ICI. Trois chemins, un par
+   moteur, tous branchés sur l'arbre qui héberge réellement le champ (`getRootNode()`) :
+     · Chrome/Edge : `shadowRoot.getSelection()` — hors standard, mais présent ;
+     · Safari et Chrome récents : `getComposedRanges({ shadowRoots })`, la voie standard,
+       dont deux signatures coexistent encore ;
+     · Firefox et hors shadow DOM : `document.getSelection()` suffit, il ne bride pas.
+   Hors shadow DOM, `getRootNode()` renvoie le document : le comportement local est donc
+   exactement celui d'avant. */
+type MemoRootNode = (Document | ShadowRoot) & { getSelection?: () => Selection | null };
+/** L'objet `Selection` de l'arbre où vit le champ — c'est lui qui sert aussi à POSER la
+ *  sélection (`memoSelect`). */
+function memoSelection(root: HTMLElement): Selection | null {
+  const arbre = root.getRootNode() as MemoRootNode;
+  const via = typeof arbre.getSelection === "function" ? arbre.getSelection() : null;
+  return via ?? root.ownerDocument.getSelection();
+}
+/** Le point de départ et d'arrivée de la sélection, s'ils sont bien DANS le champ. */
+function memoRange(root: HTMLElement): { sc: Node; so: number; ec: Node; eo: number } | null {
+  const sel = memoSelection(root);
+  if (!sel) return null;
+  const dans = (sc: Node, ec: Node) => root.contains(sc) && root.contains(ec);
+  if (sel.rangeCount > 0) {
+    const r = sel.getRangeAt(0);
+    if (dans(r.startContainer, r.endContainer)) {
+      return { sc: r.startContainer, so: r.startOffset, ec: r.endContainer, eo: r.endOffset };
+    }
+  }
+  /* Le range rendu ci-dessus s'arrête à la frontière de l'arbre d'ombre : on redemande
+     la sélection COMPOSÉE, seule voie standard pour la voir en entier. */
+  const arbre = root.getRootNode();
+  const gcr = (sel as unknown as { getComposedRanges?: (...a: unknown[]) => StaticRange[] }).getComposedRanges;
+  if (typeof gcr !== "function" || arbre === root.ownerDocument) return null;
+  for (const args of [[{ shadowRoots: [arbre] }], [arbre]]) {
+    let sr: StaticRange | undefined;
+    try { sr = gcr.apply(sel, args)[0]; } catch { continue; }
+    if (sr && dans(sr.startContainer, sr.endContainer)) {
+      return { sc: sr.startContainer, so: sr.startOffset, ec: sr.endContainer, eo: sr.endOffset };
+    }
+  }
+  return null;
+}
+function memoOffsets(root: HTMLElement): { a: number; b: number } | null {
+  const r = memoRange(root);
+  return r ? { a: memoOffset(root, r.sc, r.so), b: memoOffset(root, r.ec, r.eo) } : null;
+}
+/** Plage des caractères AJOUTÉS entre deux textes, par préfixe et suffixe communs.
+ *  Filet de sécurité : si un moteur ne nous laisse voir aucune sélection, c'est ce qui
+ *  permet à la mise en forme en attente (« je clique Gras, puis j'écris ») de savoir où
+ *  s'appliquer. Rend `null` s'il n'y a pas eu d'ajout. */
+function memoAjout(av: string, ap: string): { a: number; b: number } | null {
+  if (ap.length <= av.length) return null;
+  let i = 0;
+  while (i < av.length && av[i] === ap[i]) i++;
+  let j = 0;
+  while (j < av.length - i && av[av.length - 1 - j] === ap[ap.length - 1 - j]) j++;
+  return { a: i, b: ap.length - j };
+}
+/** Décalage → point du DOM. Balayage des nœuds texte ET des lignes vides (qui n'en
+ *  contiennent aucun, mais peuvent parfaitement accueillir le curseur) : quelques
+ *  dizaines de nœuds au plus, et seulement quand on vient de rebâtir le DOM. */
+function memoPoint(root: HTMLElement, want: number): [Node, number] {
+  const w = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  let n: Node | null, dernier: [Node, number] = [root, 0];
+  while ((n = w.nextNode())) {
+    if (n.nodeType === 3) {
+      const d = memoOffset(root, n, 0), len = (n.nodeValue ?? "").length;
+      if (want <= d + len) return [n, Math.max(0, want - d)];
+      dernier = [n, len];
+      continue;
+    }
+    const tag = (n as HTMLElement).tagName;
+    if ((tag !== "DIV" && tag !== "LI") || (n.textContent ?? "").length > 0) continue;
+    const d = memoOffset(root, n, 0);
+    if (want <= d) return [n, 0];
+    dernier = [n, 0];
+  }
+  return dernier;
+}
+/** Les seules balises que `memoBuild` écrit. Tout ce qui n'est pas là dedans vient du
+ *  navigateur ou d'un dépôt, et signale un DOM à rebâtir. */
+const MEMO_SALE = "*:not(div):not(ul):not(li):not(span):not(br)";
+function memoSelect(root: HTMLElement, a: number, b: number) {
+  const sel = memoSelection(root);
+  if (!sel) return;
+  const [na, oa] = memoPoint(root, a), [nb, ob] = memoPoint(root, b);
+  try { sel.setBaseAndExtent(na, oa, nb, ob); } catch { /* nœud parti entre-temps : tant pis */ }
+}
+
+/* ---- CHAMP DE TEXTE MIS EN FORME — le composant partagé ---------------------
+   Extrait de `MemoCard` le 2026-08-24, quand la LISTE À COCHER a demandé la même
+   mise en forme que le pense-bête. Tout ce qui touche au DOM d'édition, à la sélection
+   et à la barre d'outils vit ICI ; les deux widgets ne gardent que leur propre logique
+   (ce qu'ils enregistrent, et quand).
+
+   Le contrat est celui d'un champ CONTRÔLÉ : `value` est du texte balisé, `onChange`
+   rend le texte balisé suivant. Rien d'autre ne sort — pas de HTML, jamais.
+
+   Deux régimes :
+   · MULTILIGNE (pense-bête) — Entrée saute une ligne, les puces sont proposées,
+     Ctrl/⌘+Entrée appelle `onValider`.
+   · MONOLIGNE (une ligne de liste à cocher) — Entrée VALIDE, Échap annule, et un
+     collage multi-ligne est aplati en espaces : une ligne de liste reste une ligne. */
+type RichOutil = "b" | "i" | "s" | "puces" | "couleurs";
+
+function RichText({
+  value, onChange, outils, max, aria,
+  multiligne = false, placeholder, minHeight = 34, maxHeight, autoFocus,
+  outilsAuFocus = false, onValider, onAnnuler, onBlur,
+}: {
+  value: string;
+  onChange: (t: string) => void;
+  outils: RichOutil[];
+  max: number;
+  aria: string;
+  multiligne?: boolean;
+  placeholder?: string;
+  minHeight?: number;
+  maxHeight?: number;
+  autoFocus?: boolean;
+  /** Barre d'outils repliée tant que le champ est vide ET sans focus — pour une zone
+   *  d'ajout qui doit rester discrète au repos. */
+  outilsAuFocus?: boolean;
+  onValider?: () => void;
+  onAnnuler?: () => void;
+  onBlur?: () => void;
+}) {
+  const [foc, setFoc] = useState(false);
+  /** Attributs mis en évidence sur la barre d'outils (état de la sélection). */
+  const [actifs, setActifs] = useState<MemoAttrs>({});
+  const edRef = useRef<HTMLDivElement | null>(null);
+  /** Le texte que le DOM représente ACTUELLEMENT. Égal à `value` ⇒ rien à rebâtir, donc
+   *  curseur intact : c'est toute l'astuce de la frappe fluide. `null` force la
+   *  reconstruction (montage, mise en forme, collage). */
+  const domRef = useRef<string | null>(null);
+  /** Sélection à replacer APRÈS reconstruction. */
+  const posRef = useRef<{ a: number; b: number } | null>(null);
+  /** Dernière sélection connue — sert à distinguer un vrai déplacement du curseur de
+   *  notre propre repositionnement, et à survivre au clic sur la barre d'outils. */
+  const selRef = useRef<{ a: number; b: number } | null>(null);
+  /** Mise en forme EN ATTENTE : cliquer « Gras » sans rien sélectionner ne peut pas
+   *  transformer du texte, alors on retient l'intention et on l'applique aux caractères
+   *  de la frappe suivante. Sans ça, le geste le plus naturel (« je clique gras, puis
+   *  j'écris ») ne produirait rien de visible. */
+  const pendRef = useRef<MemoAttrs | null>(null);
+
+  /* Réconciliation modèle → DOM. En `useLayoutEffect` : le curseur est reposé avant que
+     l'écran ne soit peint, donc aucun saut visible. */
+  useLayoutEffect(() => {
+    const ed = edRef.current;
+    if (!ed || domRef.current === value) return;
+    memoBuild(ed, memoParse(value));
+    domRef.current = value;
+    const p = posRef.current;
+    posRef.current = null;
+    if (p) { memoSelect(ed, p.a, p.b); selRef.current = p; }
+  }, [value]);
+
+  /* Prise de focus au montage (édition d'une ligne existante) : curseur EN FIN, comme
+     tout champ qu'on rouvre pour corriger. */
+  useLayoutEffect(() => {
+    const ed = edRef.current;
+    if (!ed || !autoFocus) return;
+    const fin = memoNu(memoParse(value)).length;
+    ed.focus();
+    memoSelect(ed, fin, fin);
+    selRef.current = { a: fin, b: fin };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* Suivi de la sélection : met à jour l'état des boutons, et ANNULE la mise en forme en
+     attente dès que le curseur bouge pour de bon (notre propre repositionnement, lui,
+     réaligne `selRef` et ne compte donc pas comme un déplacement). */
+  useEffect(() => {
+    const doc = edRef.current?.ownerDocument;
+    if (!doc) return;
+    /* `selectionchange` part du document, mais les moteurs le redispatchent aussi sur
+       l'arbre d'ombre qui contient le champ : on écoute LES DEUX, sinon la barre d'outils
+       ne se met plus à jour sous Softr (même cause que `memoSelection`). */
+    const arbre = edRef.current?.getRootNode();
+    const cibles: EventTarget[] = arbre && arbre !== doc ? [doc, arbre] : [doc];
+    const onSel = () => {
+      const ed = edRef.current;
+      if (!ed) return;
+      const s = memoOffsets(ed);
+      if (!s) return;
+      const p = selRef.current;
+      if (!p || p.a !== s.a || p.b !== s.b) pendRef.current = null;
+      selRef.current = s;
+      const lines = memoParse(value);
+      const a = Math.min(s.a, s.b), b = Math.max(s.a, s.b);
+      setActifs(pendRef.current ?? (a === b ? memoAt(lines, a) : {
+        b: memoTous(lines, a, b, (x) => !!x.b) ? 1 : undefined,
+        i: memoTous(lines, a, b, (x) => !!x.i) ? 1 : undefined,
+        s: memoTous(lines, a, b, (x) => !!x.s) ? 1 : undefined,
+        c: MEMO_COLORS.map((k) => k.key).find((k) => memoTous(lines, a, b, (x) => x.c === k)),
+      }));
+    };
+    cibles.forEach((c) => c.addEventListener("selectionchange", onSel));
+    return () => cibles.forEach((c) => c.removeEventListener("selectionchange", onSel));
+  }, [value]);
+
+  /** Applique une transformation au MODÈLE, puis demande la reconstruction du DOM avec la
+   *  sélection replacée. Les transformations passées ici ne changent JAMAIS le nombre de
+   *  caractères visibles : les décalages restent donc valables. */
+  const retouche = (fn: (lines: MemoLine[], a: number, b: number) => MemoLine[]) => {
+    const ed = edRef.current;
+    if (!ed) return;
+    const s = memoOffsets(ed) ?? selRef.current;
+    if (!s) return;
+    const a = Math.min(s.a, s.b), b = Math.max(s.a, s.b);
+    const t = memoWrite(fn(memoParse(value), a, b));
+    if (t.length > max) return;
+    domRef.current = null;
+    posRef.current = { a, b };
+    onChange(t);
+    ed.focus();
+  };
+  /** Bascule un attribut sur la sélection — ou le met en attente si le curseur est seul.
+   *  `k = "c"` traite la couleur, dont la valeur remplace au lieu de s'ajouter. */
+  const bascule = (k: "b" | "i" | "s" | "c", val?: string) => {
+    const ed = edRef.current;
+    if (!ed) return;
+    /* Dernier repli : le bout du texte. Un moteur qui ne nous laisse voir aucune sélection
+       ne doit pas rendre la barre d'outils muette — le clic devient alors une mise en forme
+       EN ATTENTE, qui s'appliquera à ce qui sera tapé (cf. `memoAjout`). */
+    const fin = memoNu(memoParse(value)).length;
+    const s = memoOffsets(ed) ?? selRef.current ?? { a: fin, b: fin };
+    const pose = (at: MemoAttrs, off: boolean): MemoAttrs => {
+      const n: MemoAttrs = { ...at };
+      if (off) delete n[k];
+      else if (k === "c") n.c = val;
+      else n[k] = 1;
+      return n;
+    };
+    if (s.a === s.b) {
+      const base = pendRef.current ?? memoAt(memoParse(value), s.a);
+      const n = pose(base, k === "c" ? base.c === val : !!base[k]);
+      pendRef.current = n;
+      setActifs(n);
+      ed.focus();
+      return;
+    }
+    retouche((lines, a, b) => {
+      const off = memoTous(lines, a, b, (x) => (k === "c" ? x.c === val : !!x[k]));
+      return memoMapAttrs(lines, a, b, (at) => pose(at, off));
+    });
+  };
+
+  /* Frappe. Le DOM est déjà à l'écran : on ne fait que le LIRE. Il n'est rebâti que si
+     une mise en forme en attente doit s'appliquer, si le champ monoligne a reçu un saut
+     de ligne, ou si la note dépasse sa borne. */
+  const onInput = () => {
+    const ed = edRef.current;
+    if (!ed) return;
+    let dl = memoDomLines(ed);
+    /* Un champ MONOLIGNE ne garde qu'une ligne : ce qui a été introduit par un chemin
+       détourné (glisser, saisie vocale, autocomplétion) est recollé avec une espace. */
+    const aplati = !multiligne && dl.length > 1;
+    if (aplati) dl = [{ puce: false, spans: memoFuse(dl.flatMap((l, i) => (i ? [{ t: " " }, ...l.spans] : l.spans))) }];
+    const nuAv = memoNu(memoParse(value)), nuAp = memoNu(dl);
+    const avant = nuAv.length, apres = nuAp.length;
+    let t = memoWrite(dl);
+    if (t.length > max) {
+      /* Borne dure : la frappe est REFUSÉE et le DOM revient au dernier état accepté (un
+         `layout_json` obèse est rechargé à chaque affichage de la page, cf. §9-sexies). */
+      const s = memoOffsets(ed);
+      const recul = Math.max(1, apres - avant);
+      memoBuild(ed, memoParse(value));
+      domRef.current = value;
+      if (s) memoSelect(ed, Math.max(0, s.a - recul), Math.max(0, s.b - recul));
+      return;
+    }
+    const pend = pendRef.current;
+    const s = memoOffsets(ed);
+    /* Où viennent d'atterrir les caractères tapés : le curseur le dit, et à défaut la
+       comparaison des deux textes (moteur qui ne nous montre aucune sélection). */
+    const ins = s && s.a === s.b && apres > avant ? { a: Math.max(0, s.b - (apres - avant)), b: s.b } : memoAjout(nuAv, nuAp);
+    if (pend && ins) {
+      t = memoWrite(memoMapAttrs(dl, ins.a, ins.b, () => pend));
+      domRef.current = null;
+      posRef.current = { a: ins.b, b: ins.b };
+    } else if (aplati || ed.querySelector(MEMO_SALE)) {
+      /* Le DOM contient une balise que nous n'écrivons jamais (un <a>, un <font>, une
+         image…), ou une ligne de trop : la sérialisation l'a bien aplatie, mais l'ÉCRAN
+         montrerait encore l'original. On rebâtit, pour que ce qui s'affiche soit ce qui
+         est stocké. */
+      domRef.current = null;
+      posRef.current = s;
+    } else {
+      if (apres <= avant) pendRef.current = null;
+      domRef.current = t;   // le DOM du navigateur sérialise déjà vers `t` : on le garde
+    }
+    onChange(t);
+  };
+
+  /** Insère du TEXTE BRUT à la place de [a,b), aux attributs du point d'insertion. C'est
+   *  la seule insertion que nous faisons nous-mêmes (collage, dépôt), et elle passe par le
+   *  MODÈLE : rien de ce qui vient du presse-papiers n'entre jamais dans le DOM. */
+  const insere = (brut: string, s: { a: number; b: number }) => {
+    const propre = multiligne ? brut : brut.replace(/[\r\n]+/g, " ");
+    const a = Math.min(s.a, s.b), b = Math.max(s.a, s.b);
+    const lines = memoParse(value);
+    const car = memoCarAt(lines, a);
+    const t = memoWrite(memoRemplace(lines, a, b, propre, pendRef.current ?? memoAttrs(car ?? {}), !!car && car.puce));
+    if (t.length > max) return;
+    const fin = a + propre.replace(/\r\n?/g, "\n").length;
+    domRef.current = null;
+    posRef.current = { a: fin, b: fin };
+    onChange(t);
+  };
+  const onPaste = (e: ReactClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const ed = edRef.current;
+    if (!ed) return;
+    const brut = e.clipboardData.getData("text/plain");
+    const s = memoOffsets(ed) ?? selRef.current;
+    if (brut && s) insere(brut, s);
+  };
+  /* Le DÉPÔT est intercepté comme le collage — sans quoi le navigateur laisserait tomber
+     du HTML complet dans la zone. Sa position n'est pas la sélection : on la demande au
+     navigateur (deux API selon les moteurs), avec un repli sur la fin du texte. */
+  const onDrop = (e: ReactDragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const ed = edRef.current;
+    if (!ed) return;
+    const brut = e.dataTransfer.getData("text/plain");
+    if (!brut) return;
+    /* Deux API pour « quel point du texte est sous ce pixel », et aucune n'est partout :
+       `caretPositionFromPoint` est la standard, `caretRangeFromPoint` (dépréciée) reste la
+       seule de WebKit. Sous shadow DOM elles peuvent aussi ne répondre que l'hôte — d'où le
+       repli sur la FIN du texte, qui vaut toujours mieux qu'un dépôt perdu. */
+    const doc = ed.ownerDocument as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+      caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+    };
+    let off = memoNu(memoParse(value)).length;
+    const p = doc.caretPositionFromPoint ? doc.caretPositionFromPoint(e.clientX, e.clientY) : null;
+    const r = p ? null : doc.caretRangeFromPoint ? doc.caretRangeFromPoint(e.clientX, e.clientY) : null;
+    if (p && ed.contains(p.offsetNode)) off = memoOffset(ed, p.offsetNode, p.offset);
+    else if (r && ed.contains(r.startContainer)) off = memoOffset(ed, r.startContainer, r.startOffset);
+    insere(brut, { a: off, b: off });
+  };
+
+  /* Raccourcis. Ctrl/⌘+B/I/U sont INTERCEPTÉS : laissés au navigateur, ils appelleraient
+     son `execCommand` interne et sèmeraient des balises que nous n'avons pas écrites. */
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const meta = e.ctrlKey || e.metaKey;
+    if (e.key === "Escape" && onAnnuler) { e.preventDefault(); onAnnuler(); return; }
+    if (e.key === "Enter" && (meta || !multiligne)) { e.preventDefault(); onValider?.(); return; }
+    if (!meta) return;
+    const k = e.key.toLowerCase();
+    if (k === "b" && outils.indexOf("b") !== -1) { e.preventDefault(); bascule("b"); }
+    else if (k === "i" && outils.indexOf("i") !== -1) { e.preventDefault(); bascule("i"); }
+    else if (k === "u") e.preventDefault();   // pas de souligné dans la grammaire
+  };
+
+  const tool = (on?: boolean): CSSProperties => ({
+    display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: T.rSm,
+    border: `1px solid ${on ? T.brand100 : T.line}`, background: on ? T.brand050 : T.surface, color: on ? T.brand600 : T.ink2,
+    cursor: "pointer", fontFamily: "inherit", flex: "none",
+  });
+  /* `onMouseDown` neutralisé sur toute la barre : un bouton qui prend le focus effacerait
+     la sélection du texte, et le clic n'aurait plus rien sur quoi s'appliquer. */
+  const garde = (e: { preventDefault: () => void }) => e.preventDefault();
+  const ico = { width: 13, height: 13 };
+  const montrerOutils = !outilsAuFocus || foc || value.length > 0;
+
+  return (
+    <div>
+      {montrerOutils && (
+        <div style={{ display: "flex", alignItems: "center", gap: "5px", flexWrap: "wrap", marginBottom: 6 }} onMouseDown={garde}>
+          {outils.indexOf("b") !== -1 && (
+            <button style={tool(!!actifs.b)} aria-pressed={!!actifs.b} onClick={() => bascule("b")} aria-label="Gras" title="Gras (Ctrl+B)"><Bold aria-hidden style={ico} /></button>
+          )}
+          {outils.indexOf("i") !== -1 && (
+            <button style={tool(!!actifs.i)} aria-pressed={!!actifs.i} onClick={() => bascule("i")} aria-label="Italique" title="Italique (Ctrl+I)"><Italic aria-hidden style={ico} /></button>
+          )}
+          {outils.indexOf("s") !== -1 && (
+            <button style={tool(!!actifs.s)} aria-pressed={!!actifs.s} onClick={() => bascule("s")} aria-label="Barré" title="Barré"><Strikethrough aria-hidden style={ico} /></button>
+          )}
+          {outils.indexOf("puces") !== -1 && (
+            <button style={tool()} onClick={() => retouche(memoBasculePuces)} aria-label="Liste à puces" title="Liste à puces"><List aria-hidden style={ico} /></button>
+          )}
+          {outils.indexOf("couleurs") !== -1 && (
+            <>
+              <span aria-hidden style={{ width: 1, height: 18, background: T.line, margin: "0 2px" }} />
+              {MEMO_COLORS.map((c) => (
+                <button key={c.key} onClick={() => bascule("c", c.key)} aria-label={`Couleur ${c.label}`} title={c.label} aria-pressed={actifs.c === c.key}
+                  style={{ ...tool(actifs.c === c.key), width: 22, height: 22 }}>
+                  <span aria-hidden style={{ width: 11, height: 11, borderRadius: 999, background: c.color,
+                    boxShadow: actifs.c === c.key ? `0 0 0 1.5px ${T.surface}, 0 0 0 3px ${c.color}` : undefined }} />
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+      <div style={{ position: "relative" }}>
+        <div
+          ref={edRef}
+          contentEditable
+          suppressContentEditableWarning
+          role="textbox"
+          aria-multiline={multiligne}
+          aria-label={aria}
+          onInput={onInput}
+          onPaste={onPaste}
+          onDrop={onDrop}
+          onKeyDown={onKeyDown}
+          onFocus={() => setFoc(true)}
+          onBlur={() => { setFoc(false); onBlur?.(); }}
+          style={{ boxSizing: "border-box", minHeight, maxHeight, overflowY: maxHeight ? "auto" : undefined,
+            padding: multiligne ? "10px 11px" : "7px 10px", borderRadius: T.rSm, border: `1px solid ${foc ? T.brand100 : T.line}`,
+            background: T.surface, outline: "none", cursor: "text", whiteSpace: "pre-wrap", ...MEMO_TEXTE }}
+        />
+        {!value && placeholder && (
+          <div aria-hidden style={{ position: "absolute", top: multiligne ? 11 : 8, left: 12, right: 12, pointerEvents: "none",
+            ...MEMO_TEXTE, color: T.ink4, whiteSpace: "pre-wrap" }}>
+            {placeholder}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function MemoCard({ cfg }: { cfg: MemoCfg }) {
@@ -10255,44 +11000,19 @@ function MemoCard({ cfg }: { cfg: MemoCfg }) {
   const [dirty, setDirty] = useState(false);
   // On ouvre en LECTURE quand il y a déjà quelque chose à lire, en édition sinon.
   const [edit, setEdit] = useState(!cfg.text);
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
-  /* La cfg peut changer sous nos pieds (autre onglet, rechargement depuis la BDD). On
-     ne l'écrase que si l'utilisateur n'a pas de saisie en cours — sinon on lui
-     volerait ce qu'il tape. */
-  useEffect(() => { if (!dirty) setText(cfg.text); }, [cfg.text, dirty]);
+
+  /* La cfg peut changer sous nos pieds (autre onglet, rechargement depuis la BDD). On ne
+     l'écrase que si l'utilisateur n'a pas de saisie en cours — sinon on lui volerait ce
+     qu'il tape. */
+  useEffect(() => { if (!dirty && cfg.text !== text) setText(cfg.text); }, [cfg.text, dirty, text]);
   const commit = () => {
     if (!dirty || !writer) return;
     writer.save({ text: text.slice(0, MEMO_MAX) });
     setDirty(false);
   };
 
-  /** Entoure la sélection courante des marqueurs demandés, puis restitue le focus et
-   *  la sélection — sans quoi chaque clic de la barre d'outils ferait perdre sa place. */
-  const wrapSel = (before: string, after: string) => {
-    const ta = taRef.current; if (!ta || !writer) return;
-    const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0;
-    setText(text.slice(0, s) + before + text.slice(s, e) + after + text.slice(e));
-    setDirty(true);
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(s + before.length, e + before.length); });
-  };
-  /** Préfixe « - » sur toutes les lignes touchées par la sélection (ou la ligne du
-   *  curseur), en basculant : re-cliquer retire les puces. */
-  const togglePuces = () => {
-    const ta = taRef.current; if (!ta || !writer) return;
-    const s = ta.selectionStart ?? 0, e = ta.selectionEnd ?? 0;
-    const debut = text.lastIndexOf("\n", s - 1) + 1;
-    const finRel = text.indexOf("\n", e);
-    const fin = finRel === -1 ? text.length : finRel;
-    const bloc = text.slice(debut, fin).split("\n");
-    const toutesPuces = bloc.every((l) => l.startsWith("- "));
-    const next = bloc.map((l) => (toutesPuces ? l.replace(/^- /, "") : l ? `- ${l}` : l)).join("\n");
-    setText(text.slice(0, debut) + next + text.slice(fin));
-    setDirty(true);
-    requestAnimationFrame(() => ta.focus());
-  };
-
   const maxHeight = useContext(WidgetHeightCtx);
-  const tool: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, cursor: "pointer", fontFamily: "inherit", flex: "none" };
+  const reste = MEMO_MAX - text.length;
 
   return (
     <Widget icon={FileSignature} title="Pense-bête"
@@ -10306,41 +11026,32 @@ function MemoCard({ cfg }: { cfg: MemoCfg }) {
       <div style={{ padding: "12px 16px 16px" }}>
         {edit && writer ? (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: 8 }}>
-              <button style={tool} onClick={() => wrapSel("**", "**")} aria-label="Gras" title="Gras"><Bold aria-hidden style={{ width: 14, height: 14 }} /></button>
-              <button style={tool} onClick={() => wrapSel("*", "*")} aria-label="Italique" title="Italique"><Italic aria-hidden style={{ width: 14, height: 14 }} /></button>
-              <button style={tool} onClick={() => wrapSel("~~", "~~")} aria-label="Barré" title="Barré"><Strikethrough aria-hidden style={{ width: 14, height: 14 }} /></button>
-              <button style={tool} onClick={togglePuces} aria-label="Liste à puces" title="Liste à puces"><List aria-hidden style={{ width: 14, height: 14 }} /></button>
-              <span aria-hidden style={{ width: 1, height: 20, background: T.line, margin: "0 2px" }} />
-              {MEMO_COLORS.map((c) => (
-                <button key={c.key} onClick={() => wrapSel(`{${c.key}}`, "{/}")} aria-label={`Couleur ${c.label}`} title={c.label}
-                  style={{ ...tool, width: 24, height: 24 }}>
-                  <span aria-hidden style={{ width: 12, height: 12, borderRadius: 999, background: c.color }} />
-                </button>
-              ))}
-            </div>
-            <textarea
-              ref={taRef}
+            <RichText
               value={text}
-              maxLength={MEMO_MAX}
-              onChange={(e) => { setText(e.target.value); setDirty(true); }}
+              onChange={(t) => { setText(t); setDirty(true); }}
+              onValider={commit}
               onBlur={commit}
-              onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); commit(); } }}
-              placeholder={"Notes personnelles — visibles de vous seul.\n\n**gras**  *italique*  ~~barré~~\n- une puce"}
-              aria-label="Pense-bête"
-              style={{ width: "100%", boxSizing: "border-box", minHeight: 90, maxHeight: Math.max(90, maxHeight - 80), resize: "none",
-                padding: "10px 11px", borderRadius: T.rSm, border: `1px solid ${dirty ? T.brand100 : T.line}`,
-                background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "13px", fontWeight: 500, lineHeight: 1.5,
-                whiteSpace: "pre-wrap" }}
+              outils={["b", "i", "s", "puces", "couleurs"]}
+              max={MEMO_MAX}
+              aria="Pense-bête"
+              multiligne
+              minHeight={90}
+              maxHeight={Math.max(90, maxHeight - 110)}
+              placeholder={"Notes personnelles — visibles de vous seul.\nLa barre d'outils met en forme la sélection."}
             />
-            {dirty && (
-              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "10px", marginTop: 8 }}>
+              {reste <= 200 && (
+                <span style={{ fontSize: "11.5px", fontWeight: 600, color: reste <= 0 ? T.danger : T.ink4 }}>
+                  {reste <= 0 ? "Limite atteinte" : `${reste} caractères restants`}
+                </span>
+              )}
+              {dirty && (
                 <button className="slb-btnp" onClick={commit}
                   style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: "none", background: T.brand, color: "#fff", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
                   <Save aria-hidden style={{ width: 14, height: 14 }} />Enregistrer
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </>
         ) : text ? (
           <MemoRead text={text} />
@@ -10354,81 +11065,303 @@ function MemoCard({ cfg }: { cfg: MemoCfg }) {
 }
 
 /* --- LISTE À COCHER -----------------------------------------------------------
-   Volontairement DISTINCTE du « Journal des tâches » : celui-ci lit les tâches
-   Airtable de l'équipe, celle-ci est un pense-bête à cases, privé, sans échéance ni
-   assignation. Ne pas les fusionner — ce sont deux objets métier différents.
-   Chaque geste (cocher, ajouter, retirer) écrit : ce sont des actes discrets et rares,
-   contrairement à la frappe au clavier du pense-bête. */
-type CheckItem = { id: string; texte: string; fait: boolean };
-type ChecklistCfg = { items: CheckItem[] };
+   Volontairement DISTINCTE du « Journal des tâches » : celui-ci lit les tâches Airtable
+   de l'équipe, celle-ci est un pense-bête à cases, PRIVÉ et sans assignation. Ne pas les
+   fusionner — ce sont deux objets métier différents.
 
+   ⚠️ ENRICHIE LE 2026-08-24 (« beaucoup de gens vont l'utiliser »). Trois apports, et
+   pour chacun la raison de la forme retenue :
+
+   1. LE TEXTE D'UNE LIGNE EST MIS EN FORME, avec la grammaire et le champ du pense-bête
+      (`RichText`) : gras, italique et couleurs, applicables à UN MOT. Le « barré » est
+      volontairement absent de la barre — la case cochée le pose déjà, et deux barrés de
+      sens différents sur la même ligne ne se distingueraient pas.
+      ⚠️ CONSÉQUENCE DE COMPATIBILITÉ : les lignes écrites avant sont du texte brut, et
+      sont désormais relues comme du texte BALISÉ. Une ancienne ligne contenant « 3 * 4 * 5 »
+      s'affichera donc en italique. C'est le même arbitrage que pour le pense-bête, assumé
+      pour n'avoir qu'UNE grammaire dans le bloc ; tout ce qui est saisi depuis le
+      2026-08-24 part échappé et ne peut plus être réinterprété.
+
+   2. UNE ÉCHÉANCE FACULTATIVE (`due`, une date ISO « AAAA-MM-JJ »). Elle AFFICHE et
+      ALERTE, elle ne trie pas : l'ordre des lignes reste celui que son auteur a choisi,
+      parce qu'une liste de rappels se lit dans l'ordre où on compte les faire. Le retard
+      remonte dans le sous-titre du widget, là où il se voit sans ouvrir la carte.
+      ⚠️ Le jour courant vient de `useJour` et se recalcule tout seul : un tableau de bord
+      reste ouvert la nuit, et « Aujourd'hui » ne doit pas mentir au matin.
+
+   3. TROIS GESTES DE PLUS : modifier une ligne (impossible avant — il fallait la
+      supprimer et la retaper, ce qui n'était plus tenable dès qu'elle porte une mise en
+      forme et une date), replier les lignes faites, et monter/descendre une ligne.
+      ⚠️ Le réordonnancement se fait aux FLÈCHES, pas au glisser : le glisser-déposer sert
+      déjà à déplacer le widget dans la grille (§11), les deux se marcheraient dessus.
+      ⚠️ Quand les lignes faites sont repliées, les flèches déplacent d'un VOISIN VISIBLE
+      à l'autre — échanger avec une ligne masquée donnerait l'impression que rien ne bouge.
+
+   Chaque geste (cocher, ajouter, retirer, réordonner, valider une modification) écrit :
+   ce sont des actes discrets et rares, contrairement à la frappe au clavier du
+   pense-bête, qui n'enregistre qu'à la perte de focus. */
+type CheckItem = { id: string; texte: string; fait: boolean; due?: string };
+type ChecklistCfg = { items: CheckItem[]; masquerFaites: boolean };
+
+/** Une date d'échéance est une chaîne « AAAA-MM-JJ » — jamais un `Date`, qui ne survit
+ *  pas au JSON, et jamais un horodatage : une échéance est un JOUR, pas un instant. */
+const CHECK_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const coerceChecklistCfg = (raw: unknown): ChecklistCfg => {
-  const list = Array.isArray(asObj(raw).items) ? (asObj(raw).items as unknown[]) : [];
+  const o = asObj(raw);
+  const list = Array.isArray(o.items) ? (o.items as unknown[]) : [];
   const seen = new Set<string>();
   const items: CheckItem[] = [];
   for (const it of list) {
     if (items.length >= CHECK_MAX) break;
-    const o = asObj(it);
-    const id = asText(o.id);
-    const texte = asText(o.texte).slice(0, CHECK_TEXT_MAX);
+    const x = asObj(it);
+    const id = asText(x.id);
+    const texte = asText(x.texte).slice(0, CHECK_TEXT_MAX);
     if (!id || !texte || seen.has(id)) continue;   // ligne sans texte = ligne perdue, on l'écarte
     seen.add(id);
-    items.push({ id, texte, fait: o.fait === true });
+    const due = asText(x.due);
+    const bonne = CHECK_ISO.test(due) && !Number.isNaN(Date.parse(`${due}T12:00:00`));
+    items.push({ id, texte, fait: x.fait === true, ...(bonne ? { due } : {}) });
   }
-  return { items };
+  return { items, masquerFaites: o.masquerFaites === true };
 };
+
+/** Le jour local au format ISO. ⚠️ PAS `toISOString()`, qui rend le jour UTC : passé
+ *  22 h en France, il renvoie DEMAIN, et toute échéance du jour basculerait « en retard ». */
+const checkJour = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** Le jour courant, qui se recalcule de lui-même (cf. §3 de l'en-tête). `setState` avec la
+ *  même chaîne ne redessine rien : ce réveil ne coûte donc qu'une comparaison par minute. */
+function useJour() {
+  const [jour, setJour] = useState(() => checkJour(new Date()));
+  useEffect(() => {
+    const t = window.setInterval(() => setJour(checkJour(new Date())), 60000);
+    return () => window.clearInterval(t);
+  }, []);
+  return jour;
+}
+/** ⚠️ Les dates ISO se comparent comme des CHAÎNES — même longueur, champs alignés du plus
+ *  significatif au moins : pas de `Date` à construire, donc pas de fuseau à se tromper. */
+type CheckUrgence = "retard" | "aujourdhui" | "demain" | "avenir";
+const checkUrgence = (due: string, jour: string, demain: string): CheckUrgence =>
+  due < jour ? "retard" : due === jour ? "aujourdhui" : due === demain ? "demain" : "avenir";
+/** « 22 août », et l'année seulement si ce n'est pas celle en cours (une échéance lointaine
+ *  sans millésime se lit de travers). Midi local : à minuit UTC, un fuseau négatif reculerait
+ *  la date d'un jour. */
+const checkDateCourte = (due: string, jour: string) => {
+  const d = new Date(`${due}T12:00:00`);
+  return d.toLocaleDateString("fr-FR", {
+    day: "numeric", month: "short",
+    ...(due.slice(0, 4) !== jour.slice(0, 4) ? { year: "numeric" } : {}),
+  });
+};
+
+/** La pastille d'échéance. Une ligne FAITE ne crie plus au retard : sa date redevient une
+ *  simple mention neutre. */
+function CheckDue({ due, jour, demain, fait }: { due: string; jour: string; demain: string; fait: boolean }) {
+  const urg = checkUrgence(due, jour, demain);
+  const court = checkDateCourte(due, jour);
+  if (fait) return <Badge variant="neutral" icon={CalendarClock}>{court}</Badge>;
+  if (urg === "retard") return <Badge variant="danger" icon={CalendarClock}>{`Retard · ${court}`}</Badge>;
+  if (urg === "aujourdhui") return <Badge variant="warn" icon={CalendarClock}>Aujourd&rsquo;hui</Badge>;
+  if (urg === "demain") return <Badge variant="warn" icon={CalendarClock}>Demain</Badge>;
+  return <Badge variant="neutral" icon={CalendarClock}>{court}</Badge>;
+}
+
+/** Le texte d'une ligne, mis en forme. Une ligne de liste est MONOLIGNE par construction :
+ *  on ne rend donc que la première (une ancienne cfg trafiquée à la main pourrait en
+ *  contenir plusieurs — elles seraient simplement ignorées, jamais interprétées). */
+function CheckTexte({ texte, fait }: { texte: string; fait: boolean }) {
+  const l = memoParse(texte)[0] ?? { puce: false, spans: [] };
+  return (
+    <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: T.ink2, overflowWrap: "anywhere",
+      /* Le texte barré ne suffit pas à porter le sens (charte) : la case cochée le dit
+         déjà, l'atténuation n'est qu'un renfort — et l'opacité préserve les couleurs. */
+      textDecoration: fait ? "line-through" : undefined, opacity: fait ? 0.5 : 1 }}>
+      {l.spans.map((sp, i) => <span key={i} style={memoStyle(sp)}>{sp.t}</span>)}
+    </span>
+  );
+}
+
+/** Le choix d'une échéance : le sélecteur natif (donc le calendrier du système, et la
+ *  saisie clavier qui va avec), plus un bouton pour l'enlever. */
+function CheckDatePick({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", flex: "none" }}>
+      <input type="date" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Échéance"
+        style={{ boxSizing: "border-box", padding: "5px 7px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
+          background: T.surface, color: value ? T.ink : T.ink4, fontFamily: "inherit", fontSize: "12px", fontWeight: 500 }} />
+      {value && (
+        <button className="slb-nbtn" style={{ ...NBTN_SM, width: 22, height: 22 }} onClick={() => onChange("")}
+          aria-label="Retirer l'échéance" title="Retirer l'échéance">
+          <X aria-hidden style={{ width: 12, height: 12 }} />
+        </button>
+      )}
+    </span>
+  );
+}
 
 function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
   const writer = useCfgWriter();
+  const jour = useJour();
+  const demain = checkJour(new Date(new Date(`${jour}T12:00:00`).getTime() + 86400000));
+  /** Saisie d'ajout (texte BALISÉ, cf. `RichText`) et son échéance. */
   const [saisie, setSaisie] = useState("");
-  const write = (items: CheckItem[]) => writer?.save({ items: items.slice(0, CHECK_MAX) });
+  const [saisieDue, setSaisieDue] = useState("");
+  /** Ligne en cours de modification, et son brouillon — l'original n'est touché qu'à la
+   *  validation, pour qu'Échap puisse tout rendre. */
+  const [editId, setEditId] = useState<string | null>(null);
+  const [brTexte, setBrTexte] = useState("");
+  const [brDue, setBrDue] = useState("");
+
+  const write = (items: CheckItem[], masquer = cfg.masquerFaites) =>
+    writer?.save({ items: items.slice(0, CHECK_MAX), masquerFaites: masquer });
+
   const ajouter = () => {
     const texte = saisie.trim().slice(0, CHECK_TEXT_MAX);
     if (!texte || !writer || cfg.items.length >= CHECK_MAX) return;
     // Id local : un compteur suffirait mais deux onglets le referaient à l'identique.
-    write([...cfg.items, { id: `c_${Math.random().toString(36).slice(2, 8)}`, texte, fait: false }]);
+    write([...cfg.items, { id: `c_${Math.random().toString(36).slice(2, 8)}`, texte, fait: false, ...(saisieDue ? { due: saisieDue } : {}) }]);
     setSaisie("");
+    setSaisieDue("");
   };
-  const restants = cfg.items.filter((i) => !i.fait).length;
+  const ouvrirEdition = (it: CheckItem) => { setEditId(it.id); setBrTexte(it.texte); setBrDue(it.due ?? ""); };
+  const fermerEdition = () => { setEditId(null); setBrTexte(""); setBrDue(""); };
+  const validerEdition = () => {
+    const texte = brTexte.trim().slice(0, CHECK_TEXT_MAX);
+    if (!texte) return;   // une ligne vidée serait perdue au rechargement (cf. `coerce`)
+    write(cfg.items.map((x) => (x.id === editId ? { id: x.id, texte, fait: x.fait, ...(brDue ? { due: brDue } : {}) } : x)));
+    fermerEdition();
+  };
+
+  const visibles = cfg.masquerFaites ? cfg.items.filter((i) => !i.fait) : cfg.items;
+  /** Déplacement d'un cran, exprimé sur les lignes VISIBLES puis reporté sur la liste
+   *  entière : masquer les lignes faites ne doit pas rendre les flèches erratiques. */
+  const deplacer = (id: string, delta: number) => {
+    const rang = visibles.findIndex((x) => x.id === id);
+    const voisin = visibles[rang + delta];
+    if (!voisin) return;
+    const next = cfg.items.slice();
+    const i = next.findIndex((x) => x.id === id);
+    const j = next.findIndex((x) => x.id === voisin.id);
+    next.splice(j, 0, next.splice(i, 1)[0]);
+    write(next);
+  };
+
+  const faites = cfg.items.filter((i) => i.fait).length;
+  const restants = cfg.items.length - faites;
+  const retards = cfg.items.filter((i) => !i.fait && i.due && i.due < jour).length;
+  const sub = !cfg.items.length ? "Vos rappels personnels"
+    : retards ? `${retards} en retard · ${restants} à faire`
+    : `${restants} sur ${cfg.items.length} à faire`;
+  const plein = cfg.items.length >= CHECK_MAX;
+
   return (
-    <Widget icon={ClipboardList} title="Liste à cocher"
-      sub={cfg.items.length ? `${restants} sur ${cfg.items.length} à faire` : "Vos rappels personnels"}>
+    <Widget icon={ClipboardList} title="Liste à cocher" sub={sub}
+      headActions={writer && faites > 0 ? (
+        <button className="slb-nbtn" style={NBTN_SM} onClick={() => write(cfg.items, !cfg.masquerFaites)}
+          aria-pressed={cfg.masquerFaites}
+          aria-label={cfg.masquerFaites ? `Afficher les ${faites} lignes faites` : `Masquer les ${faites} lignes faites`}
+          title={cfg.masquerFaites ? `Afficher les ${faites} faites` : `Masquer les ${faites} faites`}>
+          {cfg.masquerFaites ? <EyeOff aria-hidden style={{ width: 15, height: 15 }} /> : <Eye aria-hidden style={{ width: 15, height: 15 }} />}
+        </button>
+      ) : null}>
       {writer && (
-        <div style={{ display: "flex", gap: "8px", padding: "12px 16px 10px", borderBottom: `1px solid ${T.line}` }}>
-          <input value={saisie} maxLength={CHECK_TEXT_MAX} onChange={(e) => setSaisie(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); ajouter(); } }}
-            placeholder="Ajouter une ligne…" aria-label="Nouvelle ligne"
-            style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 }} />
-          <button className="slb-btng" onClick={ajouter} aria-label="Ajouter" title="Ajouter"
-            style={{ flex: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, cursor: "pointer" }}>
-            <Plus aria-hidden style={{ width: 15, height: 15 }} />
-          </button>
+        <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.line}` }}>
+          <div style={{ display: "flex", gap: "8px", alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <RichText
+                value={saisie}
+                onChange={setSaisie}
+                onValider={ajouter}
+                outils={["b", "i", "couleurs"]}
+                max={CHECK_TEXT_MAX}
+                aria="Nouvelle ligne"
+                placeholder={plein ? "Liste pleine" : "Ajouter une ligne…"}
+                outilsAuFocus
+              />
+            </div>
+            <button className="slb-btng" onClick={ajouter} aria-label="Ajouter" title="Ajouter" disabled={plein || !saisie.trim()}
+              style={{ flex: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
+                background: T.surface, color: plein || !saisie.trim() ? T.ink4 : T.ink2, cursor: plein || !saisie.trim() ? "default" : "pointer" }}>
+              <Plus aria-hidden style={{ width: 15, height: 15 }} />
+            </button>
+          </div>
+          {(saisie.length > 0 || saisieDue) && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: 8 }}>
+              <CheckDatePick value={saisieDue} onChange={setSaisieDue} />
+              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>Échéance (facultative)</span>
+            </div>
+          )}
         </div>
       )}
       {!cfg.items.length ? (
         <EmptyState dense icon={ClipboardList} title="Rien à faire"
           hint={writer ? "Ajoutez une ligne ci-dessus." : "Cette liste est en lecture seule."} />
+      ) : !visibles.length ? (
+        <EmptyState dense icon={Check} title="Tout est fait"
+          hint={`Les ${faites} lignes cochées sont repliées.`} />
       ) : (
         <ScrollBody>
-          {cfg.items.map((it) => (
-            <div key={it.id} className="slb-row" style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 16px" }}>
-              <input type="checkbox" checked={it.fait} disabled={!writer} aria-label={it.texte}
-                onChange={() => write(cfg.items.map((x) => (x.id === it.id ? { ...x, fait: !x.fait } : x)))}
-                style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: writer ? "pointer" : "default" }} />
-              {/* Le texte barré ne suffit pas à porter le sens (charte) : la case
-                  cochée le dit déjà, la couleur atténuée n'est qu'un renfort. */}
-              <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: it.fait ? T.ink4 : T.ink2, textDecoration: it.fait ? "line-through" : undefined, overflowWrap: "anywhere" }}>
-                {it.texte}
-              </span>
-              {/* `opacity:0` en ligne — cf. RowActions : la feuille de §2 ne peut pas en
-                  répondre dans le bloc Softr, HoverFX (§2-bis) le révèle. */}
-              {writer && (
-                <button className="slb-nbtn slb-hact" style={{ ...NBTN_SM, opacity: 0 }} aria-label={`Retirer — ${it.texte}`} title="Retirer"
-                  onClick={() => write(cfg.items.filter((x) => x.id !== it.id))}>
-                  <X aria-hidden style={{ width: 14, height: 14 }} />
-                </button>
-              )}
-            </div>
+          {visibles.map((it, rang) => (
+            editId === it.id ? (
+              <div key={it.id} style={{ padding: "10px 16px", background: T.surface2, borderTop: `1px solid ${T.line}`, borderBottom: `1px solid ${T.line}` }}>
+                <RichText
+                  value={brTexte}
+                  onChange={setBrTexte}
+                  onValider={validerEdition}
+                  onAnnuler={fermerEdition}
+                  outils={["b", "i", "couleurs"]}
+                  max={CHECK_TEXT_MAX}
+                  aria={`Modifier la ligne — ${memoNu(memoParse(it.texte))}`}
+                  autoFocus
+                />
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: 8, flexWrap: "wrap" }}>
+                  <CheckDatePick value={brDue} onChange={setBrDue} />
+                  <span style={{ flex: 1 }} />
+                  <button className="slb-btng" onClick={fermerEdition}
+                    style={{ padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                    Annuler
+                  </button>
+                  <button className="slb-btnp" onClick={validerEdition} disabled={!brTexte.trim()}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 11px", borderRadius: T.rSm, border: "none",
+                      background: brTexte.trim() ? T.brand : T.neutral050, color: brTexte.trim() ? "#fff" : T.ink4,
+                      fontFamily: "inherit", fontSize: "12px", fontWeight: 600, cursor: brTexte.trim() ? "pointer" : "default" }}>
+                    <Check aria-hidden style={{ width: 13, height: 13 }} />Valider
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div key={it.id} className="slb-row" style={{ display: "flex", alignItems: "center", gap: "9px", padding: "9px 16px" }}>
+                <input type="checkbox" checked={it.fait} disabled={!writer} aria-label={memoNu(memoParse(it.texte))}
+                  onChange={() => write(cfg.items.map((x) => (x.id === it.id ? { ...x, fait: !x.fait } : x)))}
+                  style={{ width: 15, height: 15, accentColor: T.brand, flex: "none", cursor: writer ? "pointer" : "default" }} />
+                <CheckTexte texte={it.texte} fait={it.fait} />
+                {it.due && <CheckDue due={it.due} jour={jour} demain={demain} fait={it.fait} />}
+                {/* `opacity:0` en ligne — cf. RowActions : la feuille de §2 ne peut pas en
+                    répondre dans le bloc Softr, HoverFX (§2-bis) le révèle. */}
+                {writer && (
+                  <span className="slb-hact" style={{ display: "inline-flex", alignItems: "center", gap: "2px", flex: "none", opacity: 0 }}>
+                    <button className="slb-nbtn" style={{ ...NBTN_SM, width: 22, height: 22, color: rang === 0 ? T.ink4 : undefined }}
+                      onClick={() => deplacer(it.id, -1)} disabled={rang === 0} aria-label="Monter" title="Monter">
+                      <ChevronUp aria-hidden style={{ width: 13, height: 13 }} />
+                    </button>
+                    <button className="slb-nbtn" style={{ ...NBTN_SM, width: 22, height: 22, color: rang === visibles.length - 1 ? T.ink4 : undefined }}
+                      onClick={() => deplacer(it.id, 1)} disabled={rang === visibles.length - 1} aria-label="Descendre" title="Descendre">
+                      <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />
+                    </button>
+                    <button className="slb-nbtn" style={{ ...NBTN_SM, width: 22, height: 22 }} onClick={() => ouvrirEdition(it)}
+                      aria-label="Modifier la ligne" title="Modifier">
+                      <Pencil aria-hidden style={{ width: 13, height: 13 }} />
+                    </button>
+                    <button className="slb-nbtn" style={{ ...NBTN_SM, width: 22, height: 22 }}
+                      aria-label={`Retirer — ${memoNu(memoParse(it.texte))}`} title="Retirer"
+                      onClick={() => write(cfg.items.filter((x) => x.id !== it.id))}>
+                      <X aria-hidden style={{ width: 13, height: 13 }} />
+                    </button>
+                  </span>
+                )}
+              </div>
+            )
           ))}
         </ScrollBody>
       )}
@@ -10887,8 +11820,8 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetHeight; group: string; shap
   { type: "excIndics", h: 340, group: "exceptions", shape: "tiles", desc: "Volume des exceptions, couverture du parc et intensité par dossier." },
   { type: "excRegistre", h: 560, group: "exceptions", shape: "table", desc: "Le registre ligne par ligne : périmètre, catégorie, service, valideur, statut." },
   { type: "horloge", h: 168, group: "outils", shape: "clock", desc: "L'heure et la date du jour. Ne lit aucune donnée." },
-  { type: "memo", group: "outils", shape: "text", desc: "Un pense-bête personnel, avec gras, italique et puces." },
-  { type: "checklist", group: "outils", shape: "check", desc: "Une liste à cocher, visible de vous seul." },
+  { type: "memo", group: "outils", shape: "text", desc: "Un pense-bête personnel : gras, italique, barré, puces et couleurs." },
+  { type: "checklist", group: "outils", shape: "check", desc: "Une liste à cocher, visible de vous seul : mise en forme, couleurs et échéances." },
 ];
 
 /** Presets d'une source : ceux du descripteur, ou un modèle liste par défaut. */
