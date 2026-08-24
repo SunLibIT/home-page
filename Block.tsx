@@ -3086,6 +3086,13 @@ const memeJour = (a: number, b: number): boolean => {
  *  ses squelettes ; s'il n'y a pas de session du tout, on lit au bout de ce délai. */
 const SESSION_WAIT_MS = 400;
 
+/** Combien de temps le tableau de bord attend SA DISPOSITION avant d'afficher ce qu'il a
+ *  (cache local, ou l'écran d'accueil). Plus long que l'attente de session ci-dessus : ici on
+ *  ne dégrade rien, on retarde un affichage — et la BDD, si elle répond ensuite, reprend la
+ *  main. Mais pas illimité : quatre squelettes éternels ne sont pas un chargement, ce sont
+ *  des débris. Repris du bloc partenaire le 2026-08-24. */
+const PREFS_WAIT_MS = 6000;
+
 function readSnapshot(key: string): Snapshot | null {
   try {
     const raw = window.localStorage.getItem(key);
@@ -6311,7 +6318,20 @@ const clienteleOf = (raw: unknown): Clientele => {
   return CLIENTELES.some((x) => x.key === c) ? (c as Clientele) : "tous";
 };
 
-const LIST_LIMIT_MAX = 50;
+/** Plafond du réglage « Nombre de lignes » d'un widget.
+ *  ⚠️ RELEVÉ DE 50 À 2 000 LE 2026-08-24, en reprenant la décision prise sur le bloc
+ *  partenaire le 08-21 (« je ne veux pas que tu tronques les données, tout doit s'afficher »).
+ *  Le motif vaut ici mot pour mot : un widget annonçait « 12 sur 145 » et on ne pouvait
+ *  monter qu'à 50 — la liste restait donc incomplète quoi qu'on règle, et rien ne disait que
+ *  c'était le plafond qui bloquait. 2 000 n'est pas un chiffre de confort : « Abonnés »
+ *  comptait 1 787 lignes au 2026-08-21, le plafond couvre donc le cas extrême et reste un
+ *  plafond, pour qu'une cfg absurde ne fabrique pas un DOM de cent mille lignes.
+ *  ⚠️ IL NE SERT À RIEN DE MONTER PLUS HAUT QUE LA PROFONDEUR DE LECTURE : demander 2 000
+ *  lignes à un widget qui n'en lit que 300 en affichera 300. Les deux réglages se suivent —
+ *  c'est pourquoi le panneau les met l'un sous l'autre, avec la phrase qui les distingue.
+ *  ⚠️ Rien n'est virtualisé : ces lignes existent toutes dans le document. 300 se rendent
+ *  sans qu'on le sente, 2 000 se sentent. */
+const LIST_LIMIT_MAX = 2000;
 const KPI_DAYS_MAX = 365;
 const TABLE_COLS_MAX = 6;
 /* Trois filtres à cases au maximum. Ce n'est pas une limite technique mais de LECTURE : la
@@ -12934,6 +12954,20 @@ function usePersistentLayout() {
   const bddId = bddRec?.id ?? null;
   const bddLayoutStr = bddRec ? String(bddRec.fields.layout ?? "") : null;
 
+  /* --- PLAFOND D'ATTENTE DE LA DISPOSITION (2026-08-24, repris du bloc partenaire) -----
+     ⚠️ `if (bddRes.isLoading) return;` attend la table SANS LIMITE. Si elle ne répond
+     jamais — source mal remappée, panne réseau, session sans droit de lecture — la page
+     reste sur ses squelettes pour toujours, et rien ne dit pourquoi. « Quatre squelettes
+     éternels ne sont pas un chargement, ce sont des débris. »
+     Passé ce délai on affiche ce qu'on a : le cache local si le poste en a un, l'écran
+     d'accueil sinon. Ce n'est pas une capitulation — si la table répond ensuite, l'effet
+     retourne et la BDD reprend la main (elle reste la source de vérité). */
+  const [tropLong, setTropLong] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setTropLong(true), PREFS_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     if (!PREFS_ENABLED) {                 // table non branchée : cache local seul
       recordId.current = null;
@@ -12941,7 +12975,7 @@ function usePersistentLayout() {
       setStatus("ready");
       return;
     }
-    if (bddRes.isLoading) return;         // squelettes tant que la BDD répond
+    if (bddRes.isLoading && !tropLong) return;   // squelettes tant que la BDD répond — ou que le plafond tient
     recordId.current = bddId;
     if (bddId) {                          // BDD = SOURCE DE VÉRITÉ → écrase le cache
       const next = normalizeLayout(bddLayoutStr);   // v1 → migré en mémoire (écrit au prochain « Enregistrer »)
@@ -12951,7 +12985,7 @@ function usePersistentLayout() {
       setLayout((cur) => cur ?? cloneDefault());
     }
     setStatus("ready");
-  }, [email, bddRes.isLoading, bddId, bddLayoutStr]);
+  }, [email, bddRes.isLoading, bddId, bddLayoutStr, tropLong]);
 
   /** Écrit le layout : optimiste (état + cache local), puis BDD Softr.
    *  · CREATE (aucun record) : mutateAsync DIRECT { alias: valeur } — forme Softr create.
