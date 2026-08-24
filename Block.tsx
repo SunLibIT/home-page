@@ -12707,6 +12707,69 @@ function usePersistentLayout() {
 
 /* --- Squelette de carte : affiché pendant le chargement des préférences
       (évite le saut visuel au reflow — on n'affiche pas le layout par défaut). --- */
+/* --- LA FLÈCHE DE L'ÉTAT VIDE ------------------------------------------------
+   Elle part du texte, contourne par la droite et REMONTE vers le bouton « Ajouter un
+   widget » de l'en-tête. Purement décorative (`aria-hidden`) : la phrase de l'état vide
+   dit « en haut de la page » et se suffit à elle-même.
+
+   ⚠️ TROIS CHOSES SE JOUENT DANS LA GÉOMÉTRIE, et la première version les avait ratées :
+   son trait finissait à l'horizontale et sa pointe visait la DROITE — vers le bord de la
+   carte, pas vers le bouton, qui est au-DESSUS. Donc :
+     · la courbe se REDRESSE à la fin (son dernier point de contrôle est presque à
+       l'aplomb du point d'arrivée), ce qui donne une tangente quasi verticale ;
+     · la pointe est tracée dans CET axe, et son sommet recouvre la fin du trait — sans ce
+       recouvrement, le chevron paraît détaché, ce qu'on voyait à l'écran ;
+     · le SVG déborde vers le HAUT (`top` négatif) : la carte n'a pas d'`overflow: hidden`,
+       la flèche va donc chercher le bouton au lieu de s'arrêter au bord.
+
+   ⚠️ SVG INLINE, pas d'image ni de police d'icônes : rien à charger, et rien qui dépende
+   d'une feuille de style — la contrainte du §2. Le dégradé fait naître le trait du vide,
+   plutôt que de le couper net.
+   ⚠️ L'animation passe par `element.animate()` (§2-ter) et respecte
+   `prefers-reduced-motion` : un mouvement de 3 px, lent, qui attire l'œil sans clignoter.
+   Elle est en `translate` sur le GROUPE, jamais sur le `<svg>` lui-même — animer un
+   élément positionné en `absolute` déclencherait un recalcul de mise en page à chaque
+   image. */
+function FlecheVersBouton() {
+  const ref = useRef<SVGGElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof el.animate !== "function") return;
+    const reduce = !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) return;
+    const anim = el.animate(
+      [{ transform: "translate(0,0)" }, { transform: "translate(1px,-3px)" }, { transform: "translate(0,0)" }],
+      { duration: 2600, iterations: Infinity, easing: "ease-in-out" },
+    );
+    return () => anim.cancel();
+  }, []);
+  return (
+    <svg aria-hidden viewBox="0 0 150 122" width="150" height="122" fill="none"
+      /* `top` calé pour que la POINTE arrive dans la gouttière qui sépare l'en-tête de la
+         carte (14 px), à quelques pixels sous le bouton — assez près pour le désigner,
+         assez loin pour ne pas le chevaucher. Le sommet du tracé étant à y=24 dans la
+         viewBox, `top: -32` le place 8 px au-dessus du bord de la carte. */
+      style={{ position: "absolute", top: -32, right: 46, color: T.brand, maxWidth: "38%", pointerEvents: "none" }}>
+      <defs>
+        {/* Le trait naît transparent près du texte et s'affirme en approchant du bouton. */}
+        <linearGradient id="slbFlecheVide" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0" />
+          <stop offset="45%" stopColor="currentColor" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.9" />
+        </linearGradient>
+      </defs>
+      <g ref={ref}>
+        {/* Arc : longe le bas vers la droite, puis se redresse à la verticale. */}
+        <path d="M6 110 C 62 108, 116 96, 126 30" stroke="url(#slbFlecheVide)" strokeWidth="2.6"
+          strokeLinecap="round" strokeDasharray="1 8" />
+        {/* Pointe dans l'axe du trait, sommet posé SUR sa fin. */}
+        <path d="M114 46 L 126 24 L 139 44" stroke="currentColor" strokeWidth="2.6"
+          strokeLinecap="round" strokeLinejoin="round" opacity={0.9} />
+      </g>
+    </svg>
+  );
+}
+
 function SkeletonCard() {
   const bar = (w: string, h: number, mt = 0): CSSProperties => ({ height: h, width: w, borderRadius: 6, background: T.neutral050, marginTop: mt });
   return (
@@ -13204,19 +13267,7 @@ function Dashboard() {
            consigne ne doit jamais dépendre d'un ornement. */
         <Card style={CARD}>
           <div style={{ position: "relative" }}>
-            {/* Flèche décorative : elle part du texte et remonte vers le bouton de l'en-tête,
-                juste au-dessus à droite. En SVG inline — ni feuille de style ni police à
-                charger, donc rien qui puisse ne pas s'appliquer dans Softr (§2). Elle est
-                `aria-hidden` : c'est un ornement, la phrase porte le sens. */}
-            <svg aria-hidden viewBox="0 0 132 96" width="132" height="96" fill="none"
-              style={{ position: "absolute", top: -2, right: 10, color: T.brand, maxWidth: "34%", pointerEvents: "none" }}>
-              {/* Le trait : un arc qui monte de la gauche vers le coin haut-droit. */}
-              <path d="M6 90 C 10 54, 34 26, 96 16" stroke="currentColor" strokeWidth="2.5"
-                strokeLinecap="round" strokeDasharray="0.1 9" opacity={0.55} />
-              {/* La pointe, orientée vers le haut-droite. */}
-              <path d="M78 6 L 100 15 L 82 30" stroke="currentColor" strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
+            <FlecheVersBouton />
             <EmptyState icon={LayoutGrid} title="Votre tableau de bord est vide"
               hint="Utilisez ce bouton, en haut de la page, pour y ajouter des widgets." />
           </div>
