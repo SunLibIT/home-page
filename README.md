@@ -21,6 +21,40 @@ Bloc de la **page d'accueil** du CRM SunLib, rendu dans le bloc *vibe coding* de
 
 ---
 
+## 0. Ce qui reste à faire — état au 2026-08-24
+
+### 🚨 Bloquant avant de coller la version du 2026-08-24
+
+**Cocher `Service technique`** dans l'onglet Sources du bloc, datasource **« Abonnés »**. Le champ
+est déclaré dans `SELECT_ABONNE` : non coché, ce n'est pas le filtre qui manque, **c'est le bloc
+entier qui n'ouvre pas** (« New data source does not match / Remap the fields »). Voir le point F
+de l'en-tête de `Block.tsx`.
+
+### Décisions à prendre
+
+| Sujet | Où | En attente de quoi |
+|---|---|---|
+| Filtre « Service technique » sur **« Nouveaux dossiers abonnés »** | ligne prête **en commentaire** dans `SELECT_NOTIF_C` | ce widget lit `notifC`, pas `abonnes` : il lui faut le lookup `Service technique (from Liens BDD)`. **Vérifier qu'il existe côté Airtable** — le décommenter à tort fait échouer le bloc comme un champ non coché. |
+| Repli e-mail par **cookie JWT** | `emailFromJwtCookie`, côté partenaire seulement | chez lui c'est vital (sans e-mail, pas de périmètre) ; ici l'e-mail ne sert qu'aux clés du cache et des préférences, qui dégradent proprement. Lire un cookie et décoder un JWT mérite un accord. |
+
+### Mesure jamais faite, et elle conditionne un calibrage
+
+**La taille de page de Softr** (`SOFTR_PAGE_SIZE` / `TRACE_PAGES`). Rien ne documente si Softr
+honore `count` : c'est **le levier de performance le moins cher du projet** — s'il l'honore, les
+dizaines d'allers-retours d'une source drainée tombent à quelques-uns. La marche à suivre est
+écrite au-dessus de la constante, à mener **sur la page publiée**. Le bloc imprime déjà la mesure
+quand un plafond saute : `[SunLib] lecture TRONQUÉE : N pages, M lignes (~X par page)`.
+
+### À vérifier à l'écran dans Softr
+
+- Le **pense-bête** — sa barre d'outils était inerte en production (shadow DOM). Le correctif est
+  **inféré et testé sous jsdom, pas confirmé dans Softr**. S'il résiste, regarder la console de la
+  page publiée.
+- Les **filtres** du 2026-08-24 (service technique, N° SL saisi, recherche dans le panneau, liste
+  déroulante dans les Options) et la **profondeur de lecture** (« · 300 derniers » au sous-titre).
+
+---
+
 ## 1. Structure
 
 ```
