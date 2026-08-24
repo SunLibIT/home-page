@@ -7556,6 +7556,12 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
     <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint || litTout}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
+        /* Les lignes LUES (avant tout filtre du widget) sont notées pour le formulaire
+           d'options, qui en tire les valeurs à proposer — cf. `LIGNES_VUES`. On note
+           `api.rows` et non `rows` : les valeurs proposées doivent décrire la SOURCE, pas
+           ce que ce widget-ci laisse passer, sinon on ne pourrait plus élargir un filtre
+           qu'on vient de poser. Écriture d'une référence, donc sans coût. */
+        LIGNES_VUES.set(cfg.source, api.rows);
         /* Les réglages locaux (recherche, cases, tri) passent DANS `applyQuery`, donc
            avant la limite : on cherche et on trie sur toute la table lue. */
         const rows = isKpi ? api.rows : applyQuery(api.rows, cfg, local, ident);
@@ -7850,20 +7856,57 @@ function QuickCreate({ desc, api }: { desc: SourceDesc; api: SourceApi }) {
 
 /* Valeur d'un filtre : menu déroulant si le descripteur liste les valeurs
    possibles, saisie libre sinon (et numérique pour les opérateurs numériques). */
+/* --- LES VALEURS QUE LE FORMULAIRE D'OPTIONS PEUT PROPOSER (2026-08-24) --------
+   Le champ « Valeur » d'un filtre de cfg était une SAISIE LIBRE dès que le champ ne
+   déclarait pas d'`options` — donc pour « Service technique » il fallait taper un prénom
+   au clavier, sans savoir lesquels existent ni comment ils sont orthographiés. Demandé :
+   une liste déroulante.
+
+   ⚠️ POURQUOI CE REGISTRE PLUTÔT QU'UN CONTEXTE REACT. Le panneau ⋮ est monté depuis la
+   GRILLE (`WidgetOptionsCtx`), c'est-à-dire au-dessus du widget dans l'arbre : un contexte
+   posé par `DataView`, qui détient les lignes, ne redescendrait jamais jusqu'à lui. On note
+   donc les lignes de côté, hors de React.
+   ⚠️ ON GARDE LA RÉFÉRENCE DU TABLEAU, PAS UNE COPIE : coût nul en mémoire comme en temps,
+   et les valeurs distinctes ne sont calculées qu'à l'ouverture du panneau, pour le seul
+   champ regardé. Aucune requête n'est déclenchée — ce sont les lignes DÉJÀ lues.
+   ⚠️ Ce registre peut être VIDE (widget encore en chargement, source jamais affichée) : le
+   formulaire retombe alors sur la saisie libre, jamais sur une liste vide qui empêcherait
+   de filtrer. */
+const LIGNES_VUES = new Map<string, Row[]>();
+
+/** Les valeurs proposables pour un champ, dans l'ordre de fréquence. `[]` si on n'a rien vu
+ *  ou si le champ ne s'y prête pas — une date ou un nombre se SAISISSENT, les proposer
+ *  reviendrait à interdire « avant telle date » sur une date absente des lignes lues. */
+function valeursProposables(desc: SourceDesc, alias: string): string[] {
+  const champ = desc.fields[alias];
+  if (!champ || (champ.kind !== "text" && champ.kind !== "badge")) return [];
+  const rows = LIGNES_VUES.get(desc.key);
+  if (!rows?.length) return [];
+  return facetValues(rows, alias, champ.multi, FACET_VALUES_MAX).map((v) => v.value);
+}
+
 function FilterValueInput({ desc, field, op, value, onChange, style }: {
   desc: SourceDesc; field: string; op: FilterOp; value: string;
   onChange: (v: string) => void; style: CSSProperties;
 }) {
-  const options = desc.fields[field]?.options;
   const numeric = FILTER_OPS.find((o) => o.op === op)?.numeric;
-  if (numeric || !options?.length) {
+  /* Les valeurs DÉCLARÉES au catalogue d'abord (un statut est une liste fermée, connue même
+     quand aucune ligne ne la porte), les valeurs OBSERVÉES ensuite. */
+  const declarees = desc.fields[field]?.options ?? [];
+  const options = numeric ? [] : declarees.length ? declarees : valeursProposables(desc, field);
+  if (!options.length) {
     return <input style={style} value={value} aria-label="Valeur du filtre" inputMode={numeric ? "numeric" : undefined}
       placeholder={op === "lastDays" ? "30" : numeric ? "0" : "valeur"} onChange={(e) => onChange(e.target.value)} />;
   }
+  /* ⚠️ La valeur ENREGISTRÉE est ajoutée à la liste si elle n'y est plus (la personne a
+     quitté le service, la ligne est sortie du périmètre lu…). Sans ça, le `<select>`
+     s'afficherait vide et le filtre paraîtrait effacé alors qu'il continue de s'appliquer —
+     un widget qui ne montre rien, sans qu'on voie pourquoi. */
+  const liste = value && options.indexOf(value) === -1 ? [value, ...options] : options;
   return (
     <select style={style} value={value} aria-label="Valeur du filtre" onChange={(e) => onChange(e.target.value)}>
       <option value="">— choisir —</option>
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      {liste.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
 }

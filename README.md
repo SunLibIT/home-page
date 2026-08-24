@@ -836,6 +836,30 @@ déclarés — et déjà cochable en colonne ou en filtre depuis le ⋮. Ce qui 
   d'attente** — là, il a une raison de plus : la recherche y est coupée, donc rien ne permettait
   d'y pointer un dossier précis. **Ce filtre-là se SAISIT, il ne se coche pas** (voir ci-dessous).
 
+### La valeur d'un filtre de configuration se choisit dans une liste (2026-08-24, demandé)
+
+⋮ → Options → « Filtres (tous doivent être vrais) » : la case **Valeur** était une **saisie
+libre** dès que le champ ne déclarait pas d'`options` au catalogue. Pour « Service technique », il
+fallait donc taper un prénom au clavier sans savoir lesquels existent ni comment ils s'écrivent.
+C'est maintenant un **menu déroulant**, alimenté par les valeurs réellement présentes.
+
+- les valeurs **déclarées** au catalogue gardent la priorité — un statut est une liste fermée,
+  connue même quand aucune ligne ne la porte, et il faut pouvoir filtrer sur ce qui a disparu ;
+- à défaut, les valeurs **observées** dans les lignes déjà lues, les plus fréquentes d'abord ;
+- **dates, nombres et textes longs restent en saisie** : les réduire aux valeurs vues
+  interdirait « avant telle date » dès que cette date ne figure dans aucune ligne.
+
+⚠️ **Le panneau ⋮ est monté depuis la grille**, donc *au-dessus* du widget dans l'arbre React : un
+contexte posé par `DataView`, qui détient les lignes, ne redescendrait jamais jusqu'à lui. Les
+lignes sont donc notées de côté (`LIGNES_VUES`), **par référence** — coût nul, aucune requête, et
+les valeurs distinctes ne sont calculées qu'à l'ouverture du panneau, pour le seul champ regardé.
+Registre vide (widget en chargement, source jamais affichée) ⇒ retour à la saisie libre, jamais
+une liste vide qui empêcherait de filtrer.
+
+⚠️ **La valeur enregistrée est réinjectée** dans la liste si elle n'y figure plus (la personne a
+quitté le service…). Sans ça le `<select>` s'afficherait vide et le filtre paraîtrait effacé —
+alors qu'il continue de s'appliquer, et que le widget ne montre rien sans qu'on voie pourquoi.
+
 ### Une recherche dans le panneau d'un filtre à cases (2026-08-24, demandé)
 
 Demandé pour « Service technique » : *« une liste de toutes les personnes avec une barre de
