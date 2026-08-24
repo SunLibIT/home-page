@@ -1072,10 +1072,16 @@ widget reste **posable**. Les sept l'étaient — `notesInstallateurs` et `notes
 presets déclarés de leurs sources (§6-bis), les cinq autres par `CUSTOM_TYPES`. Une entrée
 posable **uniquement** d'ici deviendrait inatteignable en la retirant.
 
-⚠️ **L'état vide nomme ce qu'on peut poser**, et désigne le bouton par son **libellé exact**. Un
-état vide qui dit « c'est vide » et rien d'autre laisse la porte fermée : personne n'ouvre une
-galerie dont il ignore le contenu. Cette phrase est donc **à tenir à jour** quand un type de
-widget est ajouté ou retiré — c'est la seule du bloc qui promette un contenu.
+⚠️ **L'état vide MONTRE le geste, il ne le duplique pas** (revu le jour même, sur retour d'usage).
+La première version faisait deux erreurs qui allaient ensemble : elle **redonnait** le bouton
+« Ajouter un widget » au centre de la carte alors qu'il est déjà en tête de section — deux boutons
+identiques pour un seul geste font douter que ce soit le même — et elle **énumérait** les dix
+widgets posables en une phrase que personne ne lit, et qu'il aurait fallu tenir à jour à chaque
+type ajouté. À la place : une **flèche** (SVG inline, `aria-hidden`) désigne le bouton du haut, et
+la phrase tient en une ligne — *« Utilisez ce bouton, en haut de la page, pour y ajouter des
+widgets. »* Ce qu'on peut poser, la galerie le montre avec ses miniatures : c'est son travail.
+La phrase dit **« en haut de la page »** et non « suivez la flèche » : une consigne ne doit jamais
+dépendre d'un ornement.
 
 ⚠️ **Le cas limite non couvert** : si la lecture de la table échoue (et non « répond vide »), le
 code retombe sur `cloneDefault()`, donc sur un tableau vide — un utilisateur pourrait croire avoir

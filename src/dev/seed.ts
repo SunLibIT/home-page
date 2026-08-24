@@ -21,15 +21,23 @@ const inDays = (n: number) => {
 };
 
 /* « Abonnés » — nouveaux dossiers (aliases : nom / prenom / partenaire / statut / offre
-   / creeLe). Les cinq derniers champs servent la SECONDE lecture de cette table, celle
-   du podium CAPEX (SELECT_COM) : sans eux, l'aperçu local en USE_MOCK=false montrerait
-   un podium vide. `contratSigne` est une PIÈCE JOINTE, donc un tableau. */
+   / ref / technique / creeLe). Les cinq derniers champs servent la SECONDE lecture de
+   cette table, celle du podium CAPEX (SELECT_COM) : sans eux, l'aperçu local en
+   USE_MOCK=false montrerait un podium vide. `contratSigne` est une PIÈCE JOINTE, donc un
+   tableau.
+   ⚠️ `ref` est le N° SL (2026-08-24) — colonne du modèle de tableau et filtre d'office.
+   Sans lui ici, la colonne serait blanche en local et le filtre absent : on croirait la
+   livraison ratée alors qu'il ne manquerait que la donnée de test.
+   ⚠️ `technique` porte DEUX noms distincts sur trois lignes, et il le faut : un filtre à
+   cases qui ne trouve qu'une seule valeur ne s'affiche pas (`FacetFilter`). Avec un seul
+   nom partout, le filtre « Service technique » resterait invisible en local et on le
+   croirait cassé. */
 const abonnes: Rec[] = [
-  { id: "a1", fields: { prenom: "Quentin", nom: "LINDIMER", partenaire: "Soleil et Climat", statut: "Dossier incomplet pour instruction", offre: "PV seul", creeLe: daysAgo(0),
+  { id: "a1", fields: { prenom: "Quentin", nom: "LINDIMER", partenaire: "Soleil et Climat", statut: "Dossier incomplet pour instruction", offre: "PV seul", ref: "SL-2026-0412", technique: "Marie Lefèvre", creeLe: daysAgo(0),
       commercial: "Edouard Da Silva", capex: 1420000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: "2026-08" } },
-  { id: "a2", fields: { prenom: "", nom: "TSD BEL HABITAT", partenaire: "TSD BEL HABITAT", statut: "Dossier PRO en cours d'étude du service technique", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(1),
+  { id: "a2", fields: { prenom: "", nom: "TSD BEL HABITAT", partenaire: "TSD BEL HABITAT", statut: "Dossier PRO en cours d'étude du service technique", offre: "PV + Batterie Virtuelle", ref: "SL-2026-0398", technique: "Karim Benali", creeLe: daysAgo(1),
       commercial: "Philippe GERY", capex: 1980000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: "2026-07" } },
-  { id: "a3", fields: { prenom: "Marie", nom: "Dupont", partenaire: "A.D.W", statut: "Contrat signé", offre: "PV seul", creeLe: daysAgo(2),
+  { id: "a3", fields: { prenom: "Marie", nom: "Dupont", partenaire: "A.D.W", statut: "Contrat signé", offre: "PV seul", ref: "SL-2026-0377", technique: "Marie Lefèvre", creeLe: daysAgo(2),
       commercial: "Ilan LEVY", capex: 1450000, contratSigne: [{ url: "#", filename: "c.pdf" }], statutAbonne: "Actif", moisSignature: "2026-06" } },
 ];
 

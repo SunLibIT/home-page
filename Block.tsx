@@ -56,6 +56,19 @@
                                   Onglet Sources du bloc → « Notification Center » → cocher
                                   ces champs. Les champs exposés se choisissent À LA
                                   CONNEXION, pas d'après la table (leçon du 2026-08-04).
+     F) 🚨 À FAIRE DANS SOFTR AVANT DE COLLER CETTE VERSION (2026-08-24) → la datasource
+                                  `abonnes` doit EXPOSER un champ de plus :
+                                    · Service technique
+                                  Onglet Sources du bloc → « Abonnés » → cocher ce champ.
+                                  Il porte le filtre à cases « Service technique » demandé
+                                  ce jour-là (chacun coche son prénom et ne voit plus que
+                                  ses dossiers), et il est déclaré dans `SELECT_ABONNE`.
+                                  ⚠️ TANT QU'IL N'EST PAS COCHÉ, LE BLOC ENTIER ÉCHOUE au
+                                  chargement — ce n'est pas le filtre qui manquerait, c'est
+                                  la page qui ne monterait pas. Même piège que le point E.
+                                  ⚠️ Une fois coché mais pas encore rempli, rien ne casse :
+                                  un filtre trouvant moins de deux valeurs ne s'affiche pas,
+                                  et il apparaîtra tout seul quand la colonne sera saisie.
    ⚠️ USE_MOCK est passé à FALSE le 2026-08-04 : le bloc lit Airtable en direct.
    ============================================================================ */
 
@@ -1197,6 +1210,18 @@ const SELECT_ABONNE = q.select({
      des deux montrer.
      ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES du bloc, comme `client`. */
   entreprise: "Nom de l'entreprise",
+  /* SERVICE TECHNIQUE — qui, chez nous, s'occupe du dossier (2026-08-24, demandé). C'est
+     ce champ qui porte le filtre à cases « Service technique » : chacun coche son prénom
+     et ne voit plus que ses dossiers (cf. `defaultFacet` d'`abonnes`, §6-bis).
+     ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES du bloc pour la datasource `abonnes`, exactement
+     comme `client` et `entreprise` : un champ déclaré ici mais NON EXPOSÉ côté Softr fait
+     échouer le BLOC ENTIER (« New data source does not match / Remap the fields »), pas
+     seulement le filtre. C'est le seul geste à faire hors du code.
+     ⚠️ Si le champ arrive vide sur toutes les lignes (non coché, ou pas encore rempli),
+     rien ne casse et rien ne se vide : un filtre à cases qui trouve moins de deux valeurs
+     ne s'affiche pas du tout (`FacetFilter`), et il réapparaîtra tout seul le jour où la
+     colonne sera renseignée. */
+  technique: "Service technique",
   creeLe: "date de création",
   // ── Ajouts « fiche détaillée ». Ils servent aussi de colonnes et de filtres aux
   //    widgets génériques, puisque le catalogue les déclare (§6-bis).
@@ -1365,6 +1390,20 @@ const SELECT_NOTIF_C = q.select({
      `clienteleRows` détecte qu'aucune ligne n'est classable et ne filtre alors RIEN,
      le widget disant lui-même que le réglage est inopérant. */
   client: "Champs IA Config client (from Liens BDD)",
+  /* ⏸️ SERVICE TECHNIQUE — PRÉPARÉ, PAS ACTIVÉ (2026-08-24). Le filtre à cases demandé ce
+     jour-là est posé sur la source `abonnes` ; « Nouveaux dossiers abonnés » lit une AUTRE
+     table (« Notification Center »), donc il ne l'a pas. Pour le lui donner, il faut le
+     lookup correspondant, sur le modèle des cinq autres :
+
+       technique: "Service technique (from Liens BDD)",
+
+     puis, dans le catalogue de `notifC`, la même ligne de champ que sur `abonnes` et
+     l'alias dans son `defaultFacet`.
+     ⚠️ LAISSÉ EN COMMENTAIRE PARCE QU'ON IGNORE SI CE LOOKUP EXISTE dans la table. Le
+     champ `client` ci-dessus a pu être ajouté parce qu'il avait été RELEVÉ PAR L'API au
+     préalable (`fldEimoiZuVIvuMP7`) ; ici, rien de tel. Décommenter un lookup absent ferait
+     échouer le bloc entier, exactement comme un champ non coché — donc : vérifier d'abord
+     qu'il existe, le créer dans Airtable sinon, puis le cocher côté Softr. */
 });
 /* WHITELIST d'écriture : la case, et rien d'autre. */
 const SELECT_NOTIF_C_W = q.select({ aLire: "Statut de lecture" });
@@ -2031,6 +2070,17 @@ type FieldDesc = {
      plusieurs valeurs. Sur du texte libre, une raison sociale du genre « MARTIN, SARL » serait
      coupée en deux — c'est pourquoi ce n'est pas déduit du `kind`. */
   multi?: boolean;
+  /* --- FILTRE QUI SE SAISIT, ET NON QUI SE COCHE (2026-08-24) -------------------
+     Un filtre à cases suppose que les valeurs se RÉPÈTENT : cocher « MC ENERGY », c'est
+     désigner d'un geste les douze dossiers de cet installateur. Sur un IDENTIFIANT, cette
+     hypothèse tombe — chaque dossier ayant son numéro, le panneau listait une case par
+     dossier, toutes à 1. Retour d'usage du 2026-08-24, et il est juste : « chaque client,
+     c'est un SL différent, donc on ne se repère quasiment jamais comme ça ».
+     Renseigné, le filtre devient un CHAMP DE SAISIE (`FiltreSaisie`) : on tape le numéro,
+     même partiellement, et la correspondance se fait en « contient ».
+     ⚠️ C'est une propriété du CHAMP et non du widget : le jour où le N° SL sert ailleurs,
+     il s'y comportera pareil, sans qu'on ait à y penser. */
+  saisie?: boolean;
   /* `false` = champ ABSENT de la pop-up de détail. Pour un champ calculé qui n'y serait
      qu'un doublon des colonnes dont il est tiré. Il reste utilisable partout ailleurs —
      titre de ligne, colonne, tri, filtre. */
@@ -2254,6 +2304,19 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
         variants: { Pro: "brand", Solo: "info", Duo: "solar" },
       },
       entreprise: { label: "Nom de l'entreprise", kind: "text" },
+      /* SERVICE TECHNIQUE (2026-08-24, demandé) — la personne de chez nous qui suit le
+         dossier. Déclaré ici, il devient d'un coup : un filtre à cases, une colonne de
+         tableau, un critère de tri et une ligne de la fiche détaillée. C'est tout l'intérêt
+         du descripteur — aucun composant à écrire pour un champ de plus (§8.4).
+         ⚠️ `multi: true` alors qu'on ignore si la colonne portera une personne ou
+         plusieurs, et c'est le choix SÛR : sur une valeur unique, le découpage rend cette
+         seule valeur et le filtre se comporte à l'identique ; sur une cellule à deux noms,
+         il propose DEUX cases au lieu d'une case « Julien, Marie » que personne ne
+         cocherait. Le seul cas qu'il abîme est un nom contenant lui-même une virgule
+         (« Dupont, Marie ») — s'il s'en présente, repasser en `multi: false`.
+         ⚠️ `kind: "text"` et non `badge` : sans liste de valeurs connue, une pastille
+         serait grise pour tout le monde et n'apprendrait rien de plus qu'un nom écrit. */
+      technique: { label: "Service technique", kind: "text", multi: true },
       /* LE CLIENT, tel qu'il faut l'écrire sur une ligne — la raison sociale pour un pro,
          le nom de famille pour un particulier. Les replis vont dans les deux sens : un pro
          sans raison sociale saisie garde son « Nom » plutôt que de n'avoir plus rien.
@@ -2280,7 +2343,21 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       /* Champs de la FICHE DÉTAILLÉE (2026-08-06). L'ORDRE DE DÉCLARATION EST L'ORDRE
          D'AFFICHAGE dans la pop-up : identité, puis dossier, puis argent, puis dates,
          puis contrats. Réordonner ici réordonne la fiche — c'est le seul réglage. */
-      ref: { label: "Référence dossier", kind: "text" },
+      /* LE NUMÉRO DE DOSSIER — « SL-… », un par abonné. Il était déjà LU et déclaré, donc
+         déjà cherchable et cochable ; ce qui manquait, c'est qu'on le PROPOSE (2026-08-24,
+         demandé : « dans les colonnes notamment et dans les filtres »). Il entre donc dans
+         les colonnes du modèle de tableau et dans les filtres d'office (`defaultFacet`).
+         ⚠️ Libellé raccourci de « Référence dossier » à « N° SL » : c'est le nom que tout le
+         monde emploie, et c'est sous celui-là qu'on le cherche dans la liste des colonnes du
+         ⋮. Le champ Airtable, lui, s'appelle toujours « Contrat abonné » (cf.
+         `SELECT_ABONNE`) — trois noms pour une même chose, d'où ce rappel.
+         ⚠️ Ce libellé sert aussi d'EN-TÊTE DE COLONNE : les widgets déjà posés qui
+         affichaient `ref` verront « N° SL » à la place de « Référence dossier ». Changement
+         voulu, et purement cosmétique — aucune cfg enregistrée ne bouge.
+         ⚠️ `saisie: true` — son filtre est un CHAMP DE SAISIE, pas une liste de cases. La
+         première livraison du jour l'avait mis en cases comme les autres : inutilisable,
+         puisque chaque dossier a son propre numéro (voir `saisie` sur `FieldDesc`). */
+      ref: { label: "N° SL", kind: "text", saisie: true },
       statutAbonne: { label: "Statut de l'abonné", kind: "badge",
                       options: ["Annulé", "Repris", "Refusé"],
                       variants: { "Annulé": "neutral", "Repris": "info", "Refusé": "danger" } },
@@ -2301,7 +2378,32 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
        continueront d'afficher un titre vide sur les dossiers pros jusqu'à ce qu'on repasse
        leur titre sur « Client » dans le ⋮. */
     defaultMap: { title: "clientNom", sub: "partenaire", date: "creeLe", badge: "statut" },
-    defaultFacet: "partenaire",   // filtre à cases proposé d'office : par installateur
+    /* Filtres à cases proposés d'office : par installateur, et par SERVICE TECHNIQUE
+       depuis le 2026-08-24 (demandé — « cliquer sur son prénom pour n'avoir que ses
+       dossiers »).
+       ⚠️ QUI HÉRITE DE CE DÉFAUT, EXACTEMENT — la règle est dans `coerceCfg`, et elle a
+       trois branches, pas deux :
+         · cfg SANS clé `facets` ni `facet` → prend ce défaut EN ENTIER. C'est le cas des
+           instances les plus anciennes, et de tout widget posé après ;
+         · cfg avec `facet` (l'ancienne clé au singulier) → la valeur enregistrée reste en
+           tête et le défaut la COMPLÈTE : à l'époque de cette clé un seul filtre était
+           possible, la garder seule figerait le widget dans une limite qui n'existe plus.
+           Le cas `facet: ""` (« aucun filtre ») est préservé et ne reçoit rien ;
+         · cfg avec `facets` explicite → gardée telle quelle. Un choix exprimé sous le
+           régime actuel ne se fait pas écraser par une livraison.
+       Autrement dit, une bonne partie des widgets déjà posés verront ces filtres arriver
+       tout seuls ; ceux dont les filtres ont été réglés depuis le 2026-08-19 non, et pour
+       ceux-là c'est deux clics : ⋮ → Options. Les deux files d'attente, elles, portent la
+       liste dans leur cfg figée, donc elles l'ont sans rien demander.
+
+       ⚠️ LE N° SL EST LE TROISIÈME, ET C'EST LA DERNIÈRE PLACE (`FACETS_MAX` = 3).
+       Il ne se COCHE pas, il se SAISIT — le champ porte `saisie: true`, et la barre monte
+       alors un `FiltreSaisie` au lieu d'un `FacetFilter`. Livré d'abord en cases le
+       2026-08-24, corrigé le jour même sur retour d'usage : « chaque client, c'est un SL
+       différent, donc on ne se repère quasiment jamais comme ça ». C'est juste, et ça vaut
+       pour tout identifiant — d'où une propriété portée par le CHAMP, réutilisable, plutôt
+       qu'un cas particulier écrit dans la barre d'outils. */
+    defaultFacet: ["partenaire", "technique", "ref"],
     /* Modèles prêts à poser — pur JSON. C'est ici qu'on ajoute une vue métier utile
        sans écrire de composant : elle apparaît aussitôt dans la galerie. */
     presets: [
@@ -2326,8 +2428,16 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       { label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: 168, hidden: true,
         cfg: { title: "Dossiers du mois",
                view: { kind: "kpi", agg: "count", dateField: "creeLe", compareDays: 30 } } },
+      /* ⚠️ COLONNES REVUES LE 2026-08-24 (demandé) : le N° SL passe EN TÊTE — c'est
+         l'identifiant du dossier, celui qu'on lit ou qu'on recopie en premier.
+         ⚠️ Et `nom` devient `clientNom` au passage. Ce n'était pas demandé, mais c'est le
+         MÊME défaut que celui corrigé le 2026-08-18 sur les listes : sur un dossier PRO,
+         « Nom » est VIDE dans la base — cette colonne était donc blanche pour les deux
+         tiers des dossiers. `clientNom` montre la raison sociale pour un pro et le nom de
+         famille pour un particulier (§6-bis).
+         Cinq colonnes sur les six autorisées (`TABLE_COLS_MAX`) : il reste une place. */
       { label: "Tableau des dossiers", icon: "LayoutGrid",
-        cfg: { view: { kind: "table", columns: ["nom", "partenaire", "statut", "creeLe"] } } },
+        cfg: { view: { kind: "table", columns: ["ref", "clientNom", "partenaire", "statut", "creeLe"] } } },
       /* ── AJOUTÉS LE 2026-08-18 (demande) — les deux FILES D'ATTENTE du pipeline.
          Ajoutés EN FIN de tableau, jamais insérés : la clé de galerie est
          « abonnes:<index> » (cf. `hidden` sur `PresetDesc`), donc intercaler déplacerait
@@ -6422,6 +6532,10 @@ type LocalRefine = {
    *  elles, ouvrir un second filtre ÉCRASAIT le premier — trois boutons pour un seul filtre
    *  effectif, et sans le dire. */
   facetSel?: Record<string, string[]>;
+  /** Filtres qui se SAISISSENT au lieu de se cocher : alias → texte tapé ("" ou absent =
+   *  aucune restriction). Voir `saisie` sur un champ (§6-bis) : sur un identifiant comme le
+   *  N° SL, une liste de cases proposerait une case par dossier — on ne s'y repère pas. */
+  texteSel?: Record<string, string>;
   sort?: { by: string; dir: "asc" | "desc" };  // tri par clic (surcharge celui de la cfg)
 };
 
@@ -6447,6 +6561,16 @@ function applyQuery(rows: Row[], cfg: InstanceCfg, local?: LocalRefine, ident?: 
     const coche = new Set(vals.map(foldText));
     const multi = desc.fields[alias].multi;
     out = out.filter((r) => matchFacet(r[alias], coche, multi));
+  }
+
+  /* Filtres SAISIS (`saisie` sur un champ, §6-bis) : correspondance « CONTIENT », pour que
+     taper « 0412 » retrouve « SL-2026-0412 » — personne ne recopie un identifiant entier
+     pour le chercher. Même repli casse/accents que la recherche (`foldText`), et un champ
+     laissé vide ne restreint rien. Un ET avec les autres filtres, comme le reste. */
+  for (const [alias, texte] of Object.entries(local?.texteSel ?? {})) {
+    const q = foldText(texte).trim();
+    if (!q || !(alias in desc.fields)) continue;
+    out = out.filter((r) => foldText(r[alias]).includes(q));
   }
 
   const tri = local?.sort ?? cfg.query.sort;
@@ -6875,6 +6999,87 @@ function FacetFilter({ alias, desc, rows, cochees, onChange }: {
   );
 }
 
+/** Le filtre d'un champ déclaré `saisie` (§6-bis) : on TAPE la valeur au lieu de la
+ *  cocher. Même bouton, même panneau et même place dans la barre que `FacetFilter` — seul
+ *  son contenu change : un identifiant se cherche, il ne se choisit pas dans une liste.
+ *
+ *  Trois détails qui font la différence à l'usage :
+ *  · la correspondance est « CONTIENT » (cf. `applyQuery`), donc taper « 0412 » suffit —
+ *    personne ne recopie « SL-2026-0412 » en entier pour le retrouver ;
+ *  · le nombre de lignes trouvées s'affiche EN DIRECT, sous le champ. Sans lui, une saisie
+ *    d'un caractère de trop rend une liste vide sans qu'on sache si c'est la faute de la
+ *    frappe ou du dossier ;
+ *  · les valeurs qui correspondent sont proposées dessous (six au plus) et se cliquent.
+ *    C'est là que le panneau redevient une aide : on tape trois chiffres et on VOIT les
+ *    numéros candidats, au lieu de deviner. */
+function FiltreSaisie({ alias, desc, rows, valeur, onChange }: {
+  alias: string; desc: SourceDesc; rows: Row[];
+  /** Texte saisi ("" = aucune restriction). */
+  valeur: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useDismissOnOutside(open, setOpen);
+  const champ = desc.fields[alias];
+  const libelle = champ?.label ?? alias;
+  const q = foldText(valeur).trim();
+  const trouve = q ? rows.filter((r) => foldText(r[alias]).includes(q)).length : rows.length;
+  /* Les propositions viennent des lignes CHARGÉES, comme les cases d'un filtre à facettes :
+     ce qui n'est pas là ne peut pas être proposé, et c'est honnête — le compteur ci-dessus
+     dit sur quelle population on travaille. */
+  const pistes = q
+    ? facetValues(rows, alias, champ?.multi, 6).filter((v) => foldText(v.value).includes(q)).slice(0, 6)
+    : [];
+  return (
+    <div ref={ref} style={{ position: "relative", flex: "none" }}>
+      <button style={q ? TBTN_ON : TBTN} onClick={() => setOpen((o) => !o)}
+        aria-haspopup="dialog" aria-expanded={open} title={`Filtrer par ${libelle}`}>
+        <Search aria-hidden style={{ width: 13, height: 13 }} />
+        {libelle}
+        {q ? ` · ${valeur.trim()}` : ""}
+        <ChevronDown aria-hidden style={{ width: 13, height: 13 }} />
+      </button>
+      {open && (
+        <div role="dialog" aria-label={`Filtrer par ${libelle}`} style={{ ...TPANEL, padding: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 8px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface2 }}>
+            <Search aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} />
+            <input
+              autoFocus
+              value={valeur}
+              onChange={(e) => onChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setOpen(false); }}
+              placeholder={`Saisir un ${libelle.toLowerCase()}…`}
+              aria-label={`Saisir un ${libelle}`}
+              style={{ flex: 1, minWidth: 0, width: 150, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink }} />
+            {valeur !== "" && (
+              <button onClick={() => onChange("")} aria-label="Effacer"
+                style={{ display: "grid", placeItems: "center", flex: "none", width: 18, height: 18, borderRadius: 999, border: "none", background: "none", cursor: "pointer", color: T.ink4 }}>
+                <X aria-hidden style={{ width: 13, height: 13 }} />
+              </button>
+            )}
+          </div>
+          <div style={{ padding: "7px 8px 3px", fontSize: "11.5px", fontWeight: 600, color: trouve === 0 && q ? T.danger : T.ink4 }}>
+            {!q ? "Tapez tout ou partie du numéro"
+              : trouve === 0 ? "Aucune ligne ne correspond"
+              : `${trouve} ligne${trouve > 1 ? "s" : ""} sur ${rows.length}`}
+          </div>
+          {pistes.length > 0 && (
+            <>
+              <div style={{ height: 1, background: T.line, margin: "4px 6px" }} />
+              {pistes.map(({ value }) => (
+                <button key={value} style={{ ...TITEM, cursor: "pointer", width: "100%" }}
+                  onClick={() => { onChange(value); setOpen(false); }}>
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{value}</span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
   rows: Row[]; cfg: InstanceCfg; desc: SourceDesc;
   local: LocalRefine; setLocal: (next: LocalRefine) => void;
@@ -6896,6 +7101,9 @@ function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
   const sel = local.facetSel ?? {};
   const setFacet = (alias: string, valeurs: string[]) =>
     setLocal({ ...local, facetSel: { ...sel, [alias]: valeurs } });
+  const txt = local.texteSel ?? {};
+  const setTexte = (alias: string, v: string) =>
+    setLocal({ ...local, texteSel: { ...txt, [alias]: v } });
 
   /* Champs TRIABLES : tout sauf les textes longs (trier des notes de trois lignes par
      ordre alphabétique n'a aucun sens). */
@@ -6925,9 +7133,17 @@ function ListToolbar({ rows, cfg, desc, local, setLocal, triable, ident }: {
       {/* Un bouton par filtre déclaré, dans l'ordre du descripteur — cet ordre est celui de la
           page Softr pour les contacts (entreprise, service, type), et il se lit comme la
           question qu'on se pose : chez qui, à quel service, pour quel motif. */}
+      {/* Deux formes de filtre, choisies par le DESCRIPTEUR et non par le widget : à cocher
+          quand les valeurs se répètent (un installateur, un service), à SAISIR quand elles
+          sont uniques (le N° SL — cf. `saisie` sur un champ). */}
       {facets.map((a) => (
-        <FacetFilter key={a} alias={a} desc={desc} rows={perimetre}
-          cochees={sel[a] ?? []} onChange={(v) => setFacet(a, v)} />
+        desc.fields[a]?.saisie ? (
+          <FiltreSaisie key={a} alias={a} desc={desc} rows={perimetre}
+            valeur={txt[a] ?? ""} onChange={(v) => setTexte(a, v)} />
+        ) : (
+          <FacetFilter key={a} alias={a} desc={desc} rows={perimetre}
+            cochees={sel[a] ?? []} onChange={(v) => setFacet(a, v)} />
+        )
       ))}
 
       {triable && triables.length > 0 && (
@@ -7304,7 +7520,11 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
            une recherche : sinon une liste plafonnée à 20 sur 25 dossiers écrit « 20
            dossiers » et cache les cinq autres sans un mot. C'est exactement ce qui est
            arrivé aux deux files d'attente le 2026-08-18. */
-        const filtreCoche = Object.values(local.facetSel ?? {}).some((v) => v.length > 0);
+        /* Les DEUX formes de filtre comptent : un widget vidé par un N° SL saisi doit
+           annoncer « 0 sur 25 » comme s'il l'était par une case cochée — sans quoi la carte
+           dirait « aucun dossier » et laisserait croire la file vide (2026-08-24). */
+        const filtreCoche = Object.values(local.facetSel ?? {}).some((v) => v.length > 0)
+          || Object.values(local.texteSel ?? {}).some((v) => v.trim() !== "");
         const restreint = !isKpi && ((local.q ?? "") !== "" || filtreCoche || rows.length < total);
         /* Le sous-titre DIT que la liste est réduite à son portefeuille : sans ça, un
            widget qui montre 4 notes sur 300 se lit comme une source presque vide. */
@@ -8603,8 +8823,24 @@ const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
    travail, pas un aperçu des derniers arrivés. 25 dossiers étaient en attente de
    solvabilité au 2026-08-18, et le plafond du générique (20) en cachait cinq sans le dire.
    Si la file dépasse un jour ce maximum, `DataView` l'annonce (« 50 sur 62 »).
-   `search: false` et `facets: []` — pas de barre d'outils : moins il y a à régler, mieux la
-   carte dit ce qu'elle est. --- */
+   `search: false` — pas de champ de recherche : moins il y a à régler, mieux la carte dit
+   ce qu'elle est.
+
+   ⚠️ `facets: ["technique"]` DEPUIS LE 2026-08-24, et c'est une entorse ASSUMÉE au « rien à
+   régler » ci-dessus. Ces deux files sont précisément là où le service technique travaille,
+   et la demande est de pouvoir n'y voir que ses propres dossiers en cochant son prénom.
+   UN filtre, pas la barre d'outils entière : la recherche reste coupée, le tri reste le
+   seul autre réglage, et la carte continue de promettre exactement ce que son titre
+   annonce — filtrer par personne ne change pas la nature de la file, ça la découpe.
+   ⚠️ Contrairement au reste, ce filtre s'applique aux instances DÉJÀ POSÉES : la cfg de ces
+   deux widgets est reconstruite à chaque rendu (elle est figée dans le code, pas dans le
+   document de disposition), donc personne n'a de ⋮ à ouvrir.
+
+   ⚠️ `"ref"` (le N° SL) s'y ajoute le 2026-08-24, et ici il a une raison de plus qu'ailleurs :
+   la RECHERCHE EST COUPÉE sur ces deux cartes (`search: false`), donc sans lui rien ne
+   permettait de pointer un dossier précis dans la file. Deux filtres sur une carte qui n'en
+   voulait aucun, c'est le maximum de ce qu'elle peut porter sans redevenir un widget
+   générique déguisé : ne pas en ajouter un troisième sans rouvrir la question. --- */
 const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
   title, unit: "dossier",
   source: "abonnes",
@@ -8616,7 +8852,7 @@ const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
      tiers de la file : sur un dossier pro, « Nom » est vide dans la base. */
   view: { kind: "list", map: { title: "clientNom", sub: "partenaire", date: "creeLe", badge: "statut" } },
   search: false,
-  facets: [],
+  facets: ["technique", "ref"],
 }, cfgOfSource("abonnes"));
 
 /* --- LE SEUL RÉGLAGE DE CES WIDGETS : L'ORDRE ---------------------------------------
@@ -12950,23 +13186,39 @@ function Dashboard() {
            disposition. Il ne s'affiche donc plus seulement après une suppression — il est
            la PREMIÈRE CHOSE que voit un collègue, et il doit se lire comme une invitation,
            pas comme un manque.
-           ⚠️ IL NOMME CE QU'ON PEUT POSER. Un état vide qui dit « c'est vide » et rien
-           d'autre laisse la porte fermée : personne n'ouvre une galerie dont il ignore le
-           contenu. Cette liste est donc à tenir à jour quand un type est ajouté ou retiré —
-           c'est la seule phrase du bloc qui promette un contenu.
-           ⚠️ ET IL DÉSIGNE LE BOUTON PAR SON LIBELLÉ EXACT (« Ajouter un widget »), celui
-           qui est répété juste dessous ET en tête de section : une consigne qui nomme un
-           bouton introuvable est pire que pas de consigne. */
+
+           ⚠️ IL NE PORTE PLUS DE BOUTON, ET LE TEXTE EST COURT (revu le jour même, sur
+           retour d'usage). La première version faisait deux erreurs qui allaient ensemble :
+             · elle REDONNAIT le bouton « Ajouter un widget » au centre de la carte, alors
+               qu'il est déjà en tête de section, à trois centimètres de là. Deux boutons
+               identiques pour un seul geste, ça n'aide pas : ça fait douter que ce soit le
+               même — « lequel des deux ? » ;
+             · elle ÉNUMÉRAIT tout ce qu'on peut poser (dix widgets en une phrase). Une liste
+               qu'on ne lit pas, et qu'il faudrait tenir à jour à chaque type ajouté.
+           Le geste est donc montré, pas dupliqué : une FLÈCHE désigne le bouton du haut, et
+           la phrase tient en une ligne. Ce qu'on peut poser, la galerie le montre — c'est
+           son travail, et elle le fait avec des miniatures.
+
+           ⚠️ SI LA FLÈCHE NE S'AFFICHAIT PAS (SVG inline, donc elle s'affichera), la phrase
+           resterait juste : elle dit « en haut de la page », pas « suivez la flèche ». Une
+           consigne ne doit jamais dépendre d'un ornement. */
         <Card style={CARD}>
-          <EmptyState icon={LayoutGrid} title="Votre tableau de bord est vide"
-            hint="Composez-le avec le bouton « + Ajouter un widget » : vos notifications de dossiers abonnés, vos tâches, les files « en attente de solvabilité » et « demandes d'infos », les dernières notes installateurs et prospects, la synthèse SAV, les classements commerciaux, le fil LinkedIn, un pense-bête ou une liste à cocher. Chaque modèle montre à quoi il ressemble avant d'être posé, et tout se déplace ensuite d'un glissement." />
-          {/* Un état vide guidant DOIT porter le geste qui en sort (charte) — et ce geste
-              est à un clic. Le MÊME bouton qu'en haut de section, volontairement : deux
-              libellés pour un seul geste feraient douter qu'il s'agisse du même. */}
-          <div style={{ display: "flex", justifyContent: "center", paddingBottom: "22px" }}>
-            <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
-              <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget
-            </button>
+          <div style={{ position: "relative" }}>
+            {/* Flèche décorative : elle part du texte et remonte vers le bouton de l'en-tête,
+                juste au-dessus à droite. En SVG inline — ni feuille de style ni police à
+                charger, donc rien qui puisse ne pas s'appliquer dans Softr (§2). Elle est
+                `aria-hidden` : c'est un ornement, la phrase porte le sens. */}
+            <svg aria-hidden viewBox="0 0 132 96" width="132" height="96" fill="none"
+              style={{ position: "absolute", top: -2, right: 10, color: T.brand, maxWidth: "34%", pointerEvents: "none" }}>
+              {/* Le trait : un arc qui monte de la gauche vers le coin haut-droit. */}
+              <path d="M6 90 C 10 54, 34 26, 96 16" stroke="currentColor" strokeWidth="2.5"
+                strokeLinecap="round" strokeDasharray="0.1 9" opacity={0.55} />
+              {/* La pointe, orientée vers le haut-droite. */}
+              <path d="M78 6 L 100 15 L 82 30" stroke="currentColor" strokeWidth="2.5"
+                strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+            <EmptyState icon={LayoutGrid} title="Votre tableau de bord est vide"
+              hint="Utilisez ce bouton, en haut de la page, pour y ajouter des widgets." />
           </div>
         </Card>
       ) : (

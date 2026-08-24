@@ -116,10 +116,12 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui).
    **Un tableau VIERGE à la première visite (choix du 2026-08-24)** : `DEFAULT_INSTANCES` est
    vide, personne n'hérite plus des sept widgets posés d'office. Un nouvel arrivant ouvre la
-   page sur l'**état vide**, qui nomme ce qu'il peut poser et désigne le bouton
-   « + Ajouter un widget ». Les dispositions **déjà enregistrées ne bougent pas**. Le motif et
-   la vérification à refaire avant de retirer une entrée sont au **§10-bis
-   d'[`ARCHITECTURE.md`](ARCHITECTURE.md)** (« L'écran d'accueil d'un nouvel arrivant »).
+   page sur l'**état vide** : une phrase d'une ligne et une **flèche** qui désigne le bouton
+   « + Ajouter un widget » de l'en-tête — pas de second bouton au centre de la carte, pas
+   d'énumération de ce qu'on peut poser (la galerie le montre déjà, avec ses miniatures). Les
+   dispositions **déjà enregistrées ne bougent pas**. Le motif et la vérification à refaire avant
+   de retirer une entrée sont au **§10-bis d'[`ARCHITECTURE.md`](ARCHITECTURE.md)** (« L'écran
+   d'accueil d'un nouvel arrivant »).
    **Hauteur en PIXELS, rabattue sur le contenu (2026-08-07)** : la hauteur d'un widget est
    un nombre (120 à 1600 px, arrondi au pas de 4 px de la grille) et non plus un cran parmi
    quatre — les anciennes clés `sm` / `md` / `lg` / `xl` sont traduites à la lecture
@@ -398,7 +400,7 @@ contre le schéma Airtable le 2026-08-04**, avant l'ouverture de la lecture en d
 
 | Alias (`DS.`) | Table Airtable (base)                       | Datasource ID | Champs (alias → nom Airtable exact) |
 | ------------- | ------------------------------------------- | ------------- | ----------------------------------- |
-| `abonnes`  | « Abonnés » (BDD Abonné)                        | ✅ `8fc957d0-…` | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` · **client `Champs IA Config client`** · **entreprise `Nom de l'entreprise`** ⚠️ *les DEUX à cocher côté Softr* |
+| `abonnes`  | « Abonnés » (BDD Abonné)                        | ✅ `8fc957d0-…` | nom `Nom` · prenom `Prenom` · partenaire `Nom de l'entreprise (from Installateur )` · statut `Statut Dossiers` · offre `Type d installation` · creeLe `date de création` · **client `Champs IA Config client`** · **entreprise `Nom de l'entreprise`** ⚠️ *les DEUX à cocher côté Softr* · 🚨 **technique `Service technique`** *(2026-08-24 — **à cocher AVANT de coller cette version**, sinon le bloc entier échoue)* |
 | `notesIns` | « Suivi client » (Bdd Installateurs)           | ✅ `122fbc71-…` | nom `Installateur` · note `Notes` · date `Date ` *(espace final)* · **⚠️ à exposer** : proprio `Proprietaire (from Installateurs)` |
 | `notesPro` | « Suivi propect » (BDD Propect)                | ✅ `dbd7e501-…` | nom `Nom` · note `Notes` · date `date ` *(espace final, createdTime)* · **⚠️ à exposer** : proprio `Propriétaire (from Propects)` *(lookup **créé le 2026-08-07**)* |
 | `tachesPa` | « Taches » (Bdd Installateurs)                 | ✅ `7198b954-…` | desc `Description` · associe `Partenaire associé` · fin `date de fin` · fait `Fait` · **⚠️ à exposer** : assignee `Assignee` |
@@ -774,6 +776,95 @@ ajoutée à une source en `"jour"`.
   grandeur attendu : sur les 39 dossiers en attente relevés le 2026-08-18, 31 étaient Pro, 7 Solo et
   1 Duo — donc une poignée de particuliers seulement, et **un seul** dossier sur le périmètre Duo.
   Ces nombres bougent chaque semaine : c'est la mécanique qu'on vérifie, pas le chiffre.
+
+### Le filtre « Service technique » (2026-08-24, demandé)
+
+**La demande** : *pouvoir cliquer sur son prénom pour n'afficher que les dossiers qui nous
+concernent, dans les widgets où ça a du sens.*
+
+**Ce que ça a coûté en code** : trois lignes. Un champ de plus au `SELECT_ABONNE`, une ligne de
+plus dans le catalogue, et l'alias ajouté aux filtres proposés d'office. Aucun composant : le
+descripteur suffit à en faire d'un coup un **filtre à cases**, une **colonne de tableau**, un
+**critère de tri** et une **ligne de la fiche détaillée** (c'est la recette du §8.4
+d'[`ARCHITECTURE.md`](ARCHITECTURE.md)).
+
+**🚨 L'unique geste hors du code, et il est BLOQUANT** : cocher **`Service technique`** dans
+l'onglet Sources du bloc, sur la datasource « Abonnés ». Tant qu'il ne l'est pas, **le bloc entier
+échoue au chargement** (« New data source does not match / Remap the fields ») — ce n'est pas le
+filtre qui manquerait, c'est la page qui ne monterait pas. Même piège que les cinq champs de
+`notifC` en août.
+
+**Où il apparaît** :
+
+- sur les **deux files d'attente** (« En attente de solvabilité », « Demandes d'infos »), tout de
+  suite et pour tout le monde — leur cfg est figée dans le code, personne n'a de ⋮ à ouvrir. C'est
+  une entorse assumée à leur principe de « rien à régler » : ce sont précisément les files où le
+  service technique travaille, et filtrer par personne **découpe** la file sans changer sa nature ;
+- sur **tout widget posé après** sur la source « Abonnés », via `defaultFacet` ;
+- sur un widget **déjà posé**, en deux clics : ⋮ → Options → cocher « Service technique ». Ce n'est
+  pas automatique, et c'est voulu — une instance porte ses propres filtres dans sa cfg, et une
+  livraison ne doit pas écraser un réglage choisi.
+
+⚠️ **« Nouveaux dossiers abonnés » ne l'a pas** : ce widget lit « Notification Center », pas
+« Abonnés ». Lui donner le filtre demande un **lookup** `Service technique (from Liens BDD)` — la
+ligne est prête, en commentaire, dans `SELECT_NOTIF_C`, avec la marche à suivre. Elle n'a pas été
+activée parce qu'on ignore si ce lookup existe dans la table, et qu'en décommenter un qui n'existe
+pas ferait échouer le bloc exactement comme un champ non coché.
+
+⚠️ **Si le champ est vide ou pas encore rempli, rien ne casse et rien ne se vide** : un filtre à
+cases qui trouve moins de deux valeurs ne s'affiche pas du tout, et il réapparaîtra tout seul le
+jour où la colonne sera saisie.
+
+### Le N° SL dans les colonnes et les filtres (2026-08-24, demandé)
+
+Le numéro de dossier (« SL-… ») était **déjà lu** (`ref` ← `Contrat abonné`) et déjà déclaré au
+catalogue : il était donc déjà **cherchable** — la recherche plein-texte balaie tous les champs
+déclarés — et déjà cochable en colonne ou en filtre depuis le ⋮. Ce qui manquait, c'est qu'on le
+**propose**. Trois changements, aucun geste Softr cette fois (le champ est exposé depuis le
+2026-08-06) :
+
+- **Libellé** : « Référence dossier » devient **« N° SL »** — le nom que tout le monde emploie, et
+  celui sous lequel on le cherche dans la liste des colonnes. *(Le champ Airtable, lui, s'appelle
+  toujours « Contrat abonné ».)* Les widgets qui affichaient déjà cette colonne en verront l'en-tête
+  changer : cosmétique, aucune cfg ne bouge.
+- **Colonnes** du modèle « Tableau des dossiers » : le N° SL passe **en tête**, devant le client.
+  Au passage, `nom` y devient `clientNom` — ce n'était pas demandé, mais c'est le même défaut que
+  celui corrigé le 2026-08-18 sur les listes : sur un dossier **pro**, « Nom » est vide dans la
+  base, donc cette colonne était blanche pour les deux tiers des dossiers.
+- **Filtres** : ajouté aux filtres d'office, en **troisième et dernière place**
+  (`FACETS_MAX` = 3, aux côtés d'installateur et de service technique), et aux **deux files
+  d'attente** — là, il a une raison de plus : la recherche y est coupée, donc rien ne permettait
+  d'y pointer un dossier précis. **Ce filtre-là se SAISIT, il ne se coche pas** (voir ci-dessous).
+
+### Un filtre qui se saisit — `saisie` sur un champ
+
+Le N° SL est d'abord parti en **cases à cocher**, comme les autres filtres. Erreur, corrigée le
+jour même sur retour d'usage : *« chaque client, c'est un SL différent, donc on ne se repère
+quasiment jamais comme ça »*. Un filtre à cases suppose que les valeurs se **répètent** — cocher
+« MC ENERGY », c'est désigner d'un geste douze dossiers. Sur un identifiant, cette hypothèse tombe :
+le panneau listait une case par dossier, toutes à 1.
+
+Un champ peut donc porter **`saisie: true`**, et la barre d'outils monte alors un `FiltreSaisie` au
+lieu d'un `FacetFilter` : même bouton, même place, mais on **tape** la valeur.
+
+- correspondance en **« contient »**, casse et accents repliés : taper `0412` retrouve
+  `SL-2026-0412`, personne ne recopie un identifiant entier ;
+- le **nombre de lignes trouvées** s'affiche en direct — sans lui, un caractère de trop rend une
+  liste vide sans qu'on sache si c'est la frappe ou le dossier ;
+- les **numéros qui correspondent** sont proposés dessous (six au plus) et se cliquent : on tape
+  trois chiffres, on *voit* les candidats.
+
+⚠️ C'est une propriété du **champ**, pas du widget : le jour où le N° SL sert ailleurs, il s'y
+comportera pareil. Et un filtre saisi compte comme un filtre actif dans le sous-titre — un widget
+vidé par un numéro annonce « 0 sur 25 », jamais « aucun dossier ».
+⚠️ La limite connue : le repli ne devine pas un **tiret oublié** (`SL20260412` ne trouve rien),
+exactement comme la recherche plein-texte du bloc. Un test le fige.
+
+⚠️ **Qui hérite des filtres d'office** — la règle de `coerceCfg` a trois branches : une cfg sans
+clé de filtre prend le défaut entier ; une cfg portant l'ancienne clé `facet` (singulier) est
+**complétée** par le défaut, sa valeur restant en tête ; une cfg portant `facets` (depuis le
+2026-08-19) est gardée telle quelle. Beaucoup de widgets déjà posés verront donc ces filtres
+arriver seuls ; ceux réglés depuis le 08-19 non, et pour ceux-là c'est ⋮ → Options.
 
 ## 5. Règles Softr respectées
 
