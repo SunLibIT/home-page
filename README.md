@@ -836,6 +836,25 @@ déclarés — et déjà cochable en colonne ou en filtre depuis le ⋮. Ce qui 
   d'attente** — là, il a une raison de plus : la recherche y est coupée, donc rien ne permettait
   d'y pointer un dossier précis. **Ce filtre-là se SAISIT, il ne se coche pas** (voir ci-dessous).
 
+### Une recherche dans le panneau d'un filtre à cases (2026-08-24, demandé)
+
+Demandé pour « Service technique » : *« une liste de toutes les personnes avec une barre de
+recherche, au lieu de devoir le rentrer en le tapant »*. Le panneau d'un filtre à cases s'ouvre
+donc avec une **recherche** dès qu'il propose **6 valeurs ou plus** (`FACET_SEARCH_MIN`) — en deçà,
+la liste tient à l'écran et un champ de plus ne serait que du bruit. Elle profite à tous les
+filtres à cases, pas seulement à celui-là : l'annuaire des installateurs en compte des centaines.
+
+⚠️ **Le plafond se passe désormais en deux temps**, et c'est le cœur du correctif : `FacetFilter`
+calcule jusqu'à **500** valeurs distinctes (`FACET_VALUES_MAX`), cherche là-dedans, et ne coupe
+qu'à l'**affichage** (60, `FACET_LIST_MAX`). Chercher dans une liste déjà tronquée n'aurait rien
+ramené — quelqu'un arrivant 70ᵉ par fréquence serait resté introuvable, et on en aurait conclu
+qu'il n'a aucun dossier. Un test garde ce piège.
+
+⚠️ Deux détails qui évitent de croire à une panne : une recherche sans résultat **le dit**
+(« Aucune valeur ne correspond ») au lieu de vider le panneau, et le bouton du filtre ne
+disparaît **jamais** sur une recherche infructueuse — le test d'existence porte sur le nombre
+total de valeurs, pas sur celles qui restent affichées.
+
 ### Un filtre qui se saisit — `saisie` sur un champ
 
 Le N° SL est d'abord parti en **cases à cocher**, comme les autres filtres. Erreur, corrigée le

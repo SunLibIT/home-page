@@ -6600,7 +6600,11 @@ const matchFacet = (cell: unknown, coche: Set<string>, multi?: boolean): boolean
  *  sur 371 ») : RETIRÉE le jour même, à la demande — sur un annuaire de 371 entreprises, elle
  *  expliquait à chaque ouverture du filtre un plafond dont on n'a rien à faire quand on cherche
  *  un nom, et la recherche plein-texte (qui, elle, ne tronque rien) est juste au-dessus.
- *  Ne pas la remettre sans qu'on la redemande. */
+ *  Ne pas la remettre sans qu'on la redemande.
+ *  ⚠️ DEPUIS LE 2026-08-24, LE PLAFOND SE PASSE EN DEUX TEMPS et la question est en grande
+ *  partie réglée : `FacetFilter` appelle avec `FACET_VALUES_MAX` (500) pour que sa propre
+ *  barre de recherche puisse trouver une valeur au-delà des 60 AFFICHÉES, et ne coupe qu'à
+ *  l'affichage. Chercher un nom dans une liste déjà tronquée n'aurait rien ramené. */
 function facetValues(rows: Row[], alias: string, multi?: boolean, max = 60): { value: string; count: number }[] {
   const compte = new Map<string, { value: string; count: number }>();
   for (const r of rows) {
@@ -6938,6 +6942,19 @@ const TPANEL: CSSProperties = { position: "absolute", top: "calc(100% + 4px)", r
    ces hooks changeraient d'ordre dès qu'un filtre apparaît ou disparaît (source changée, champ
    devenu uniforme) — ce que React interdit. Un composant par filtre rend l'ordre stable par
    construction. */
+/** Au-delà de ce nombre de valeurs, le panneau d'un filtre à cases s'ouvre avec une BARRE
+ *  DE RECHERCHE. En deçà, la liste tient à l'écran et un champ de plus ne serait que du
+ *  bruit. Demandé le 2026-08-24 pour « Service technique » — retrouver un collègue dans une
+ *  liste de noms en la parcourant à l'œil, c'est ce qu'une recherche fait mieux. Baisser ce
+ *  seuil si un filtre court mérite quand même sa recherche. */
+const FACET_SEARCH_MIN = 6;
+/** Plafond de CALCUL des valeurs distinctes — au-dessus du plafond d'AFFICHAGE, et c'est
+ *  tout l'intérêt : la recherche du panneau doit pouvoir trouver un nom qui n'entrait pas
+ *  dans les 60 affichés. Sans cette distinction, chercher « Sophie » ne l'aurait pas
+ *  ramenée si elle arrivait 70ᵉ par fréquence. */
+const FACET_VALUES_MAX = 500;
+const FACET_LIST_MAX = 60;
+
 function FacetFilter({ alias, desc, rows, cochees, onChange }: {
   alias: string; desc: SourceDesc; rows: Row[];
   /** Valeurs cochées de CE filtre ([] = aucune restriction). */
@@ -6945,18 +6962,29 @@ function FacetFilter({ alias, desc, rows, cochees, onChange }: {
   onChange: (valeurs: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
+  /** Recherche PROPRE AU PANNEAU : elle ne filtre pas les lignes du widget, seulement les
+   *  cases proposées ici. Vidée à la fermeture — rouvrir un filtre sur une recherche oubliée
+   *  ferait croire à une liste amputée. */
+  const [q, setQ] = useState("");
+  useEffect(() => { if (!open) setQ(""); }, [open]);
   const ref = useDismissOnOutside(open, setOpen);
   const champ = desc.fields[alias];
   /* Les valeurs proposées ignorent VOLONTAIREMENT les autres filtres cochés. Un filtre qui se
      réduirait à ce que les autres laissent passer devient impossible à défaire : les cases
      disparaissent avec leurs valeurs, et on ne peut plus décocher ce qu'on ne voit plus.
      Chaque filtre décrit donc la même population — celle du périmètre. */
-  const valeurs = facetValues(rows, alias, champ?.multi);
+  const toutes = facetValues(rows, alias, champ?.multi, FACET_VALUES_MAX);
   const libelle = champ?.label ?? alias;
+  /* Chercher D'ABORD sur toutes les valeurs, plafonner l'affichage ENSUITE — l'inverse
+     chercherait dans une liste déjà tronquée. */
+  const cherche = foldText(q).trim();
+  const valeurs = (cherche ? toutes.filter((v) => foldText(v.value).includes(cherche)) : toutes).slice(0, FACET_LIST_MAX);
   /* Un filtre à une seule valeur ne filtre rien : il n'a pas sa place dans la barre. Le test
      est APRÈS les hooks — les règles de React ne laissent pas le choix — ce qui a l'avantage de
-     faire réapparaître le bouton tout seul dès que les données s'étoffent. */
-  if (valeurs.length < 2) return null;
+     faire réapparaître le bouton tout seul dès que les données s'étoffent.
+     ⚠️ Sur `toutes` et non sur `valeurs` : sinon une recherche qui ne ramène rien ferait
+     DISPARAÎTRE le bouton, avec le champ où l'on vient de taper. */
+  if (toutes.length < 2) return null;
   const toggle = (v: string) => {
     const set = new Set(cochees);
     if (set.has(v)) set.delete(v); else set.add(v);
@@ -6973,6 +7001,22 @@ function FacetFilter({ alias, desc, rows, cochees, onChange }: {
       </button>
       {open && (
         <div role="dialog" aria-label={`Filtrer par ${libelle}`} style={TPANEL}>
+          {/* La recherche EN PREMIER : c'est le geste attendu quand la liste est longue.
+              `autoFocus` — le panneau vient d'être ouvert exprès, on peut taper aussitôt. */}
+          {toutes.length >= FACET_SEARCH_MIN && (
+            <label style={{ display: "flex", alignItems: "center", gap: "6px", margin: "2px 6px 6px", padding: "6px 8px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface2 }}>
+              <Search aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} />
+              <input autoFocus value={q} onChange={(e) => setQ(e.target.value)}
+                placeholder={`Rechercher — ${libelle.toLowerCase()}`} aria-label={`Rechercher dans ${libelle}`}
+                style={{ flex: 1, minWidth: 0, width: 120, border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500, color: T.ink }} />
+              {q !== "" && (
+                <button onClick={() => setQ("")} aria-label="Effacer la recherche"
+                  style={{ display: "grid", placeItems: "center", flex: "none", width: 18, height: 18, borderRadius: 999, border: "none", background: "none", cursor: "pointer", color: T.ink4 }}>
+                  <X aria-hidden style={{ width: 13, height: 13 }} />
+                </button>
+              )}
+            </label>
+          )}
           {/* « Tout effacer » plutôt qu'un « Tout cocher » : aucune coche signifie déjà
               « toutes les valeurs » (cf. `applyQuery`), donc cocher tout serait un synonyme
               inutile — et laisserait croire à un filtre là où il n'y en a pas. */}
@@ -6982,6 +7026,13 @@ function FacetFilter({ alias, desc, rows, cochees, onChange }: {
             <RotateCcw aria-hidden style={{ width: 13, height: 13 }} />Tout effacer
           </button>
           <div style={{ height: 1, background: T.line, margin: "4px 6px" }} />
+          {/* Une recherche sans résultat doit le DIRE : un panneau qui se vide se lit comme
+              une panne, et on efface la frappe sans comprendre. */}
+          {valeurs.length === 0 && (
+            <div style={{ padding: "8px 10px", fontSize: "12px", fontWeight: 500, color: T.ink4 }}>
+              Aucune valeur ne correspond
+            </div>
+          )}
           {valeurs.map(({ value, count }) => {
             const on = cochees.includes(value);
             return (
