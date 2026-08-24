@@ -11622,24 +11622,43 @@ type Layout = { v: 2; items: Instance[]; parked: Instance[]; seeded: string[] };
  *  le champ `schema_version` de la table (diagnostic du parc sans parser le JSON). */
 const LAYOUT_VERSION = 2;
 
-/* Instances livrées par défaut. Ajouter une entrée = le widget apparaît UNE fois
-   chez tout le monde (puis reste supprimable définitivement, cf. seed()). */
-const DEFAULT_INSTANCES: Instance[] = [
-  { id: "notifs", type: "notifs", cfg: {}, w: "half", h: 340 },
-  { id: "taches", type: "taches", cfg: {}, w: "half", h: 340 },
-  { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: 340 },
-  { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: 340 },
-  /* ⚠️ Les embeds Elfsight sont posés HAUT (2026-08-07) : ils ne défilent pas — une iframe
-     coupe ce qui dépasse au lieu de le rendre atteignable. Le fil LinkedIn a besoin du cran
-     « XL » pour montrer plus d'une publication ; la bannière tient en « Grand ». */
-  { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: 860 },
-  { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: 560 },
-  /* ⚠️ POUR LE TEST — cette ligne fait apparaître la synthèse SAV UNE FOIS chez
-     tout le monde (puis elle reste supprimable définitivement, cf. `seed()`).
-     La RETIRER si le widget ne doit être qu'un modèle de la galerie : il y est déjà
-     par CUSTOM_TYPES, donc chacun le pose s'il en a l'usage. */
-  { id: "sav", type: "sav", cfg: {}, w: "half", h: 560 },
-];
+/* Instances livrées par défaut. Ajouter une entrée = le widget apparaît UNE fois chez
+   tout le monde (puis reste supprimable définitivement, cf. `seed()`).
+
+   ⚠️ VIDE DEPUIS LE 2026-08-24, ET C'EST UNE DÉCISION. Un nouvel arrivant n'hérite plus
+   d'aucune disposition : il ouvre la page sur un tableau VIERGE et le compose lui-même.
+   Le bloc partenaire avait pris ce chemin le 2026-08-21 ; les deux blocs s'accordent.
+   Trois raisons, dans l'ordre où elles pèsent :
+     · sept widgets posés d'office, c'est SEPT LECTURES de la base à la première visite,
+       pour quelqu'un dont on ignore encore ce qu'il regarde ;
+     · une disposition imposée se subit — celui qui ne s'en sert pas ne la retire pas,
+       il la laisse là et la page ment sur ce qu'il utilise vraiment ;
+     · l'état vide devient l'écran d'accueil, donc il doit ENSEIGNER la galerie. C'est
+       plus efficace qu'un tableau pré-rempli que personne n'apprend à modifier.
+
+   ⚠️ CE QUI NE CHANGE PAS : les utilisateurs qui ont DÉJÀ une disposition la gardent —
+   elle vit dans `layout_json`, et rien ici ne la relit. Le vidage ne concerne que ceux
+   dont la table de préférences ne connaît pas encore l'adresse.
+   ⚠️ AVANT DE VIDER, IL A FALLU VÉRIFIER que chacun de ces widgets reste POSABLE : les
+   sept le sont, `notesInstallateurs` et `notesProspects` par les presets déclarés de
+   leurs sources (§6-bis), les cinq autres par `CUSTOM_TYPES`. Une entrée qui ne serait
+   posable QUE d'ici deviendrait inatteignable en la retirant.
+
+   Les réglages ci-dessous sont gardés EN COMMENTAIRE, et non effacés : ce sont des
+   valeurs vérifiées à l'écran — les hauteurs des embeds, surtout, sont calibrées sur leur
+   contenu réel, une iframe ne défilant pas.
+
+   { id: "notifs", type: "notifs", cfg: {}, w: "half", h: 340 },
+   { id: "taches", type: "taches", cfg: {}, w: "half", h: 340 },
+   { id: "notesInstallateurs", type: "notesInstallateurs", cfg: {}, w: "half", h: 340 },
+   { id: "notesProspects", type: "notesProspects", cfg: {}, w: "half", h: 340 },
+   ⚠️ Les embeds Elfsight sont posés HAUT (2026-08-07) : ils ne défilent pas — une iframe
+   coupe ce qui dépasse au lieu de le rendre atteignable. Le fil LinkedIn a besoin du cran
+   « XL » pour montrer plus d'une publication ; la bannière tient en « Grand ».
+   { id: "linkedin", type: "linkedin", cfg: {}, w: "half", h: 860 },
+   { id: "linkedinBanner", type: "linkedinBanner", cfg: {}, w: "half", h: 560 },
+   { id: "sav", type: "sav", cfg: {}, w: "half", h: 560 },                              */
+const DEFAULT_INSTANCES: Instance[] = [];
 
 /* --- GALERIE « Ajouter un widget » : les modèles qu'on peut poser sur la grille.
    Entièrement GÉNÉRÉE, de deux origines :
@@ -12068,7 +12087,11 @@ const idxOf = (list: Instance[], id: string): number => list.findIndex((i) => i.
 
 /** Injecte les instances par défaut JAMAIS VUES par cet utilisateur (en fin
  *  d'`items`, visibles) et les marque `seeded`. PURE. Vue une fois = plus jamais
- *  imposée : supprimer un widget par défaut est définitif. */
+ *  imposée : supprimer un widget par défaut est définitif.
+ *  ⚠️ SANS EFFET depuis le 2026-08-24 : `DEFAULT_INSTANCES` est vide, donc `missing`
+ *  l'est toujours et cette fonction rend son argument tel quel. Le mécanisme est
+ *  CONSERVÉ, pas mort — il reste la seule façon de pousser un widget chez tout le
+ *  monde (une annonce, un widget de campagne) sans le réimposer à qui l'a retiré. */
 function seed(l: Layout): Layout {
   const known = new Set<string>([
     ...l.items.map((i) => i.id), ...l.parked.map((i) => i.id), ...l.seeded,
@@ -12922,11 +12945,24 @@ function Dashboard() {
           {[0, 1, 2, 3].map((k) => <SkeletonCard key={k} />)}
         </div>
       ) : shown.items.length === 0 ? (
+        /* ── L'ÉTAT VIDE, ET C'EST DÉSORMAIS L'ÉCRAN D'ACCUEIL DE TOUT NOUVEL ARRIVANT
+           (2026-08-24) : `DEFAULT_INSTANCES` est vide, personne n'hérite plus d'une
+           disposition. Il ne s'affiche donc plus seulement après une suppression — il est
+           la PREMIÈRE CHOSE que voit un collègue, et il doit se lire comme une invitation,
+           pas comme un manque.
+           ⚠️ IL NOMME CE QU'ON PEUT POSER. Un état vide qui dit « c'est vide » et rien
+           d'autre laisse la porte fermée : personne n'ouvre une galerie dont il ignore le
+           contenu. Cette liste est donc à tenir à jour quand un type est ajouté ou retiré —
+           c'est la seule phrase du bloc qui promette un contenu.
+           ⚠️ ET IL DÉSIGNE LE BOUTON PAR SON LIBELLÉ EXACT (« Ajouter un widget »), celui
+           qui est répété juste dessous ET en tête de section : une consigne qui nomme un
+           bouton introuvable est pire que pas de consigne. */
         <Card style={CARD}>
-          <EmptyState icon={LayoutGrid} title="Aucun widget affiché"
-            hint="Ouvrez la galerie pour composer votre tableau de bord : chaque modèle montre à quoi il ressemble avant d'être posé." />
+          <EmptyState icon={LayoutGrid} title="Votre tableau de bord est vide"
+            hint="Composez-le avec le bouton « + Ajouter un widget » : vos notifications de dossiers abonnés, vos tâches, les files « en attente de solvabilité » et « demandes d'infos », les dernières notes installateurs et prospects, la synthèse SAV, les classements commerciaux, le fil LinkedIn, un pense-bête ou une liste à cocher. Chaque modèle montre à quoi il ressemble avant d'être posé, et tout se déplace ensuite d'un glissement." />
           {/* Un état vide guidant DOIT porter le geste qui en sort (charte) — et ce geste
-              est maintenant à un clic, dans les deux modes. */}
+              est à un clic. Le MÊME bouton qu'en haut de section, volontairement : deux
+              libellés pour un seul geste feraient douter qu'il s'agisse du même. */}
           <div style={{ display: "flex", justifyContent: "center", paddingBottom: "22px" }}>
             <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
               <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget

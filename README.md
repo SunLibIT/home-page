@@ -114,6 +114,12 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    masqué depuis le 2026-08-18** (même convention `hidden` : le slug reste au registre).
 5. **Tableau de bord** (onglet Accueil) — grille de widgets **indépendants, redimensionnables et
    déplaçables**, qui **se tasse** (un petit widget ne laisse plus de trou sous lui).
+   **Un tableau VIERGE à la première visite (choix du 2026-08-24)** : `DEFAULT_INSTANCES` est
+   vide, personne n'hérite plus des sept widgets posés d'office. Un nouvel arrivant ouvre la
+   page sur l'**état vide**, qui nomme ce qu'il peut poser et désigne le bouton
+   « + Ajouter un widget ». Les dispositions **déjà enregistrées ne bougent pas**. Le motif et
+   la vérification à refaire avant de retirer une entrée sont au **§10-bis
+   d'[`ARCHITECTURE.md`](ARCHITECTURE.md)** (« L'écran d'accueil d'un nouvel arrivant »).
    **Hauteur en PIXELS, rabattue sur le contenu (2026-08-07)** : la hauteur d'un widget est
    un nombre (120 à 1600 px, arrondi au pas de 4 px de la grille) et non plus un cran parmi
    quatre — les anciennes clés `sm` / `md` / `lg` / `xl` sont traduites à la lecture

@@ -768,6 +768,11 @@ localStorage — la migration du cache est donc transparente) :
 - puis `seed()` : **toute instance de `DEFAULT_INSTANCES` jamais vue par cet utilisateur** est
   ajoutée en fin d'`items`, visible, et marquée `seeded` — un widget nouvellement livré apparaît
   donc chez tout le monde **une fois**, mais un widget supprimé ne ressuscite plus.
+  ⚠️ **`DEFAULT_INSTANCES` est VIDE depuis le 2026-08-24**, donc `seed()` rend son argument tel
+  quel : plus personne n'hérite d'une disposition, un nouvel arrivant ouvre la page sur un
+  tableau **vierge** et le compose depuis la galerie (voir « L'écran d'accueil d'un nouvel
+  arrivant » ci-dessous). Le mécanisme est **conservé, pas mort** : il reste la seule façon de
+  pousser un widget chez tout le monde sans le réimposer à qui l'a retiré.
 
 Comportement volontairement plus fin que le doc cible : `migrateV1` ne marque `seeded` que les ids
 **réellement présents** dans le layout v1, pour qu'un widget par défaut livré après la dernière
@@ -1043,6 +1048,40 @@ Rien à migrer côté données : les layouts sauvegardés dans l'ancienne table 
 invisible : le **cache localStorage** (`slb-home-layout:<email>`) conserve sa disposition et elle
 sera réécrite dans Airtable au prochain « Enregistrer ». Un utilisateur qui change de navigateur
 avant ce premier enregistrement repart, lui, sur la disposition par défaut.
+
+### L'écran d'accueil d'un nouvel arrivant — le tableau vierge (2026-08-24)
+
+`DEFAULT_INSTANCES` est **vide**. Quelqu'un dont l'adresse est inconnue de la table de
+préférences n'hérite plus des sept widgets d'office : il arrive sur **l'état vide**, qui devient
+donc le premier écran du bloc. Le bloc partenaire avait pris ce chemin le 2026-08-21 ; les deux
+s'accordent. Trois raisons, dans l'ordre où elles pèsent :
+
+1. sept widgets posés d'office, c'est **sept lectures de la base** à la première visite, pour
+   quelqu'un dont on ignore encore ce qu'il regarde ;
+2. une disposition imposée **se subit** — qui ne s'en sert pas ne la retire pas, il la laisse là,
+   et la page ment sur ce qui est réellement utilisé ;
+3. l'état vide devient l'écran d'accueil, donc il **enseigne la galerie** — plus efficace qu'un
+   tableau pré-rempli que personne n'apprend à modifier.
+
+**Ce que ça ne change pas** : les dispositions **déjà enregistrées sont intactes**. Elles vivent
+dans `layout_json` et rien ici ne les relit ; le vidage ne concerne que les adresses que la table
+ne connaît pas encore.
+
+⚠️ **La vérification à refaire avant de retirer une entrée** de `DEFAULT_INSTANCES` : que le
+widget reste **posable**. Les sept l'étaient — `notesInstallateurs` et `notesProspects` par les
+presets déclarés de leurs sources (§6-bis), les cinq autres par `CUSTOM_TYPES`. Une entrée
+posable **uniquement** d'ici deviendrait inatteignable en la retirant.
+
+⚠️ **L'état vide nomme ce qu'on peut poser**, et désigne le bouton par son **libellé exact**. Un
+état vide qui dit « c'est vide » et rien d'autre laisse la porte fermée : personne n'ouvre une
+galerie dont il ignore le contenu. Cette phrase est donc **à tenir à jour** quand un type de
+widget est ajouté ou retiré — c'est la seule du bloc qui promette un contenu.
+
+⚠️ **Le cas limite non couvert** : si la lecture de la table échoue (et non « répond vide »), le
+code retombe sur `cloneDefault()`, donc sur un tableau vide — un utilisateur pourrait croire avoir
+perdu sa disposition. Le **cache localStorage** l'en protège sur son poste habituel ; le trou
+résiduel est « poste neuf + panne de lecture », et il existait déjà avant (à ceci près qu'il
+affichait alors des widgets inattendus au lieu d'un vide).
 
 ### Modèle : 1 ligne par utilisateur
 
