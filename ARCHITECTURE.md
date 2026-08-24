@@ -1517,7 +1517,7 @@ dans `Block.tsx` détaille les deux précautions à prendre (sens de case invers
 
 - **`NAV_TABS`** — barre d'onglets **in-block** (bascule de contenu, plus de `target=_top` pour ces
   onglets) : `Accueil` (dashboard) + 3 apps Vercel publiques **embarquées en iframe** via
-  `EmbedTab` — Formulaire de contact `formulairedecontact.vercel.app`, Simulateur Grille
+  `EmbedTab` — Demandes de contact `formulairedecontact.vercel.app`, Simulateur Grille
   `simulateur-grille-v2.vercel.app`, Bibliothèque `documentation-interne.vercel.app` (toutes
   vérifiées iframables). ⚠️ la CSP de l'iframe Softr doit autoriser `frame-src https://*.vercel.app`.
 - **`QUICK_LINKS`** (section Outils) — raccourcis vers les pages de l'espace en `target=_top`

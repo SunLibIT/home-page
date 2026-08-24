@@ -56,7 +56,7 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
 2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
 3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
    grille qui reste visible). Cinq apps Vercel publiques embarquées : Calculette d'abonnement,
-   **Map** (carte des installateurs), **ERP**, Formulaire de contact, Bibliothèque.
+   **Map** (carte des installateurs), **ERP**, **Demandes de contact**, Bibliothèque.
    **You Sign et Tik&Lib ont été retirés le 2026-08-18**, adresses comprises ; **Simulateur
    Grille** est **masqué** (`hidden`) — l'entrée et son adresse restent au registre, seul
    l'affichage est suspendu. Le départ en **nouvel onglet** (`url`) n'est plus utilisé par
@@ -633,7 +633,7 @@ l'espace garde ses adresses historiques (`/clients-list`).
 
 **✅ Plus aucune adresse manquante.** Outils externes, tous embarqués : Calculette d'abonnement
 (`calculette-abonnement.vercel.app`, **adresse changée le 2026-08-18**), Map (`sunlib-carte-installateurs.vercel.app`), ERP
-(`erp-sunlib.vercel.app`), Formulaire de contact (`formulairedecontact.vercel.app`), Bibliothèque
+(`erp-sunlib.vercel.app`), Demandes de contact (`formulairedecontact.vercel.app`), Bibliothèque
 (`documentation-interne.vercel.app`) — plus `simulateurGrille`
 (`simulateur-grille-v2.vercel.app`), présent au registre mais **masqué** côté tuile.
 « Services Sellsy » a été **retiré** des Outils le 2026-08-04 ; **You Sign et Tik&Lib le

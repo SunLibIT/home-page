@@ -4008,8 +4008,14 @@ const OUTILS: Outil[] = [
     desc: "Carte des installateurs.", embed: TOOLS.carteInstallateurs },
   { id: "erp", label: "ERP", icon: Boxes,
     desc: "Gestion interne SunLib.", embed: TOOLS.erp },
-  { id: "formulaire", label: "Formulaire de contact", icon: Mail,
-    desc: "Déposer une demande de contact.", embed: TOOLS.formulaireContact },
+  /* RENOMMÉ le 2026-08-24 (demandé) : « Formulaire de contact » → « Demandes de contact ».
+     L'outil ne sert pas à DÉPOSER une demande mais à SUIVRE celles qui arrivent — l'ancien
+     libellé décrivait le moyen, le nouveau dit ce qu'on vient y faire.
+     ⚠️ L'`id` reste `formulaire` : c'est une CLÉ (résolution de l'outil ouvert, `openId`),
+     pas un texte d'écran. La renommer ne changerait rien de visible et casserait l'ouverture
+     directe d'un outil déjà en cours. */
+  { id: "formulaire", label: "Demandes de contact", icon: Mail,
+    desc: "Suivi des demandes entrantes.", embed: TOOLS.formulaireContact },
   { id: "bibliotheque", label: "Bibliothèque", icon: Library,
     desc: "Documents et supports internes.", embed: TOOLS.bibliotheque },
 ];
@@ -4039,7 +4045,7 @@ const QUICK_LINKS: { label: string; icon: LucideIcon; page?: string; url?: strin
   { label: "Abonnés", icon: Users, page: PAGES.abonnes },
   { label: "Pilotage SAV", icon: Ticket, page: PAGES.sav },
   { label: "KPI", icon: BarChart3, page: PAGES.kpi },
-  /* ⚠️ PLUS AUCUN OUTIL ICI : la Calculette, Map, l'ERP, le Formulaire de contact, la
+  /* ⚠️ PLUS AUCUN OUTIL ICI : la Calculette, Map, l'ERP, les Demandes de contact, la
      Bibliothèque et le Simulateur sont regroupés dans l'onglet « Outils » (`OUTILS`).
      Cette section ne garde que les PAGES de l'espace Softr, d'où son titre
      « Raccourcis ». Ne pas redédoubler un outil ici : deux chemins vers la même app
@@ -5180,7 +5186,7 @@ function QuickLinks() {
 }
 
 /* --- Onglet « app externe » : intègre un projet public (sans login) DIRECTEMENT
-      dans la page via une iframe (Formulaire de contact, Simulateur Grille).
+      dans la page via une iframe (Demandes de contact, Simulateur Grille).
       ⚠️ Nécessite que l'app cible autorise l'iframing (pas de X-Frame-Options
       DENY/SAMEORIGIN ni CSP frame-ancestors restrictive) ET que la CSP de
       l'iframe Softr autorise `frame-src https://*.vercel.app`. --- */
