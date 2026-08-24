@@ -2188,7 +2188,7 @@ type SourceDesc = {
      ⚠️ CE N'EST PAS GRATUIT : ~51 allers-retours EN SÉRIE au premier chargement (le cache
      d'instantanés, §6-ter, les rend invisibles au retour sur la page). À ne déclarer que sur
      une source qu'on consulte EN LA CHERCHANT, jamais pour « avoir tout ». */
-  drain?: boolean;
+  drain?: DrainSpec;
   /* ALIAS proposé(s) par défaut comme FILTRE À VALEURS (cases à cocher, multi-sélection)
      dans la barre d'outils d'un widget liste ou tableau. Un alias, ou JUSQU'À TROIS depuis le
      2026-08-19 (`FACETS_MAX`) : l'annuaire des contacts en demande trois, comme la page Softr
@@ -3062,8 +3062,12 @@ function snapSig(select: Record<string, string>): string {
 /* `mode` : deux consommateurs de la MÊME source ne lisent pas la même chose — un widget
    liste tire une page, un widget qui agrège draine tout. Ils ne doivent donc pas
    partager une entrée, sinon l'agrégat se servirait des 80 lignes de la liste. */
-const snapKey = (email: string, source: SourceKey, drain: boolean, sig: string): string =>
-  `${SNAP_PREFIX}:${email}:${source}:${drain ? "full" : "page"}:${sig}`;
+/** ⚠️ LA PROFONDEUR ENTRE DANS LA CLÉ (2026-08-24). Deux widgets sur la même source mais
+ *  lus à des profondeurs différentes (« 300 derniers » et « tout l'historique ») n'ont pas
+ *  le même contenu : partager un instantané ferait servir 300 lignes à celui qui en attend
+ *  1 771, ou l'inverse. Trois formes, donc : `page` (une page), `full` (tout), `d300`. */
+const snapKey = (email: string, source: SourceKey, drain: DrainSpec, sig: string): string =>
+  `${SNAP_PREFIX}:${email}:${source}:${typeof drain === "number" && drain > 0 ? `d${drain}` : drain ? "full" : "page"}:${sig}`;
 
 /** Deux horodatages tombent-ils le MÊME JOUR civil (heure locale) ? PURE.
  *  C'est la règle de fraîcheur de `SourceDesc.fraicheur` (§6-bis) : « la première ouverture de
@@ -3244,7 +3248,7 @@ const SourceRefreshCtx = createContext<SourceRefreshApi | null>(null);
 /** Jointure instantané ↔ live, appelée par CHAQUE adapter (§6-bis). Voir le contrat en
  *  tête de section : sert le cache pendant la lecture, l'écrit à la fin, jamais pendant.
  *  Sans e-mail (aperçu non connecté), ne lit ni n'écrit rien. */
-function useSnapshot(source: SourceKey, select: Record<string, string>, drain: boolean, live: SourceState): SourceState {
+function useSnapshot(source: SourceKey, select: Record<string, string>, drain: DrainSpec = false, live: SourceState): SourceState {
   const email = asText(useCurrentUser()?.email).trim().toLowerCase();
   const key = email ? snapKey(email, source, drain, snapSig(select)) : "";
   const refreshCtx = useContext(SourceRefreshCtx);
@@ -3308,6 +3312,10 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: b
  *  bloc SAV (« 60 centrales lues sur 771 », sans erreur ni alerte). */
 type SourceState = {
   rows: Row[]; loading: boolean; error: boolean; partial?: boolean;
+  /** Arrêt VOLONTAIRE sur la profondeur demandée par le widget (« les 300 derniers ») :
+   *  la liste est COMPLÈTE pour ce qu'elle annonce. À ne jamais confondre avec `partial`,
+   *  qui dit « on a buté sur une limite » — cf. `PROFONDEUR_DEFAUT`. */
+  borne?: boolean;
   /** Lecture du parc EN COURS : il reste des pages et le plafond n'est pas atteint, donc
    *  l'agrégat finira juste — il ne l'est pas encore. À annoncer (cf. `AggregateNote`) :
    *  un total qui monte en silence est indiscernable d'un total faux. */
@@ -3372,11 +3380,11 @@ const offlineState = (k: SourceKey): SourceState =>
    Chacun expose un `SourceApi`. Pour une source ÉCRIVABLE, l'adapter monte aussi
    `useRecordUpdate`/`useRecordCreate` avec son `SELECT_*_W` — la whitelist — et
    n'expose `write` QUE si une session existe (sinon Softr refuse, cf. §1). --- */
-function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
   // Pas de `write` : « Abonnés » n'a pas de select d'écriture (choix, §6).
-  return <>{children(useSnapshot("abonnes", SELECT_ABONNE, !!drain, { ...liveState(res), partial, draining }))}</>;
+  return <>{children(useSnapshot("abonnes", SELECT_ABONNE, drain, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
 /* Source hors ligne (mock d'aperçu, ou source pas encore connectée). En APERÇU
@@ -3460,6 +3468,40 @@ function OfflineSource({ source, children }: { source: SourceKey; children: Sour
 const DRAIN_MAX_ROWS = 20_000;
 const COM_MAX_PAGES = 1_000;
 
+/* --- PROFONDEUR DE LECTURE D'UNE LISTE (2026-08-24, demandé) -------------------
+   « Dans tous les cas, les gens veulent les derniers dossiers, pas les 1 700. »
+   C'est juste, et ça change l'arbitrage : lire le parc entier pour afficher douze lignes,
+   c'est une soixantaine d'allers-retours pour rien.
+
+   Une liste ou un tableau lit donc les `PROFONDEUR_DEFAUT` dernières lignes, et les
+   filtres, le tri et la recherche s'appliquent LÀ-DESSUS. Un réglage par widget (⋮ →
+   Options) permet d'aller plus loin quand il faut chercher un dossier ancien — sans lui,
+   tout ce qui dépasse trois mois deviendrait introuvable depuis l'accueil, ce qui est
+   exactement le défaut qu'on venait de corriger.
+
+   ⚠️ CE QUI N'EST PAS CONCERNÉ, et il ne faut pas l'y soumettre :
+     · les vues KPI, le podium, les classements, les indicateurs et les dénominateurs de
+       couverture — un CAPEX ou un « % du parc » calculé sur 300 dossiers au lieu de 1 771
+       est FAUX, crédible, et rien ne le signalerait ;
+     · les deux FILES D'ATTENTE — leur raison d'être est le dossier qui traîne depuis
+       décembre (« une file se lit par le haut ») ; les borner aux trois derniers mois
+       reviendrait à cacher précisément ce qu'elles servent à montrer. Leur cfg figée porte
+       donc `profondeur: 0` ;
+     · toute source qui déclare `drain` ou un `perimetre` (§6-bis) : le filtrage a lieu
+       dans le navigateur, une lecture partielle y répondrait « aucune ligne » à quelqu'un
+       qui en a.
+   ⚠️ Un arrêt sur cette profondeur est VOLONTAIRE : il ne s'annonce pas « lecture
+   tronquée » (qui veut dire « on a buté sur une limite technique ») mais « 300 derniers »
+   — cf. `borne` dans `useDrainPages`. Confondre les deux, c'est soit inquiéter pour rien,
+   soit taire une vraie troncature. */
+const PROFONDEUR_DEFAUT = 300;
+/** Les choix offerts dans le ⋮. `0` = tout l'historique. */
+const PROFONDEURS: { v: number; label: string }[] = [
+  { v: PROFONDEUR_DEFAUT, label: "300 derniers — rapide" },
+  { v: 1000, label: "1 000 derniers" },
+  { v: 0, label: "Tout l'historique — plus lent" },
+];
+
 /* ⚠️ EXPÉRIENCE À MENER SUR LA PAGE PUBLIÉE — LA TAILLE DE PAGE DE SOFTR.
    C'est le levier le moins cher de tout le chantier de performance, et il n'a jamais été
    vérifié : le mock de dev déclare un paramètre `count` sur `useRecords`, mais RIEN ne dit
@@ -3491,7 +3533,33 @@ const TRACE_PAGES: boolean = false;
    ⚠️ `enabled: false` rend `partial: false` volontairement : un widget qui n'annonce pas
    de total n'a rien d'incomplet à signaler. Le drapeau ne qualifie pas la lecture, il
    qualifie la PROMESSE du widget. */
-function useDrainPages(res: any, maxPages: number, enabled = true): { partial: boolean; draining: boolean } {
+/** `drain` : `false` = une page · `true` = tout (jusqu'aux bornes de sécurité) · un NOMBRE
+ *  = les N dernières lignes, arrêt VOLONTAIRE qui ne s'annonce pas comme une troncature. */
+type DrainSpec = boolean | number;
+
+/** LA DÉCISION D'ARRÊT, extraite du hook et PURE — c'est la pièce qui décide si on tire une
+ *  page de plus, et surtout comment on QUALIFIE l'arrêt. Les trois états ne doivent jamais se
+ *  confondre : `borne` est un arrêt choisi (« 300 derniers », la liste est complète pour ce
+ *  qu'elle annonce), `partial` un arrêt subi (« lecture tronquée », il manque des lignes et il
+ *  faut le dire), `encore` la lecture qui continue. */
+function drainDecide(o: {
+  lignes: number; nPages: number; hasNext: boolean; pageVide: boolean;
+  drain: DrainSpec; maxPages: number;
+}): { encore: boolean; borne: boolean; partial: boolean } {
+  const enabled = !!o.drain;
+  const demande = typeof o.drain === "number" && o.drain > 0 ? o.drain : 0;
+  const plafond = demande || DRAIN_MAX_ROWS;
+  const stop = o.lignes >= plafond || o.nPages >= o.maxPages || o.pageVide;
+  const borne = enabled && o.hasNext && !!demande && o.lignes >= demande && !o.pageVide;
+  return {
+    encore: enabled && o.hasNext && !stop,
+    borne,
+    partial: enabled && o.hasNext && stop && !o.pageVide && !borne,
+  };
+}
+
+function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { partial: boolean; draining: boolean; borne: boolean } {
+  const enabled = !!drain;
   const nPages = Array.isArray(res?.data?.pages) ? res.data.pages.length : 0;
   const hasNext = !!res?.hasNextPage;
   const fetching = !!res?.isFetchingNextPage;
@@ -3540,18 +3608,15 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
      à chaque lecture, sur toutes les sources. Les deux conditions se complètent. */
   const dernierePageVide = nPages > 0 && (pages[nPages - 1]?.items?.length ?? 0) === 0;
 
-  /* Trois bornes, trois rôles : `DRAIN_MAX_ROWS` est la borne MÉTIER (au-delà, on renonce
-     sciemment), `maxPages` la garde ABSOLUE contre une pagination qui ne finirait jamais,
-     et la page vide le FAIT qui dit que tout est lu. */
-  const stop = lignes >= DRAIN_MAX_ROWS || nPages >= maxPages || dernierePageVide;
+  /* Quatre bornes, quatre rôles — la PROFONDEUR demandée (arrêt choisi), `DRAIN_MAX_ROWS`
+     (borne métier), `maxPages` (garde ABSOLUE) et la page vide (le FAIT qui dit que tout est
+     lu). La règle vit dans `drainDecide`, PURE et donc vérifiable. */
+  const { encore, borne, partial } = drainDecide({
+    lignes, nPages, hasNext, pageVide: dernierePageVide, drain, maxPages,
+  });
   useEffect(() => {
-    if (enabled && hasNext && canFetch && !fetching && !stop) res.fetchNextPage();
-  }, [enabled, hasNext, canFetch, fetching, nPages, stop]);
-  /* Plafond atteint alors qu'il reste des pages : lecture incomplète, à ne jamais taire.
-     ⚠️ Sauf si la dernière page est vide : on a bien tout lu, c'est le curseur du serveur
-     qui se trompe. Annoncer « lecture tronquée » dans ce cas serait un faux positif — et un
-     faux positif sur ce bandeau-là, c'est un utilisateur qui doute de chiffres justes. */
-  const partial = enabled && hasNext && stop && !dernierePageVide;
+    if (encore && canFetch && !fetching) res.fetchNextPage();
+  }, [encore, canFetch, fetching, nPages]);
   /* DRAINAGE EN COURS — il reste des pages, mais le plafond n'est pas atteint : le total
      finira JUSTE, il n'est simplement pas encore complet.
      ⚠️ Sans ce drapeau, un agrégat affiche pendant quelques secondes un chiffre qui MONTE
@@ -3560,7 +3625,7 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
      que le relèvement du plafond a rendu visible : avant, on finissait par voir « Calcul
      partiel » ; maintenant on lit tout, donc il faut annoncer l'attente au lieu d'une
      troncature. */
-  const draining = enabled && hasNext && !stop;
+  const draining = encore;
 
   /* TRACE DE DIAGNOSTIC — la TAILLE DE PAGE de Softr n'est écrite nulle part, et c'est
      elle qui décide si `maxPages` est bien calibré. On l'a déduite une fois par
@@ -3582,15 +3647,15 @@ function useDrainPages(res: any, maxPages: number, enabled = true): { partial: b
       : `[SunLib] lecture complète : ${mesure}.`);
   }, [partial, fini, nPages]);
 
-  return { partial, draining };
+  return { partial, draining, borne };
 }
 
 /* Performance commerciale : `DS.abonnes` relue en entier, 5 champs (cf. SELECT_COM).
    Lecture seule — l'accueil ne modifie pas un dossier abonné. */
 function ComKpiSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_COM, orderBy: q.desc("moisSignature") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children(useSnapshot("comKpi", SELECT_COM, true, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children(useSnapshot("comKpi", SELECT_COM, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
 /* Parc DOSSIERS : même datasource qu'`abonnes`, UN champ, pagination complète. C'est un
@@ -3601,8 +3666,8 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
      pas lancée. Cette source est la bonne cobaye : un seul champ, et c'est un COMPTEUR,
      donc aucun widget n'affiche ses lignes. */
   const res = useRecords({ from: DS.abonnes, select: SELECT_PARC_ABO, ...(SOFTR_PAGE_SIZE ? { count: SOFTR_PAGE_SIZE } : {}) });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children(useSnapshot("parcAbo", SELECT_PARC_ABO, true, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children(useSnapshot("parcAbo", SELECT_PARC_ABO, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
 /* Les deux périmètres du registre des exceptions, connectés le 2026-08-05. Paginés comme
@@ -3611,69 +3676,69 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
    parc » d'`excKpis` sont désormais chiffrés au lieu de rester muets. */
 function ExcAboSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children(useSnapshot("excAbo", SELECT_EXC_ABO, true, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children(useSnapshot("excAbo", SELECT_EXC_ABO, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 function ExcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children(useSnapshot("excPart", SELECT_EXC_PART, true, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children(useSnapshot("excPart", SELECT_EXC_PART, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
 /* Parc partenaire ← « BDD Installateur », connectée le 2026-08-05. Paginée : c'est le
    dénominateur des « X % du parc », il doit être JUSTE (~510 lignes au 2026-08-04). */
 function ParcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children(useSnapshot("parcPart", SELECT_PARC_PART, true, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children(useSnapshot("parcPart", SELECT_PARC_PART, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
-function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
   const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;                        // pas de session → aucune tentative
-  return <>{children({ ...useSnapshot("notesIns", SELECT_NOTE_INS, !!drain, { ...liveState(res), partial, draining }), write })}</>;
+  return <>{children({ ...useSnapshot("notesIns", SELECT_NOTE_INS, drain, { ...liveState(res), partial, draining, borne }), write })}</>;
 }
 
-function NotesProSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function NotesProSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
   const updM = useRecordUpdate({ from: DS.notesPro, fields: SELECT_NOTE_PRO_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...useSnapshot("notesPro", SELECT_NOTE_PRO, !!drain, { ...liveState(res), partial, draining }), write })}</>;
+  return <>{children({ ...useSnapshot("notesPro", SELECT_NOTE_PRO, drain, { ...liveState(res), partial, draining, borne }), write })}</>;
 }
 
 /* Tâches : `write` porte la PREMIÈRE écriture réelle du bloc — la case « Fait ».
    Sa whitelist ne contient que ce champ, donc c'est tout ce qu'un widget peut
    toucher ici, quoi que puisse déclarer le catalogue. Pas de `create` : voir la
    note « pas de création de tâche » dans le descripteur. */
-function TachesPaSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function TachesPaSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
   const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...useSnapshot("tachesPa", SELECT_TACHE_PA, !!drain, { ...liveState(res), partial, draining }), write })}</>;
+  return <>{children({ ...useSnapshot("tachesPa", SELECT_TACHE_PA, drain, { ...liveState(res), partial, draining, borne }), write })}</>;
 }
 
-function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
   const updM = useRecordUpdate({ from: DS.tachesPr, fields: SELECT_TACHE_PR_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
     ? { update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }) }
     : undefined;
-  return <>{children({ ...useSnapshot("tachesPr", SELECT_TACHE_PR, !!drain, { ...liveState(res), partial, draining }), write })}</>;
+  return <>{children({ ...useSnapshot("tachesPr", SELECT_TACHE_PR, drain, { ...liveState(res), partial, draining, borne }), write })}</>;
 }
 
 /* ⚠️⚠️ CAS « SAV », et c'est LE piège qui a été évité de justesse : le bloc
@@ -3706,8 +3771,8 @@ function TachesPrSource({ children, drain }: { children: SourceChildren; drain?:
    comme partiel au lieu d'être présenté comme un total. */
 function SavSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES);
-  return <>{children(useSnapshot("sav", SELECT_SAV, true, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  return <>{children(useSnapshot("sav", SELECT_SAV, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 /* ── CONTACTS PARTENAIRES — l'annuaire de la page Softr `contact-partenaire`. Connectée le
    2026-08-19 (id propre à CE bloc, cf. §6 : jamais celui d'un autre bloc, même pour la même
@@ -3731,10 +3796,10 @@ function SavSource({ children }: { children: SourceChildren }) {
    en entier, l'ordre de lecture n'a aucune conséquence sur ce qui s'affiche. Reste qu'un
    `orderBy` sur un champ LIEN n'est pas garanti côté Softr, là où le champ primaire l'est :
    autant trier sur ce qui est sûr. */
-function ContactsInsSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function ContactsInsSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res = useRecords({ from: DS.contactsIns, select: SELECT_CONTACT_INS, orderBy: q.asc("nom") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
-  return <>{children(useSnapshot("contactsIns", SELECT_CONTACT_INS, !!drain, { ...liveState(res), partial, draining }))}</>;
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  return <>{children(useSnapshot("contactsIns", SELECT_CONTACT_INS, drain, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
 /* ⚠️ CAS « NOTIFICATION CENTER » — source ÉCRIVABLE, la première du bloc. Connectée le
@@ -3745,15 +3810,15 @@ function ContactsInsSource({ children, drain }: { children: SourceChildren; drai
    lues d'abord, et son SEUL consommateur passe `drain` pour vider la pagination (cf.
    `NotifsCard`) — indispensable depuis que le widget filtre et regroupe ces lignes au
    lieu de simplement y chercher un état. `partial` remonte si le drainage a été coupé. */
-function NotifCSource({ children, drain }: { children: SourceChildren; drain?: boolean }) {
+function NotifCSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
-  const { partial, draining } = useDrainPages(res, COM_MAX_PAGES, !!drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
   const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email ? {
     update: (recordId: string, fields: Record<string, unknown>) => updM.mutateAsync({ recordId, fields }),
   } : undefined;                       // pas de session → aucune tentative
-  return <>{children({ ...useSnapshot("notifC", SELECT_NOTIF_C, !!drain, { ...liveState(res), partial, draining }), write })}</>;
+  return <>{children({ ...useSnapshot("notifC", SELECT_NOTIF_C, drain, { ...liveState(res), partial, draining, borne }), write })}</>;
 }
 /* `drain` : à passer par TOUT consommateur qui agrège (compte, somme, moyenne, ou un
    compteur d'onglet). Les six sources « liste » ne tirent qu'une page par défaut, ce qui
@@ -3770,7 +3835,7 @@ function NotifCSource({ children, drain }: { children: SourceChildren; drain?: b
    de réception est tenu assez longtemps pour être lu. */
 const REFRESH_FLOOR_MS = 650;
 
-function SourceFeed({ source, children, drain }: { source: SourceKey; children: SourceChildren; drain?: boolean }) {
+function SourceFeed({ source, children, drain }: { source: SourceKey; children: SourceChildren; drain?: DrainSpec }) {
   /* `key={nonce}` sur un Fragment : le bouton de la carte incrémente le nonce, ce qui
      DÉMONTE puis REMONTE l'adapter — donc `useRecords` repart de zéro. La page ne se vide
      pas pour autant : `useSnapshot` relit son instantané au remontage et le sert pendant
@@ -3965,7 +4030,7 @@ function CachedSource({ source, snap, children }: { source: SourceKey; snap: Sna
   return <>{withDerived(source, children)({ rows: snap.rows, loading: false, error: false, stale: true, cached: true, at: snap.at })}</>;
 }
 
-function feedFor(source: SourceKey, recoit: SourceChildren, drain?: boolean) {
+function feedFor(source: SourceKey, recoit: SourceChildren, drain?: DrainSpec) {
   /* UN SEUL point d'application pour les champs calculés : tout ce qui consomme une
      source passe par ici, mock compris. Les mettre dans chaque adapter serait douze
      endroits où l'oublier. */
@@ -6174,6 +6239,12 @@ type InstanceCfg = {
   source: SourceKey;
   query: { filter: Filter[]; sort: { by: string; dir: "asc" | "desc" }; limit: number };
   view: ViewCfg;
+  /** PROFONDEUR DE LECTURE : combien de lignes récentes ce widget lit avant d'appliquer ses
+   *  filtres. `0` = tout l'historique. Absent = `PROFONDEUR_DEFAUT` (300), y compris sur les
+   *  cfg enregistrées avant ce réglage — c'est voulu : le défaut doit valoir pour tout le
+   *  monde, pas seulement pour les widgets posés après. Sans effet en vue KPI et sur les
+   *  sources qui exigent la lecture complète (cf. `PROFONDEUR_DEFAUT`). */
+  profondeur?: number;
   actions?: { use: string[] };                    // ids d'actions du descripteur, activées ici
   create?: boolean;                               // bouton « + » (formulaire du descripteur)
   /* --- BARRE D'OUTILS de consultation (2026-08-06) ------------------------------
@@ -6314,6 +6385,12 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
   const limit = Math.max(1, Math.min(LIST_LIMIT_MAX,
     Number(o.query?.limit) > 0 ? Math.floor(Number(o.query.limit)) : base.query.limit));
 
+  /* --- profondeur de lecture : une des valeurs offertes, sinon le défaut. On n'accepte
+     pas n'importe quel nombre — un `profondeur: 7` venu d'une cfg trafiquée donnerait un
+     widget qui ne montre rien et qu'on ne saurait pas réparer depuis l'écran. --- */
+  const profRaw = Number(o.profondeur ?? base.profondeur);
+  const profondeur = PROFONDEURS.some((p) => p.v === profRaw) ? profRaw : PROFONDEUR_DEFAUT;
+
   /* --- view : la forme dépend du `kind`, chaque partie validée contre le catalogue. --- */
   const rawView = asObj(o.view);
   const kind: ViewCfg["kind"] = rawView.kind === "table" || rawView.kind === "kpi" ? rawView.kind
@@ -6417,6 +6494,10 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
     ...(desc.ownerField ? { mine } : {}),
     ...(desc.clientField ? { clientele } : {}),
     ...(facets.length ? { facets } : {}),
+    /* Écrite MÊME quand elle vaut le défaut : la valeur choisie doit survivre à un
+       changement futur de `PROFONDEUR_DEFAUT`, sinon un widget réglé sciemment sur 300
+       suivrait en silence la prochaine valeur par défaut. */
+    profondeur,
     ...(use.length ? { actions: { use } } : {}),
     ...(o.create && desc.create ? { create: true } : {}),
   };
@@ -7589,9 +7670,6 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
      Le « N sur M » du sous-titre a le même besoin : M doit compter la table, pas la page.
      Le coût (des dizaines de requêtes) est réel ; c'est le cache d'instantanés (§6-ter)
      qui le rend invisible au retour sur la page. */
-  const restreint = cfg.query.filter.length > 0
-    || (!!cfg.mine && !!desc.ownerField)
-    || (!!cfg.clientele && cfg.clientele !== "tous");
   /* --- ET LE TRI (2026-08-24) ------------------------------------------------------
      Trier est aussi une raison de tout lire, et elle manquait. Le serveur sert ses pages
      dans UN ordre (l'`orderBy` des adapters, aligné sur le `defaultSort` du descripteur) ;
@@ -7603,16 +7681,35 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
      ⚠️ Le tri LOCAL compte autant que celui de la cfg : cliquer sur un en-tête de colonne
      doit déclencher la lecture complète, sinon le classement obtenu au clic ne vaut que
      pour ce qui était déjà chargé. */
-  const triEffectif = local.sort ?? cfg.query.sort;
-  const triAutre = !!triEffectif.by
-    && (triEffectif.by !== desc.defaultSort.by || triEffectif.dir !== desc.defaultSort.dir);
+  /* ⚠️ CES DEUX RAISONS DE TOUT LIRE — un filtre posé, un tri différent de celui du serveur —
+     NE COMMANDENT PLUS LA LECTURE depuis le 2026-08-24 : c'est la PROFONDEUR qui la borne, et
+     elle la borne VOLONTAIREMENT (voir `drainSpec` plus bas). Ce que les deux paragraphes
+     ci-dessus décrivent reste vrai et important — filtrer ou trier sur une seule page ment —
+     mais la réponse n'est plus « tout lire » : c'est « lire les N derniers, et le DIRE ».
+     Le sous-titre annonce « 300 derniers », et le réglage du ⋮ permet d'aller plus loin.
+     Les garder ici, en commentaire, parce que le jour où quelqu'un se demandera pourquoi un
+     widget filtré ne voit pas un dossier de l'an dernier, c'est cette ligne qu'il lui faut. */
   /* Et le cas où c'est la SOURCE qui l'exige, quel que soit le réglage du widget (`drain` du
      descripteur, §6-bis) : un annuaire de 1 266 lignes dont la recherche ne verrait que la
      première page répondrait « aucun contact » sans jamais dire qu'elle a cherché dans 2 % de
      la table. C'est le mensonge silencieux d'un total partiel, transposé à la RECHERCHE. */
   const litTout = !!desc.drain;
+  /* --- LA PROFONDEUR (2026-08-24) -------------------------------------------------
+     Ce qu'on demande à la source : `true` = tout, un NOMBRE = les N dernières lignes.
+     Trois cas imposent la lecture complète, quel que soit le réglage du widget :
+       · une vue KPI — un agrégat sur un échantillon est faux, et rien ne le dirait ;
+       · une source qui l'exige (`drain` / `perimetre` du descripteur) ;
+       · le réglage « tout l'historique » (`profondeur: 0`), dont les deux files d'attente.
+     Sinon on lit les N dernières, et les filtres, le tri et la recherche s'appliquent
+     là-dessus — c'est le sens de la demande : « les gens veulent les derniers dossiers,
+     pas les 1 700 ».
+     ⚠️ `restreint` et `triAutre` ne forcent PLUS la lecture complète : ils la déclenchaient
+     pour que filtrer et trier portent sur toute la table, ce que la profondeur borne
+     désormais volontairement. Ils restent lus par le sous-titre, qui annonce le périmètre. */
+  const profondeur = cfg.profondeur ?? PROFONDEUR_DEFAUT;
+  const drainSpec: DrainSpec = isKpiView || litTout || profondeur === 0 ? true : profondeur;
   return (
-    <SourceFeed source={cfg.source} key={cfg.source} drain={isKpiView || restreint || triAutre || litTout}>
+    <SourceFeed source={cfg.source} key={`${cfg.source}:${String(drainSpec)}`} drain={drainSpec}>
       {(api) => {
         const isKpi = cfg.view.kind === "kpi";
         /* Les lignes LUES (avant tout filtre du widget) sont notées pour le formulaire
@@ -7659,14 +7756,20 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
         /* `cached` passe DEVANT : une liste servie sans lecture doit dater ses lignes, sinon des
            contacts d'hier se lisent comme ceux de maintenant. C'est la contrepartie assumée du
            cache journalier (§6-quater) — on économise les requêtes, on n'économise pas l'aveu. */
+        /* La PROFONDEUR se dit, elle aussi : « 300 derniers » n'est pas une panne, c'est le
+           périmètre choisi — mais le taire ferait reparaître le dossier de mars introuvable
+           dont personne ne comprend l'absence. Annoncée seulement si elle MORD (la source a
+           plus de lignes que demandé) ; en dessous, la liste est complète, il n'y a rien à
+           préciser. */
+        const borneLue = !isKpi && !!api.borne ? ` · ${profondeur} derniers` : "";
         const etatLecture = isKpi ? ""
           : api.cached ? ` · données ${snapAge(api.at)}`
           : api.draining ? " · lecture en cours"
           : api.partial ? " · lecture tronquée" : "";
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
-          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}${etatLecture}`
-          : plural(rows.length, cfg.unit) + perimetre + etatLecture;
+          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}${borneLue}${etatLecture}`
+          : plural(rows.length, cfg.unit) + perimetre + borneLue + etatLecture;
         const V = cfg.view.kind === "table" ? GenericTable : isKpi ? GenericKpi : GenericList;
         /* Le mappage des rôles sert le TITRE et le badge de la fiche. En vue tableau il
            n'y en a pas (les colonnes sont libres) : on prend celui du descripteur. */
@@ -8180,6 +8283,23 @@ function DataOptions({ cfg, onChange }: { cfg: InstanceCfg; onChange: (next: Ins
           <label style={lbl} htmlFor="slb-opt-limit">Nombre de lignes (1 – {LIST_LIMIT_MAX})</label>
           <input id="slb-opt-limit" type="number" min={1} max={LIST_LIMIT_MAX} style={field} value={cfg.query.limit}
             onChange={(e) => setQuery({ limit: Number(e.target.value) })} />
+
+          {/* --- PROFONDEUR DE LECTURE (2026-08-24) ---------------------------------
+              À ne pas confondre avec le réglage ci-dessus, et c'est pourquoi la phrase
+              explicative est là : « Nombre de lignes » dit combien on AFFICHE, celui-ci
+              combien on LIT avant de filtrer. Les deux se ressemblent à l'écran et n'ont
+              rien à voir — c'est exactement la confusion qui a fait chercher un dossier
+              de mars dans un widget qui ne l'avait jamais chargé. */}
+          <label style={lbl} htmlFor="slb-opt-prof">Profondeur de lecture</label>
+          <select id="slb-opt-prof" style={field} value={cfg.profondeur ?? PROFONDEUR_DEFAUT}
+            onChange={(e) => set({ profondeur: Number(e.target.value) })}>
+            {PROFONDEURS.map((p) => <option key={p.v} value={p.v}>{p.label}</option>)}
+          </select>
+          <p style={{ margin: "2px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+            Combien de lignes récentes sont lues <strong>avant</strong> d'appliquer les filtres, le
+            tri et la recherche — le réglage au-dessus, lui, dit combien s'affichent. Élargir
+            permet de retrouver un dossier ancien, au prix d'une lecture plus longue.
+          </p>
         </>
       )}
 
@@ -9006,6 +9126,12 @@ const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
   view: { kind: "list", map: { title: "clientNom", sub: "partenaire", date: "creeLe", badge: "statut" } },
   search: false,
   facets: ["technique", "ref"],
+  /* ⚠️ `profondeur: 0` — TOUT L'HISTORIQUE, et ce n'est pas négociable ici (2026-08-24).
+     Les listes se bornent aux 300 derniers depuis ce jour-là, mais une FILE D'ATTENTE fait
+     exactement l'inverse d'une liste des derniers dossiers : ce qui compte, c'est le dossier
+     qui traîne depuis décembre. La borner aux trois derniers mois cacherait précisément ce
+     qu'elle sert à montrer, et le tri ascendant ci-dessus n'aurait plus rien à remonter. */
+  profondeur: 0,
 }, cfgOfSource("abonnes"));
 
 /* --- LE SEUL RÉGLAGE DE CES WIDGETS : L'ORDRE ---------------------------------------

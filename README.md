@@ -909,6 +909,38 @@ clé de filtre prend le défaut entier ; une cfg portant l'ancienne clé `facet`
 2026-08-19) est gardée telle quelle. Beaucoup de widgets déjà posés verront donc ces filtres
 arriver seuls ; ceux réglés depuis le 08-19 non, et pour ceux-là c'est ⋮ → Options.
 
+### La profondeur de lecture — les 300 derniers par défaut (2026-08-24, demandé)
+
+*« Dans tous les cas, les gens veulent les derniers dossiers, pas les 1 700. »* C'est juste : lire
+le parc entier pour afficher douze lignes, c'est une soixantaine d'allers-retours pour rien.
+
+Une **liste ou un tableau lit désormais les 300 dernières lignes**, et les filtres, le tri et la
+recherche s'appliquent **là-dessus**. Un réglage par widget (⋮ → Options → **« Profondeur de
+lecture »** : 300 · 1 000 · tout l'historique) permet d'aller plus loin.
+
+⚠️ **Trois familles sont exclues, et il ne faut pas les y soumettre** :
+
+| | Pourquoi |
+|---|---|
+| KPI, podium, classements, dénominateurs | Un CAPEX ou un « % du parc » calculé sur 300 dossiers au lieu de 1 771 est **faux**, crédible, et rien ne le signalerait. |
+| Les deux **files d'attente** | Leur raison d'être est le dossier qui traîne depuis décembre. Les borner à trois mois cacherait exactement ce qu'elles servent à montrer — leur cfg figée porte `profondeur: 0`. |
+| Sources à `drain` ou `perimetre` | Le filtrage a lieu dans le navigateur : une lecture partielle répondrait « aucune ligne » à quelqu'un qui en a. |
+
+⚠️ **Un arrêt sur la profondeur est VOLONTAIRE**, et se dit autrement qu'une panne : le sous-titre
+affiche « **· 300 derniers** », jamais « lecture tronquée » (qui veut dire « on a buté sur une
+limite »). Confondre les deux, c'est soit inquiéter pour rien, soit taire une vraie troncature.
+La mention n'apparaît que si la borne **mord** — sur une source de 180 lignes, la liste est
+complète et il n'y a rien à préciser.
+
+⚠️ **La profondeur entre dans la clé du cache d'instantanés** : deux widgets sur la même source
+lus à 300 et à « tout » n'ont pas le même contenu, et partager un instantané servirait 300 lignes
+à celui qui en attend 1 771.
+
+⚠️ **Le filtre et le tri ne commandent plus la lecture.** Ils la forçaient à être complète (voir
+ci-dessous) ; c'est la profondeur qui la borne maintenant, volontairement. Le raisonnement d'alors
+reste vrai — filtrer ou trier sur une seule page ment — mais la réponse n'est plus « tout lire »,
+c'est « lire les N derniers, et le dire ».
+
 ### Pourquoi un dossier ancien pouvait manquer — et ce qui a changé (2026-08-24)
 
 **Le symptôme** : un widget annonçant *« 12 sur 145 éléments · lecture tronquée »*, et un dossier
