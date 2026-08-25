@@ -119,8 +119,11 @@ de gain que tout le cache d'instantanés. Elle est **armée depuis le 2026-08-25
   page publiée.
 - Les **filtres** du 2026-08-24 (service technique, N° SL saisi, recherche dans le panneau, liste
   déroulante dans les Options) et la **profondeur de lecture** (« · 300 derniers » au sous-titre).
-- **Les deux boucles de drainage corrigées le 2026-08-25** (voir juste en dessous) : elles ne sont
-  reproductibles **qu'en production**, donc rien de ce correctif n'est prouvé en local.
+- ~~Les deux boucles de drainage corrigées le 2026-08-25~~ → **✅ CONFIRMÉ EN PRODUCTION le
+  2026-08-25** : « les loaders fonctionnent très bien maintenant, garde le code comme ça ». La
+  barre s'éteint à la fin de la lecture, et le ⟳ cesse de tourner. Ne pas re-suspecter ce code
+  sans un symptôme neuf — et ne pas « simplifier » les quatre conditions d'arrêt de `drainDecide`
+  ni la `WeakMap` de `useMotionFX` : chacune paie un symptôme observé, listé ci-dessous.
 
 ### Le drainage qui ne s'arrêtait jamais — corrigé le 2026-08-25
 
