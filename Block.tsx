@@ -779,6 +779,10 @@ function useMotionFX(rootRef: RefObject<HTMLElement | null>) {
     if (typeof Element === "undefined" || !Element.prototype.animate) return;
 
     const vus = new WeakSet<Element>();
+    /* ⚠️⚠️ LES ANIMATIONS SONT GARDÉES depuis le 2026-08-25, et c'est tout le correctif
+       ci-dessous : sans référence, une animation `iterations: Infinity` posée sur un élément
+       qui SURVIT ne peut plus jamais être arrêtée. Voir `arrete`. */
+    const anims = new WeakMap<Element, Animation>();
     const anime = (el: Element) => {
       if (vus.has(el)) return;
       for (const r of MOTION_RULES) {
@@ -788,10 +792,34 @@ function useMotionFX(rootRef: RefObject<HTMLElement | null>) {
           for (const [k, v] of Object.entries(r.prep)) el.style.setProperty(k, v);
         }
         try {
-          el.animate(r.frames, { duration: r.duree, iterations: Infinity, easing: r.easing });
+          anims.set(el, el.animate(r.frames, { duration: r.duree, iterations: Infinity, easing: r.easing }));
         } catch { /* frames refusées par ce moteur : la forme reste, sans mouvement */ }
         return;                                   // une règle par élément, comme HoverFX
       }
+    };
+    /* ⚠️⚠️ L'INVERSE, ET IL MANQUAIT — 2026-08-25, sur le symptôme « le logo double flèche
+       tourne à l'infini alors que le loader vert sous l'en-tête s'est stoppé ».
+       LA DISSYMÉTRIE : la barre et la rotation lisent le MÊME `busy`, mais pas de la même façon.
+       La barre est un nœud MONTÉ SOUS CONDITION — quand `busy` retombe, React la démonte et son
+       animation meurt avec elle. La rotation, elle, n'est qu'une CLASSE posée sur une icône qui
+       reste : `className={busy ? "slb-spin" : undefined}`. Retirer une classe n'annule aucune
+       animation de la Web Animations API — et rien ici ne gardait de quoi l'annuler.
+       QUAND ÇA SE DÉCLENCHE, et c'est systématique : le `<Fragment key={nonce}>` de `SourceFeed`
+       REMONTE tout son sous-arbre au clic sur le ⟳, `Widget` inclus. La nouvelle icône naît donc
+       avec `slb-spin` déjà posée (`accuse` est vrai dans le même tour), le `MutationObserver` la
+       voit arriver, lui pose une rotation perpétuelle — et plus personne ne l'arrête. Autrement
+       dit : CLIQUER SUR LE ⟳ CONDAMNAIT SON ICÔNE À TOURNER POUR TOUJOURS.
+       ⚠️ Et le même trou coûtait le cas INVERSE, plus discret : hors remontage, la classe arrive
+       sur une icône DÉJÀ dans le DOM. Or l'observateur ne surveillait que `childList` — donc
+       aucune animation n'était posée, et là où la feuille de `StyleInjector` ne s'applique pas
+       (tout le motif de §2-ter) l'icône ne tournait JAMAIS. Le correctif du 2026-08-19 ne
+       couvrait que la moitié des cas : celle où l'élément apparaît en même temps que sa classe. */
+    const arrete = (el: Element) => {
+      const a = anims.get(el);
+      if (!a || el.matches(MOTION_SEL)) return;   // toujours concerné : on laisse tourner
+      a.cancel();
+      anims.delete(el);
+      vus.delete(el);                             // la classe peut revenir : on réanimera
     };
     /* Le nœud ajouté PEUT être le squelette lui-même (`anime`) ou le contenir
        (`querySelectorAll`) : un widget entier arrive d'un coup, squelettes inclus. */
@@ -803,9 +831,21 @@ function useMotionFX(rootRef: RefObject<HTMLElement | null>) {
 
     balayer(root);
     const obs = new MutationObserver((muts) => {
-      for (const m of muts) m.addedNodes.forEach(balayer);
+      for (const m of muts) {
+        if (m.type !== "attributes") { m.addedNodes.forEach(balayer); continue; }
+        const el = m.target;
+        if (!(el instanceof Element)) continue;
+        /* Garde-fou de COÛT : `class` change souvent dans ce bloc (survols, états). Un seul
+           `matches` écarte l'immense majorité des mutations avant tout autre travail. */
+        if (!anims.has(el) && !el.matches(MOTION_SEL)) continue;
+        arrete(el);                               // la classe est partie → on annule
+        anime(el);                                // …ou elle est arrivée → on démarre
+      }
     });
-    obs.observe(root, { childList: true, subtree: true });
+    /* `attributeFilter: ["class"]` et pas `attributes: true` : le FLIP de la grille (§11)
+       réécrit `style` sur chaque wrapper à chaque réarrangement, et nous n'avons rien à en
+       faire — s'abonner à tous les attributs, ici, serait un flot continu pour rien. */
+    obs.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     return () => obs.disconnect();
   }, [rootRef]);
 }

@@ -181,6 +181,35 @@ la page publiée**. Pour provoquer le cas 1 à la demande : DevTools → Network
 sur l'appel de la datasource, puis recharger. La console doit imprimer
 `[SunLib] lecture TRONQUÉE : … Lecture en ERREUR` — et la barre doit **s'éteindre**.
 
+### Et le ⟳ qui tournait pour toujours — corrigé le 2026-08-25 (second passage)
+
+Une fois la barre réparée, il restait : *« le logo double flèche tourne à l'infini alors que le
+loader vert sous l'en-tête s'est stoppé »*. Les deux lisent pourtant le **même** `busy` — mais pas
+de la même façon, et c'est toute l'affaire :
+
+- la **barre** est un nœud **monté sous condition** : quand `busy` retombe, React la démonte et son
+  animation meurt avec elle ;
+- la **rotation** n'est qu'une **classe** posée sur une icône qui reste
+  (`className={busy ? "slb-spin" : undefined}`). Or **retirer une classe n'annule aucune animation
+  de la Web Animations API** — et `useMotionFX` ne gardait aucune référence pour l'annuler.
+
+**Le déclencheur est systématique** : le `<Fragment key={nonce}>` de `SourceFeed` remonte tout son
+sous-arbre au clic sur le ⟳, `Widget` compris. La nouvelle icône naît donc avec `slb-spin` déjà
+posée (`accuse` est vrai dans le même tour), le `MutationObserver` la voit arriver, lui pose une
+rotation perpétuelle — et plus personne ne l'arrête. Autrement dit : **cliquer sur le ⟳ condamnait
+son icône à tourner pour toujours.**
+
+⚠️ **Le même trou coûtait le cas inverse, plus discret** : hors remontage, la classe arrive sur une
+icône **déjà** dans le DOM, et l'observateur ne surveillait que `childList` — donc aucune animation
+n'était posée, et là où la feuille de `StyleInjector` ne s'applique pas (tout le motif du §2-ter)
+**l'icône ne tournait jamais**. Le correctif du 2026-08-19 ne couvrait que la moitié des cas :
+celle où l'élément apparaît en même temps que sa classe.
+
+`useMotionFX` garde donc ses `Animation` (`WeakMap`) et écoute aussi
+`attributes: ["class"]` : la classe part → `cancel()`, la classe revient → on réanime.
+Vérifié sous jsdom, 9 cas — et **contre-épreuve faite** : les 3 cas du bug échouent bien sur la
+version d'avant, ce qui prouve que le banc mesure quelque chose.
+
 **Reste à faire, et c'est un défaut distinct** : `refresh` appelle `parent?.refresh()` en premier,
 ce qui change le `key` du niveau du dessus et **détruit tout le sous-arbre** — les `useState(0)`
 des `SourceFeed` internes repartent donc à **0**. Or `nonce === 0` veut dire « premier chargement »
