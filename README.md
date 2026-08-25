@@ -21,7 +21,7 @@ Bloc de la **page d'accueil** du CRM SunLib, rendu dans le bloc *vibe coding* de
 
 ---
 
-## 0. Ce qui reste à faire — état au 2026-08-24
+## 0. Ce qui reste à faire — état au 2026-08-25
 
 ### 🚨 Bloquant avant de coller la version du 2026-08-24
 
@@ -52,6 +52,77 @@ quand un plafond saute : `[SunLib] lecture TRONQUÉE : N pages, M lignes (~X par
   page publiée.
 - Les **filtres** du 2026-08-24 (service technique, N° SL saisi, recherche dans le panneau, liste
   déroulante dans les Options) et la **profondeur de lecture** (« · 300 derniers » au sous-titre).
+- **Les deux boucles de drainage corrigées le 2026-08-25** (voir juste en dessous) : elles ne sont
+  reproductibles **qu'en production**, donc rien de ce correctif n'est prouvé en local.
+
+### Le drainage qui ne s'arrêtait jamais — corrigé le 2026-08-25
+
+Deux symptômes rapportés le même jour, une seule pièce en cause : `useDrainPages`.
+
+> « quand tu fais réactualiser et que ça arrête de tourner, j'ai la barre verte qui continue
+> d'avancer » · « quand je double-clique involontairement sur le rechargement, ça tourne en
+> continu »
+
+La **barre fine verte** n'est montée que sous `refreshCtx?.busy`, et `busy` remonte en droite
+ligne de `draining` (`useDrainPages` → `useSnapshot` → `SourceFeed`). Elle ne mentait donc pas :
+le drainage se croyait vraiment encore en cours. Trois trous, tous du même genre — **on s'arrêtait
+sur ce qui est ANNONCÉ, pas sur ce qui est ARRIVÉ** :
+
+1. **`drainDecide` ne regardait pas `res.error`.** Une page qui échoue — un **429 Airtable** est
+   le cas courant — ne fait pas tomber `hasNextPage`, qui reste sur la valeur de la dernière page
+   réussie : `encore` restait vrai **pour toujours**. Et comme `isFetchingNextPage` qui retombe à
+   faux est une **dépendance de l'effet-pompe**, celui-ci se rejouait et retirait aussitôt : une
+   source en 429 **martelait le quota en boucle**, sans backoff, et rien à l'écran ne le disait.
+   ⚠️ Le dégât le plus cher n'était pas visuel : `useSnapshot` n'écrit son instantané qu'à lecture
+   **complète**, donc une fois la boucle installée **le cache localStorage de cette source n'était
+   plus jamais alimenté** — chaque visite repartait de zéro. Si le cache d'instantanés paraissait
+   moins efficace que prévu, c'est probablement là.
+   L'erreur rend désormais `partial` **vrai** : c'est un arrêt subi, il manque des lignes, et un
+   parc incomplet cesse de servir de dénominateur au lieu de produire un ratio faux et crédible.
+2. **La pompe n'était gardée que par `isFetchingNextPage`**, qui est FAUX pendant un `refetch()` —
+   c'est-à-dire pendant exactement ce que le ⟳ déclenche. Elle tirait donc des pages *pendant* la
+   relecture, et les deux se battaient sur la même entrée de cache react-query : le refetch
+   **remplace** `data.pages` (il relit depuis la première page) tandis que la pompe y **ajoute**.
+   `nPages` oscillait — et comme c'est une dépendance de l'effet, **chaque oscillation relançait la
+   pompe**. Corrigé par `enVol = isFetchingNextPage || isFetching`, qui sérialise ET donne à la
+   pompe un **battement** : c'était le second blocage possible, le plus sournois — quand un
+   `fetchNextPage()` ne rendait aucune page, aucune dépendance ne changeait, la pompe ne repartait
+   jamais et `encore` restait vrai, barre allumée **sans plus une seule requête**.
+3. **⚠️⚠️ Le garde-fou « page vide » du 2026-08-21 ne suffisait pas seul, et c'est la leçon à ne
+   pas reperdre.** Il est juste, mais il lisait un tableau **qu'un refetch concurrent peut
+   remplacer sous ses pieds** : il exige que la page vide soit le **dernier** élément de
+   `data.pages`, et un refetch qui atterrit après l'**effaçait**. Sur une source dont
+   `hasNextPage` mentira toujours — précisément celle pour laquelle il avait été écrit — la boucle
+   redevenait perpétuelle. Le fait est donc **collant** désormais (`pageVideVue` + un `useRef` qui
+   meurt avec le montage) : un serveur qui a rendu zéro ligne l'a rendu, quoi qu'il arrive ensuite
+   au tableau qui le portait.
+
+S'ajoute une **garde de réentrance** dans `SourceFeed.refresh` : un second clic dans le plancher
+de 650 ms est absorbé (il ne peut porter aucune intention nouvelle, la première relecture n'ayant
+rien eu le temps de rendre), mais il **relance l'accusé de réception** — le geste garde une
+réponse visible.
+⚠️ **Pas de `disabled` sur le ⟳, et c'est un refus délibéré** : `busy` reste vrai pendant *tout*
+le drainage, plusieurs secondes sur le parc. Un bouton désactivé sur `busy` refuserait une
+relecture légitime et rejouerait mot pour mot le retour du 2026-08-19 (« on a l'impression que le
+bouton ne fonctionne pas »). On borne la cause — un démontage de trop —, jamais l'affordance.
+
+⚠️ **Rien de tout cela n'est reproductible en local** : le mock (`src/lib/datasource.tsx`) rend
+`hasNextPage: false`, `isFetching: false` et un `refetch` synchrone — il n'y a là ni pagination ni
+échec, donc ni boucle ni course. `drainDecide` et `pageVideVue` sont pures pour cette raison : les
+deux ont été vérifiées hors React (18 cas, dont celui de la course), mais **la recette se fait sur
+la page publiée**. Pour provoquer le cas 1 à la demande : DevTools → Network → *Block request URL*
+sur l'appel de la datasource, puis recharger. La console doit imprimer
+`[SunLib] lecture TRONQUÉE : … Lecture en ERREUR` — et la barre doit **s'éteindre**.
+
+**Reste à faire, et c'est un défaut distinct** : `refresh` appelle `parent?.refresh()` en premier,
+ce qui change le `key` du niveau du dessus et **détruit tout le sous-arbre** — les `useState(0)`
+des `SourceFeed` internes repartent donc à **0**. Or `nonce === 0` veut dire « premier chargement »
+à deux endroits décisifs (le chemin cache, et le `refetch()` de secours). Conséquence : sur un
+widget à plusieurs sources (« Exceptions » en compte quatre), **le ⟳ ne relit réellement que la
+plus externe**, les autres reprenant leur instantané sans lancer une requête — l'inverse exact de
+ce qu'annonce le bouton. Le correctif tient en une ligne (`const nonce = nonceLocal +
+(parent?.nonce ?? 0)`, qui rétablit l'invariant « nonce > 0 ⇒ une relecture a été demandée »),
+mais il change **ce qui est lu** : il mérite son propre commit et son propre test en production.
 
 ---
 
@@ -239,7 +310,9 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      entier — on y cherche justement le contact d'un installateur qu'on ne suit pas. Le
      propriétaire est **lu** et affiché ; pour qu'il filtre, il suffira de déclarer
      `ownerField: "proprio"`.
-   - **Indicateur de chargement** *(2026-08-19, demandé)* — une **barre fine** traverse le bas de
+   - **Indicateur de chargement** *(2026-08-19, demandé ; ⚠️ lire aussi le §0, « le drainage qui
+     ne s'arrêtait jamais » — cette barre est restée allumée à vie jusqu'au 2026-08-25, et elle
+     ne mentait pas : c'est le drainage qui ne s'arrêtait pas)* — une **barre fine** traverse le bas de
      l'en-tête tant que la source du widget lit, et le sous-titre la nomme : « **· lecture en
      cours** » pendant le drainage, « **· lecture tronquée** » si la lecture s'est arrêtée au
      plafond de pages. Posée une seule fois, dans `Widget`, sous condition du contexte

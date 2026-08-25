@@ -3608,12 +3608,34 @@ type DrainSpec = boolean | number;
  *  faut le dire), `encore` la lecture qui continue. */
 function drainDecide(o: {
   lignes: number; nPages: number; hasNext: boolean; pageVide: boolean;
+  /** ⚠️⚠️ UNE LECTURE A ÉCHOUÉ (429, coupure, refus) — ajouté le 2026-08-25 sur le symptôme
+   *  « la barre verte reste allumée indéfiniment alors que l'activité paraît terminée », vu en
+   *  production et STRUCTURELLEMENT INVISIBLE en local (le mock rend `error: null` et
+   *  `hasNextPage: false`, cf. `src/lib/datasource.tsx` — il n'y a là ni pagination ni échec).
+   *  LA CAUSE : ce drainage ne s'arrêtait que sur `hasNextPage`, une PROMESSE du serveur. Une
+   *  page qui échoue ne la fait pas tomber — elle reste sur la valeur de la dernière page
+   *  réussie. `encore` restait donc vrai POUR TOUJOURS : `draining` vrai → `sansDonnees` vrai →
+   *  `reading` vrai (§6-ter) → barre allumée et rotation en cours, sans que rien ne dise que la
+   *  lecture avait échoué. Et — plus grave que l'affichage — `useSnapshot` n'écrit son
+   *  instantané qu'à lecture COMPLÈTE : une fois la boucle installée, le cache localStorage de
+   *  cette source n'était PLUS JAMAIS alimenté, donc chaque visite repartait de zéro.
+   *  PIRE ENCORE : `isFetchingNextPage` qui retombe à faux est une DÉPENDANCE de l'effet-pompe,
+   *  qui se rejouait donc et retirait aussitôt. Une source en 429 martelait le quota en boucle,
+   *  sans backoff, et rien à l'écran ne le disait.
+   *  POURQUOI LA CORRECTION TIENT : comme la page vide juste en dessous, l'erreur est un FAIT —
+   *  ce qui est ARRIVÉ, pas ce qui est annoncé. Elle ne peut pas mentir. Et elle est DÉJÀ lue
+   *  par `liveState` (`res.error`) : on n'ajoute aucune hypothèse sur l'objet rendu par Softr.
+   *  ⚠️ Elle rend `partial` VRAI, et c'est voulu : une lecture en échec est un arrêt SUBI, il
+   *  manque des lignes et il faut le dire. Le widget affiche « lecture tronquée » — et un parc
+   *  incomplet cesse de servir de dénominateur (cf. `ParcCard`) au lieu de produire un ratio
+   *  faux et crédible, qui est précisément ce que ce bloc traque. */
+  erreur: boolean;
   drain: DrainSpec; maxPages: number;
 }): { encore: boolean; borne: boolean; partial: boolean } {
   const enabled = !!o.drain;
   const demande = typeof o.drain === "number" && o.drain > 0 ? o.drain : 0;
   const plafond = demande || DRAIN_MAX_ROWS;
-  const stop = o.lignes >= plafond || o.nPages >= o.maxPages || o.pageVide;
+  const stop = o.lignes >= plafond || o.nPages >= o.maxPages || o.pageVide || o.erreur;
   const borne = enabled && o.hasNext && !!demande && o.lignes >= demande && !o.pageVide;
   return {
     encore: enabled && o.hasNext && !stop,
@@ -3622,11 +3644,45 @@ function drainDecide(o: {
   };
 }
 
+/** LE FAIT « une page est revenue VIDE », rendu COLLANT — et PURE comme `drainDecide`, pour la
+ *  même raison : c'est une pièce qui décide d'un arrêt, elle doit être vérifiable hors React.
+ *  `deja` est le fait déjà constaté par ce montage.
+ *  ⚠️⚠️ POURQUOI COLLANT (2026-08-25) : le garde-fou du 2026-08-21 teste la DERNIÈRE page de
+ *  `res.data.pages`, or ce tableau est REMPLACÉ — et pas complété — dès qu'un `refetch()`
+ *  repart : react-query relit alors toutes les pages depuis la première. Le temps de ce
+ *  remplacement, la page vide DISPARAÎT du tableau. Et sur une source dont `hasNextPage` reste
+ *  vrai à jamais — exactement le cas pour lequel le garde-fou a été écrit — c'était le SEUL
+ *  fait capable d'arrêter la lecture : la boucle redevenait perpétuelle.
+ *  Un fait ne se dé-constate pas : un serveur qui a rendu zéro ligne l'a rendu, quoi qu'il
+ *  arrive ensuite au tableau qui le portait. */
+const pageVideVue = (pages: { items?: any[] }[], deja: boolean): boolean =>
+  deja || (pages.length > 0 && (pages[pages.length - 1]?.items?.length ?? 0) === 0);
+
 function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { partial: boolean; draining: boolean; borne: boolean } {
   const enabled = !!drain;
   const nPages = Array.isArray(res?.data?.pages) ? res.data.pages.length : 0;
   const hasNext = !!res?.hasNextPage;
-  const fetching = !!res?.isFetchingNextPage;
+  /* ⚠️⚠️ TOUT VOL EN COURS, et pas seulement le vol de PAGE SUIVANTE — corrigé le 2026-08-25
+     sur le symptôme « un double-clic involontaire sur le ⟳ et ça tourne en continu ».
+     LA CAUSE : `isFetchingNextPage` ne couvre QUE `fetchNextPage()`. Pendant un `refetch()` —
+     celui du remontage juste en dessous, ou celui que Softr déclenche de son côté — il est FAUX
+     alors qu'une requête est bien en vol. La pompe partait donc quand même, et les deux se
+     battaient sur la MÊME entrée de cache react-query : le refetch REMPLACE `data.pages` (il
+     relit toutes les pages depuis la première) pendant que la pompe y AJOUTE. `nPages`
+     oscillait — et comme c'est une dépendance de l'effet, chaque oscillation RELANÇAIT la
+     pompe — tandis que le FAIT « dernière page vide » était effacé du tableau remplacé
+     (cf. `pageVideVue`). Deux clics à 200 ms suffisaient : le premier montage était détruit
+     avec un `refetch()` DÉJÀ PARTI — une promesse qu'on ne peut pas annuler — et le second en
+     lançait un autre sur la même clé.
+     POURQUOI LA CORRECTION TIENT, DEUX FOIS : elle SÉRIALISE (une seule requête en vol, donc
+     plus de course sur `data.pages`) ET elle donne à la pompe un BATTEMENT — `isFetching`
+     bascule à chaque requête, donc l'effet se rejoue à la fin de n'importe quelle lecture.
+     C'était le second blocage possible, et le plus sournois : quand un `fetchNextPage()` ne
+     rendait AUCUNE page, aucune dépendance de l'effet ne changeait, la pompe ne se relançait
+     jamais et `encore` restait vrai — barre allumée sans plus une seule requête.
+     ⚠️ Aucun ralentissement du drainage normal : il était DÉJÀ sérialisé par
+     `isFetchingNextPage`. On n'élargit que ce qui compte comme « occupé ». */
+  const enVol = !!res?.isFetchingNextPage || !!res?.isFetching;
   const canFetch = typeof res?.fetchNextPage === "function";
 
   /* RAFRAÎCHISSEMENT EXPLICITE — le filet de sécurité du bouton du héro. Le remontage
@@ -3670,17 +3726,32 @@ function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { p
      ARRIVÉ, pas sur ce qui est annoncé ; il ne peut donc pas mentir.
      ⚠️ Ne pas « simplifier » en retirant `hasNext` : sans lui, on tirerait une page de trop
      à chaque lecture, sur toutes les sources. Les deux conditions se complètent. */
-  const dernierePageVide = nPages > 0 && (pages[nPages - 1]?.items?.length ?? 0) === 0;
+  /* ⚠️ MÉMORISÉ dans un ref depuis le 2026-08-25 — la règle est dans `pageVideVue`, qui dit
+     pourquoi un `refetch()` concurrent pouvait effacer ce fait et rouvrir la boucle.
+     Le ref meurt avec le montage (`key={nonce}` du `SourceFeed`) : un clic sur le ⟳ repart donc
+     d'une ardoise vierge, et le fait collant n'immobilise RIEN de façon durable.
+     ⚠️ Il ne peut pas mentir dans l'autre sens : `partial` exige `!pageVide`, donc un fait
+     collant ne fabrique JAMAIS un faux « lecture tronquée ». Au pire il arrête une page trop tôt
+     une source qui aurait grandi pendant la relecture — ce que le prochain ⟳ corrige, et qui est
+     sans commune mesure avec une carte qui tourne sans fin.
+     (Écriture d'un ref pendant le render : même pratique que `snapRef` dans `useSnapshot` et
+     `choix` dans `SourceFeed`, et pour la même raison — ce fichier n'emploie pas `useMemo`.) */
+  const vuePageVide = useRef(false);
+  vuePageVide.current = pageVideVue(pages, vuePageVide.current);
+  const dernierePageVide = vuePageVide.current;
 
   /* Quatre bornes, quatre rôles — la PROFONDEUR demandée (arrêt choisi), `DRAIN_MAX_ROWS`
      (borne métier), `maxPages` (garde ABSOLUE) et la page vide (le FAIT qui dit que tout est
      lu). La règle vit dans `drainDecide`, PURE et donc vérifiable. */
+  /* Même lecture que `liveState`, au mot près : si `error` est absent de l'objet Softr, `erreur`
+     vaut faux et on retombe exactement sur le comportement d'avant le 2026-08-25. */
+  const erreur = !!res?.error;
   const { encore, borne, partial } = drainDecide({
-    lignes, nPages, hasNext, pageVide: dernierePageVide, drain, maxPages,
+    lignes, nPages, hasNext, pageVide: dernierePageVide, erreur, drain, maxPages,
   });
   useEffect(() => {
-    if (encore && canFetch && !fetching) res.fetchNextPage();
-  }, [encore, canFetch, fetching, nPages]);
+    if (encore && canFetch && !enVol) res.fetchNextPage();
+  }, [encore, canFetch, enVol, nPages]);
   /* DRAINAGE EN COURS — il reste des pages, mais le plafond n'est pas atteint : le total
      finira JUSTE, il n'est simplement pas encore complet.
      ⚠️ Sans ce drapeau, un agrégat affiche pendant quelques secondes un chiffre qui MONTE
@@ -3709,10 +3780,16 @@ function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { p
     if (dit.current || !(partial || (TRACE_PAGES && fini))) return;
     dit.current = true;
     const mesure = `${nPages} pages, ${lignes} lignes (~${Math.round(lignes / Math.max(1, nPages))} par page)`;
+    /* ⚠️ L'ERREUR est nommée à part (2026-08-25) : sans ça, une lecture arrêtée par un 429
+       s'imprimait « Borne atteinte — COM_MAX_PAGES », et on aurait cherché un plafond mal
+       calibré là où il n'y avait qu'une requête refusée. C'est précisément le genre de fausse
+       piste que cette trace existe pour éviter. */
     console.info(partial
-      ? `[SunLib] lecture TRONQUÉE : ${mesure}. Borne atteinte — ${lignes >= DRAIN_MAX_ROWS ? `DRAIN_MAX_ROWS (${DRAIN_MAX_ROWS} lignes)` : `COM_MAX_PAGES (${maxPages} pages)`}.`
+      ? `[SunLib] lecture TRONQUÉE : ${mesure}. ${erreur
+          ? "Lecture en ERREUR (cf. `res.error`) — drainage arrêté, ce n'est PAS un plafond."
+          : `Borne atteinte — ${lignes >= DRAIN_MAX_ROWS ? `DRAIN_MAX_ROWS (${DRAIN_MAX_ROWS} lignes)` : `COM_MAX_PAGES (${maxPages} pages)`}.`}`
       : `[SunLib] lecture complète : ${mesure}.`);
-  }, [partial, fini, nPages]);
+  }, [partial, fini, nPages, erreur]);
 
   return { partial, draining, borne };
 }
@@ -3962,12 +4039,38 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
 
   /* Un `SourceFeed` imbriqué (widget à plusieurs sources) relit AUSSI celles du dessus :
      un bouton qui ne rafraîchirait qu'un quart d'un total serait pire qu'aucun bouton. */
+  /* ⚠️⚠️ GARDE DE RÉENTRANCE — 2026-08-25, sur le symptôme « un double-clic involontaire fait
+     tourner en continu ». Deux clics à 200 ms incrémentaient DEUX fois le nonce : le premier
+     montage était détruit avec un `refetch()` déjà parti (une promesse qu'on ne peut pas
+     annuler, cf. `useDrainPages`), le second en lançait un autre sur la MÊME entrée de cache
+     react-query, et le drainage se battait alors avec un refetch qui remplaçait ses pages.
+     Un second clic DANS le plancher d'accusé de réception ne peut porter aucune intention
+     nouvelle : la relecture demandée n'a pas encore eu le temps de rendre quoi que ce soit. On
+     l'absorbe donc — sans nonce, sans démontage.
+     ⚠️ PAS de `disabled={busy}` sur le bouton, et c'est un REFUS délibéré : `busy` reste vrai
+     pendant TOUT le drainage (plusieurs secondes sur le parc), donc un bouton désactivé sur
+     `busy` refuserait une relecture parfaitement légitime — et rejouerait mot pour mot le retour
+     du 2026-08-19 (« on a l'impression que le bouton ne fonctionne pas »). Ici le bouton reste
+     cliquable, et le clic absorbé RELANCE LE PLANCHER : la barre et la rotation restent
+     allumées, donc le geste garde une réponse visible même quand il ne déclenche pas de seconde
+     lecture. On borne la CAUSE — un démontage de trop —, jamais l'affordance.
+     ⚠️ Un ref et non l'état `accuse` : les deux clics d'un double-clic arrivent dans deux
+     événements distincts, mais un horodatage lu et écrit dans le même tour est sans ambiguïté,
+     là où un `setState` dépendrait de l'ordre des rendus. Et l'horodatage n'est écrit QUE sur un
+     clic RETENU : la règle est « au plus une lecture par 650 ms », pas « le bouton se bloque
+     tant qu'on clique ». */
+  const dernierClic = useRef(0);
   const refresh = () => {
-    parent?.refresh();
-    setNonce((n) => n + 1);
+    const t = Date.now();
+    /* L'accusé de réception est TOUJOURS relancé — y compris sur un clic absorbé : le geste a
+       eu lieu, il doit se voir, même quand il ne déclenche rien de plus. */
     setAccuse(true);
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setAccuse(false), REFRESH_FLOOR_MS);
+    if (t - dernierClic.current < REFRESH_FLOOR_MS) return;
+    dernierClic.current = t;
+    parent?.refresh();
+    setNonce((n) => n + 1);
   };
   /* Date affichée = la PLUS ANCIENNE des instantanés servis, pour la même raison qu'un
      total composé se date sur sa source la plus en retard (cf. `AggregateNote`). */

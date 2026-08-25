@@ -358,6 +358,36 @@ paginer aucune produit des chiffres faux. `SourceFeed` prend donc un booléen **
 (pagination vidée + `partial`). `enabled: false` rend `partial: false` — le drapeau qualifie la
 **promesse du widget**, pas la lecture.
 
+> **⚠️ 2026-08-25 — LES QUATRE CONDITIONS D'ARRÊT, et pourquoi trois ne suffisaient pas.**
+> Deux symptômes signalés le même jour (« la barre verte continue d'avancer alors que ça a arrêté
+> de tourner », « un double-clic involontaire sur le ⟳ et ça tourne en continu ») ont la même
+> racine : **on s'arrêtait sur ce qui est ANNONCÉ, pas sur ce qui est ARRIVÉ.**
+> · `hasNextPage` est une **promesse** du serveur, et une page en **erreur** (429 Airtable) ne la
+>   fait pas tomber → `drainDecide` prend désormais `erreur`, quatrième terme de `stop`. Sans lui,
+>   `encore` restait vrai à vie : barre allumée, quota martelé en boucle (l'effet-pompe se rejoue
+>   sur la retombée de `isFetchingNextPage`), et **instantané jamais écrit** — `useSnapshot`
+>   n'écrit qu'à lecture complète, donc le cache de la source n'était plus jamais alimenté.
+> · la pompe ne se gardait que sur `isFetchingNextPage`, **faux pendant un `refetch()`** : elle
+>   tirait des pages pendant la relecture du ⟳, le refetch **remplaçant** `data.pages` quand la
+>   pompe y **ajoute**. `nPages` oscillait, et comme c'est une dépendance de l'effet, chaque
+>   oscillation le relançait → `enVol = isFetchingNextPage || isFetching`, qui sérialise **et**
+>   donne à la pompe un battement (sans quoi un `fetchNextPage()` sans résultat la figeait à
+>   jamais, `encore` restant vrai).
+> · le garde-fou **page vide** du 2026-08-21 est juste mais lisait un tableau qu'un refetch peut
+>   **remplacer sous ses pieds** — il exige que la page vide soit le *dernier* élément de
+>   `data.pages`. Le fait est donc **collant** (`pageVideVue` + un `useRef` qui meurt avec le
+>   montage) : un serveur qui a rendu zéro ligne l'a rendu, quoi qu'il arrive ensuite au tableau.
+>
+> `drainDecide` et `pageVideVue` sont **pures** exactement pour ça : les deux ont été vérifiées
+> hors React (18 cas, dont la course refetch ↔ pompe). Rien de tout cela n'est reproductible en
+> local — le mock rend `hasNextPage: false` et `error: null`.
+> ⚠️ Une erreur rend `partial` **vrai** : arrêt subi, il manque des lignes. Un parc incomplet
+> cesse donc de servir de dénominateur (§7) au lieu de produire un ratio faux et crédible.
+> ⚠️ Le ⟳ n'a **pas** reçu de `disabled` : `busy` reste vrai pendant tout le drainage, et un
+> bouton grisé plusieurs secondes rejouerait le retour du 2026-08-19. La garde est une
+> **réentrance** dans `SourceFeed.refresh` (un clic retenu par plancher de 650 ms), et le clic
+> absorbé relance quand même l'accusé de réception : on borne la cause, jamais l'affordance.
+
 | Consommateur | `drain` | Pourquoi |
 | --- | --- | --- |
 | Performance ×3, Exceptions ×2, parcs ×2, Pilotage SAV | **toujours** (dans l'adapter) | ces sources n'existent que pour être agrégées |
