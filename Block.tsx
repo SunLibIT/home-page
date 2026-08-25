@@ -3338,12 +3338,19 @@ type SourceRefreshApi = {
   refresh: () => void;
   /** Une lecture est en cours sous ce provider — c'est ce qui fait tourner l'icône. */
   busy: boolean;
+  /** ⚠️ RELECTURE EN ARRIÈRE-PLAN, sans rien de neuf à montrer (2026-08-25). Distinct de
+   *  `busy` : celui-ci s'allume quand il se passe quelque chose que l'utilisateur a demandé
+   *  ou qui va changer l'écran ; `relit` dit seulement qu'une requête est en vol — le plus
+   *  souvent le `refetchOnWindowFocus` de Softr, au retour d'un onglet.
+   *  Il ne doit RIEN allumer par lui-même : c'est `Widget` qui l'utilise, et seulement sur
+   *  une carte qui n'a RIEN à afficher. Voir la prop `vide`. */
+  relit: boolean;
   /** Date des lignes affichées quand elles viennent du cache (0 sinon), pour le `title`
    *  du bouton : « Instantané du 18/08 à 09:14 — relire ». */
   at: number;
   /** Publié par `useSnapshot`, le seul endroit qui connaisse l'état réel de la lecture.
    *  L'information circule donc de bas en haut, à l'inverse du reste du contexte. */
-  publish: (etat: { reading: boolean; at: number }) => void;
+  publish: (etat: { reading: boolean; fetching: boolean; at: number }) => void;
 };
 /* `null` par défaut, et c'est le cœur du mécanisme : hors d'un `SourceFeed`, il n'y a
    RIEN à rafraîchir, et `Widget` n'affiche pas de bouton. */
@@ -3419,9 +3426,13 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: D
      tant qu'on sert un instantané. `publish` est un `setState` stable, donc absent des
      dépendances — l'y mettre relancerait l'effet à chaque render du provider. */
   const publish = refreshCtx?.publish;
+  /* `fetching` remonte SÉPARÉMENT de `reading` depuis le 2026-08-25 : il n'allume rien par
+     lui-même (cf. le commentaire de `reading` ci-dessus), il sert uniquement à `Widget` pour le
+     cas d'une carte qui n'a RIEN à afficher — là, et là seulement, savoir qu'une relecture est
+     en vol vaut la peine d'être montré. */
   useEffect(() => {
-    publish?.({ reading, at: serving ? snap!.at : 0 });
-  }, [reading, serving, snap?.at]);
+    publish?.({ reading, fetching: !!live.fetching, at: serving ? snap!.at : 0 });
+  }, [reading, live.fetching, serving, snap?.at]);
 
   if (!serving) return live;
   /* `loading: false` — c'est TOUT le point : les widgets cessent d'afficher leur
@@ -4063,7 +4074,7 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
      la relecture (§6-ter). */
   const parent = useContext(SourceRefreshCtx);
   const [nonce, setNonce] = useState(0);
-  const [etat, setEtat] = useState({ reading: false, at: 0 });
+  const [etat, setEtat] = useState({ reading: false, fetching: false, at: 0 });
   /* Accusé de réception du clic, indépendant de ce que la source rend (cf. `REFRESH_FLOOR_MS`).
      ⚠️ Le timer est nettoyé au démontage : sans cela, un widget retiré pendant sa relecture
      déclencherait un `setState` sur un composant démonté. */
@@ -4154,6 +4165,10 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
   const at = [etat.at, parent?.at ?? 0].filter(Boolean).sort((a, b) => a - b)[0] ?? 0;
   const api: SourceRefreshApi = {
     nonce, refresh, busy: etat.reading || accuse || !!parent?.busy, at, publish: setEtat,
+    /* Composé comme `busy`, et pour la même raison : un widget à plusieurs sources est occupé
+       dès que L'UNE d'elles l'est — sans quoi son unique bouton dirait le contraire de ce que
+       fait la carte. */
+    relit: etat.fetching || !!parent?.relit,
   };
 
   /* PAS DE PROVIDER — donc pas de bouton — sur une source qui ne lit pas la base : en
@@ -4273,7 +4288,7 @@ function CachedSource({ source, snap, children }: { source: SourceKey; snap: Sna
   /* La date remonte au bouton de la carte, qui l'affiche dans son `title` (« Données du … —
      cliquer pour relire »). Sans ça, la seule source servie sans lecture serait aussi la seule
      dont on ne pourrait pas dater les lignes. */
-  useEffect(() => { publish?.({ reading: false, at: snap.at }); }, [snap.at]);
+  useEffect(() => { publish?.({ reading: false, fetching: false, at: snap.at }); }, [snap.at]);
   return <>{withDerived(source, children)({ rows: snap.rows, loading: false, error: false, stale: true, cached: true, at: snap.at })}</>;
 }
 
@@ -5173,6 +5188,7 @@ function Widget({
   headActions,
   children,
   footer,
+  vide,
 }: {
   icon: LucideIcon;
   title: string;
@@ -5181,11 +5197,27 @@ function Widget({
   headActions?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
+  /** ⚠️ CETTE CARTE N'A RIEN À AFFICHER (2026-08-25, demandé) — aucune ligne, ou un zéro.
+   *  C'est la SEULE condition sous laquelle une relecture spontanée (le
+   *  `refetchOnWindowFocus` de Softr, au retour d'un onglet) mérite encore d'être annoncée :
+   *  « si le tableau est vide, alors là oui, c'est intéressant de savoir qu'il relit ».
+   *  Partout ailleurs la relecture ne change rien à l'écran, et l'annoncer ne fait
+   *  qu'inquiéter — cf. le commentaire de `reading` dans `useSnapshot`.
+   *  Non renseignée = faux : un widget qui ne sait pas dire s'il est vide ne clignote pas. */
+  vide?: boolean;
 }) {
   const opts = useContext(WidgetOptionsCtx);
   const grab = useContext(WidgetGrabCtx);
   /* `null` hors d'un `SourceFeed` — c'est ce qui décide de la présence du bouton. */
   const refreshCtx = useContext(SourceRefreshCtx);
+  /* CE QUE LA CARTE MONTRE COMME OCCUPÉ — la rotation de l'icône ET la barre de l'en-tête, un
+     seul calcul pour les deux : les faire diverger, c'est le bug du 2026-08-25 (« la barre s'est
+     arrêtée mais la flèche tourne encore »).
+     Deux termes, deux natures. `busy` = quelque chose de DEMANDÉ ou qui va changer l'écran ;
+     `relit && vide` = une relecture spontanée sur une carte qui n'a rien à montrer — le seul cas
+     où l'utilisateur a une raison de la regarder, puisque c'est le seul où elle peut faire
+     apparaître quelque chose. */
+  const occupe = !!refreshCtx && (refreshCtx.busy || (!!vide && refreshCtx.relit));
   /* TITRE : celui de l'instance s'il existe, sinon celui que le composant a passé.
      `title` (la prop) reste donc le titre PAR DÉFAUT — c'est lui que le panneau montre
      en `placeholder`, et lui qui revient si l'utilisateur vide le champ. `shown` sert
@@ -5246,7 +5278,7 @@ function Widget({
             onClick={refreshCtx.refresh}
             aria-label={`Relire les données — ${shown}`}
             title={refreshCtx.at ? `Données du ${fmtStamp(refreshCtx.at)} — cliquer pour relire` : "Relire les données"}>
-            <RefreshCw aria-hidden className={refreshCtx.busy ? "slb-spin" : undefined}
+            <RefreshCw aria-hidden className={occupe ? "slb-spin" : undefined}
               style={{ width: 15, height: 15 }} />
           </button>
         )}
@@ -5272,7 +5304,7 @@ function Widget({
             ⚠️ Pas de `role="progressbar"` : la progression est INCONNUE (on ne sait pas combien
             de pages restent). `role="status"` annonce l'activité sans promettre un pourcentage
             que personne ne peut donner. */}
-        {refreshCtx?.busy && (
+        {occupe && (
           <span role="status" aria-label={`Lecture des données en cours — ${shown}`}
             title="Lecture des données en cours"
             style={{ position: "absolute", left: 0, right: 0, bottom: -1, height: 2, overflow: "hidden", background: tint.pill || T.brand050, pointerEvents: "none" }}>
@@ -6152,6 +6184,11 @@ function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClie
         que ce correctif visait, laissée à l'endroit le plus lisible de la carte. Complété le
         2026-08-20. */}
     <Widget icon={Bell} title="Nouveaux dossiers abonnés"
+      /* `vide` (2026-08-25) : c'est une FILE À TRAITER, relue à chaque ouverture par choix
+         métier (`fraicheur: "ouverture"`). Quand elle affiche « Rien à traiter », la relecture
+         est justement la seule chose qui peut faire apparaître une ligne — donc c'est là, et
+         seulement là, qu'elle mérite d'être annoncée. */
+      vide={!restantes.length}
       sub={notifs.loading ? "Chargement…"
         : !restantes.length ? (filtreActif ? "Rien à votre nom" : "Rien à traiter")
         : `${restantes.length} à traiter${filtreActif ? " · mes dossiers" : ""}${clienteleActive ? ` · ${clienteleCourt(cfg.clientele)}` : ""}`}>
@@ -6393,6 +6430,11 @@ function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires,
        `QuickCreate` tout seul, avec son formulaire — voir « Dossiers SAV ». Ne pas recoller
        un bouton en dur ici. */
     <Widget icon={CalendarClock} title="Journal des tâches"
+      /* `vide` (2026-08-25) : même raison que la file des notifications — relu à chaque
+         ouverture, et « Aucune tâche en cours » est exactement l'état qu'une relecture peut
+         démentir. On regarde l'ONGLET COURANT (`rows`) : c'est ce que l'utilisateur a sous
+         les yeux, et le total de l'autre onglet ne le concerne pas. */
+      vide={!rows.length}
       sub={loading ? "Chargement…"
         : mineAsked && identifiee ? "Mes tâches · prospects & partenaires" : "Prospects & partenaires"}>
       {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le dit, au lieu de servir en silence
@@ -8053,7 +8095,18 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
         const outils = !isKpi && (cfg.search !== false || (cfg.facets ?? []).length > 0);
         return (
           <>
+            {/* ⚠️ `vide` — la carte n'a RIEN à afficher, donc une relecture spontanée vaut
+                encore la peine d'être annoncée (2026-08-25, demandé : « si le tableau est vide,
+                alors là oui, c'est intéressant de réactualiser, mais seulement sous cette
+                condition »). Voir la prop dans `Widget`.
+                ⚠️ `rows` et non `api.rows` : c'est ce qui est AFFICHÉ qui compte, filtres et
+                périmètre compris. Un widget vidé par son propre filtre est vide à l'écran, et
+                c'est l'écran que l'utilisateur regarde.
+                ⚠️ En KPI, `rows` n'est pas filtré (`applyQuery` est sauté) : on retombe donc sur
+                « aucune ligne lue », ce qui reste le cas qui compte — un indicateur sans une
+                seule ligne derrière lui est le seul qui ne puisse afficher qu'un zéro creux. */}
             <Widget icon={iconOf(desc.icon)} title={cfg.title || desc.label} sub={sub}
+              vide={rows.length === 0}
               headActions={cfg.create && desc.create ? <QuickCreate desc={desc} api={api} /> : undefined}
               footer={desc.listPage ? <ListPageFooter desc={desc} /> : undefined}>
               {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en

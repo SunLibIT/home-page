@@ -245,6 +245,43 @@ réintroduire le bruit. `SourceState.fetching` est conservé pour cette raison.
 un effet de bord. Elles le feront simplement **sans l'annoncer** quand elles ont déjà des lignes à
 l'écran.
 
+#### …sauf sur une carte qui n'a rien à afficher (même jour, demandé)
+
+> « si dans le tableau il n'y a pas de valeur — un zéro, ou rien d'affiché — alors là oui, c'est
+> intéressant de réactualiser le widget. **Mais seulement sous cette condition.** »
+
+La règle est plus fine que « on montre » / « on ne montre pas », et elle est juste : une relecture
+ne mérite d'être annoncée que si elle peut **changer ce qu'on voit**. Sur une carte pleine, elle
+reconfirme les mêmes lignes — rien à regarder. Sur une carte vide, c'est la seule chose qui peut
+faire apparaître quelque chose.
+
+⚠️ **Aucune requête de plus n'est déclenchée** : la relecture au retour d'onglet avait déjà lieu
+(c'est react-query, pas nous). Seul l'**affichage** de l'indicateur est concerné.
+
+La chaîne, du bas vers le haut — chaque étage ne sait que ce qui le concerne :
+
+| Étage | Ce qu'il apporte |
+|---|---|
+| `useSnapshot` | publie `fetching` **séparément** de `reading` : il n'allume plus rien par lui-même |
+| `SourceFeed` | expose `relit` dans `SourceRefreshCtx`, composé avec le parent comme `busy` |
+| `Widget` | prop **`vide`**, et un seul `occupe = busy \|\| (vide && relit)` pour l'icône **et** la barre |
+| `DataView` | passe `vide={rows.length === 0}` — `rows`, donc **après** filtres et périmètre |
+
+⚠️ **`rows` et non `api.rows`** : c'est ce qui est **affiché** qui compte. Un widget vidé par son
+propre filtre — « En attente de solvabilité » quand la file est vide — est vide à l'écran, et
+c'est l'écran que l'utilisateur regarde.
+
+⚠️ **Un seul calcul pour les deux indicateurs** (`occupe`), et c'est délibéré : les faire diverger
+est exactement le bug du deuxième passage (« la barre s'est arrêtée mais la flèche tourne encore »).
+
+⚠️ **`vide` non renseignée = faux** : un widget qui ne sait pas dire s'il est vide ne clignote pas.
+C'est le défaut sûr. Trois widgets la renseignent aujourd'hui — le générique `DataView` (listes,
+tableaux, indicateurs), **Nouveaux dossiers abonnés** et **Journal des tâches**. Ces deux derniers
+sont les mieux placés pour en profiter : ce sont eux qui sont en `fraicheur: "ouverture"`, et
+« Rien à traiter » / « Aucune tâche en cours » est exactement l'état qu'une relecture peut
+démentir. Les autres widgets métier (SAV, performance, exceptions) ne la passent pas encore : à
+faire au cas par cas, quand le besoin se présente.
+
 **Reste à faire, et c'est un défaut distinct** : `refresh` appelle `parent?.refresh()` en premier,
 ce qui change le `key` du niveau du dessus et **détruit tout le sous-arbre** — les `useState(0)`
 des `SourceFeed` internes repartent donc à **0**. Or `nonce === 0` veut dire « premier chargement »
