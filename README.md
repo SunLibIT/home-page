@@ -89,8 +89,10 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    sources d'un coup. Le geste est passé sur **chaque carte qui lit la base** (voir §5).*
 2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
 3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
-   grille qui reste visible). Cinq apps Vercel publiques embarquées : Calculette d'abonnement,
-   **Map** (carte des installateurs), **ERP**, **Demandes de contact**, Bibliothèque.
+   grille qui reste visible). Six apps Vercel publiques embarquées : Calculette d'abonnement,
+   **Simulateur** (**ajouté le 2026-08-25**, c'est lui qui est mis en avant —
+   une app à part, la Calculette reste), **Map** (carte des installateurs), **ERP**,
+   **Demandes de contact**, Bibliothèque.
    **You Sign et Tik&Lib ont été retirés le 2026-08-18**, adresses comprises ; **Simulateur
    Grille** est **masqué** (`hidden`) — l'entrée et son adresse restent au registre, seul
    l'affichage est suspendu. Le départ en **nouvel onglet** (`url`) n'est plus utilisé par
@@ -666,7 +668,9 @@ C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.
 l'espace garde ses adresses historiques (`/clients-list`).
 
 **✅ Plus aucune adresse manquante.** Outils externes, tous embarqués : Calculette d'abonnement
-(`calculette-abonnement.vercel.app`, **adresse changée le 2026-08-18**), Map (`sunlib-carte-installateurs.vercel.app`), ERP
+(`calculette-abonnement.vercel.app`, **adresse changée le 2026-08-18**), Simulateur
+(`aidealavente2.vercel.app`, **ajouté le 2026-08-25** — la même app que côté partenaire ;
+clé `simulateurAbonnement`), Map (`sunlib-carte-installateurs.vercel.app`), ERP
 (`erp-sunlib.vercel.app`), Demandes de contact (`formulairedecontact.vercel.app`), Bibliothèque
 (`documentation-interne.vercel.app`) — plus `simulateurGrille`
 (`simulateur-grille-v2.vercel.app`), présent au registre mais **masqué** côté tuile.

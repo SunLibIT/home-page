@@ -97,7 +97,7 @@ import {
   Check, CheckCircle, Clock, XCircle, ClipboardList, Building2,
   Inbox, CalendarClock, HardHat, Target, MoreVertical, Plus, Eye, EyeOff, Home,
   SlidersHorizontal, GripVertical, ChevronUp, ChevronDown, RotateCcw,
-  Save, X, Newspaper, Megaphone, Sparkles, Trophy, RefreshCw,
+  Save, X, Newspaper, Megaphone, Sparkles, Trophy, RefreshCw, TrendingUp,
   // ⚠️ `Filter` est renommé : le fichier a déjà un TYPE `Filter` (§9-bis, les filtres
   //    d'une cfg). Importer l'icône sous son nom d'origine masquerait le type.
   Wrench, ExternalLink, Search, Filter as FilterIcon,
@@ -196,6 +196,13 @@ const TOOLS = {
      `calculette-abonnement.vercel.app` (nouveau déploiement). L'ancienne peut encore
      répondre : si la tuile affiche une version périmée, c'est qu'un cache la sert. */
   calculette: "https://calculette-abonnement.vercel.app/",
+  /* Simulateur — AJOUTÉ le 2026-08-25 (demandé, dans les deux blocs).
+     ⚠️ C'est une SECONDE app, pas un renommage de la précédente : la Calculette reste, à
+     côté. Projet Vercel `juliensunlibs-projects/aidealavente2`, domaine de production
+     `aidealavente2.vercel.app` — PUBLIQUE, donc embarquée in-page comme les autres.
+     C'est l'app que l'espace partenaire servait jusqu'au 2026-08-24 ; elle revient, des
+     deux côtés, et les deux blocs portent désormais les DEUX apps. */
+  simulateurAbonnement: "https://aidealavente2.vercel.app/",
   /* Plus d'entrée « Sellsy » : la tuile « Services Sellsy » a été RETIRÉE des Outils le
      2026-08-04 (demande explicite). La remettre = une entrée ici + une dans
      QUICK_LINKS (§7) ; l'icône `Briefcase` est toujours importée, elle sert à la map
@@ -4114,7 +4121,17 @@ const OUTILS: Outil[] = [
     desc: "Grille tarifaire et scénarios d'abonnement.", embed: TOOLS.simulateurGrille,
     hidden: true },
   { id: "calculette", label: "Calculette d'abonnement", icon: Calculator,
-    desc: "Simulation économique d'un projet.", embed: TOOLS.calculette, solar: true },
+    desc: "Simulation économique d'un projet.", embed: TOOLS.calculette },
+  /* AJOUTÉ le 2026-08-25 (demandé, dans les deux blocs) : une tuile DE PLUS — la Calculette
+     ci-dessus reste, les deux apps cohabitent. C'est cette entrée qui porte désormais
+     `solar: true` : la mise en avant a quitté la Calculette, parce que teinter deux tuiles
+     revient à n'en mettre aucune en avant.
+     ⚠️ Libellé « Simulateur » tout court (demandé), mais `id` `simulateurAbonnement` :
+     `simulateur` est déjà la clé du Simulateur Grille ci-dessus, et deux entrées de même
+     `id` casseraient la résolution de l'outil ouvert (`openId`). */
+  { id: "simulateurAbonnement", label: "Simulateur", icon: TrendingUp,
+    desc: "Aide à la vente — simulation d'un abonnement.",
+    embed: TOOLS.simulateurAbonnement, solar: true },
   { id: "map", label: "Map", icon: MapIcon,
     desc: "Carte des installateurs.", embed: TOOLS.carteInstallateurs },
   { id: "erp", label: "ERP", icon: Boxes,
