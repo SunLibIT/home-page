@@ -3446,7 +3446,7 @@ const offlineState = (k: SourceKey): SourceState =>
    n'expose `write` QUE si une session existe (sinon Softr refuse, cf. §1). --- */
 function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "abonnes");
   // Pas de `write` : « Abonnés » n'a pas de select d'écriture (choix, §6).
   return <>{children(useSnapshot("abonnes", SELECT_ABONNE, drain, { ...liveState(res), partial, draining, borne }))}</>;
 }
@@ -3586,8 +3586,18 @@ const PROFONDEURS: { v: number; label: string }[] = [
    modifie ce que lisent les widgets NON drainés (« les N plus récents »). C'est pourquoi
    `count` n'est branché que sur `parcAbo` — un COMPTEUR à un seul champ, dont aucun widget
    ne dépend pour son contenu. */
-const SOFTR_PAGE_SIZE: number | undefined = undefined;
-const TRACE_PAGES: boolean = false;
+/* ⚠️⚠️ MESURE EN COURS depuis le 2026-08-25 — CES DEUX VALEURS SONT PROVISOIRES.
+   Elles sont l'étape 1 du protocole ci-dessus, activée après le constat suivant : un widget
+   branché sur « Abonnés » annonçait « 12 sur 1 774 dossiers · lecture en cours » pendant un
+   temps qui paraissait infini. 1 774 lignes, c'est TOUTE la table — donc la lecture fait bien
+   son travail, mais elle le fait UNE PAGE À LA FOIS, EN SÉRIE, et personne n'a jamais su
+   combien de lignes tient une page. À 25 lignes ce sont ~71 allers-retours ; à 10, ~178.
+   C'est cette inconnue-là, et elle seule, qui décide si la lenteur est réductible.
+   ⚠️ À REMETTRE à `undefined` / `false` dès la mesure faite — cf. les points 3 et 4 du
+   protocole. `TRACE_PAGES` laissé à `true` en fonctionnement normal, c'est treize lignes de
+   console à chaque chargement : ce n'est plus un relevé, c'est du bruit. */
+const SOFTR_PAGE_SIZE: number | undefined = 100;
+const TRACE_PAGES: boolean = true;
 
 /* `enabled` : on ne draine QUE si le consommateur agrège. Une liste qui montre « les 12
    plus récents » n'a aucun besoin des 1 700 autres lignes, et les tirer coûterait des
@@ -3658,7 +3668,12 @@ function drainDecide(o: {
 const pageVideVue = (pages: { items?: any[] }[], deja: boolean): boolean =>
   deja || (pages.length > 0 && (pages[pages.length - 1]?.items?.length ?? 0) === 0);
 
-function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { partial: boolean; draining: boolean; borne: boolean } {
+/** `nom` — QUI parle, dans la trace de diagnostic. OBLIGATOIRE, et c'est le point : treize
+ *  adapters drainent, donc `TRACE_PAGES` imprimait treize lignes ANONYMES. On ne pouvait pas
+ *  y lire ce que l'expérience cherche — la taille de page de `parcAbo`, le seul câblé sur
+ *  `count`, COMPARÉE à celle des autres. Une mesure qu'on ne peut pas rattacher à sa source ne
+ *  mesure rien. Requis plutôt qu'optionnel pour que `tsc` refuse un adapter oublié. */
+function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true, nom: string): { partial: boolean; draining: boolean; borne: boolean } {
   const enabled = !!drain;
   const nPages = Array.isArray(res?.data?.pages) ? res.data.pages.length : 0;
   const hasNext = !!res?.hasNextPage;
@@ -3785,10 +3800,10 @@ function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { p
        calibré là où il n'y avait qu'une requête refusée. C'est précisément le genre de fausse
        piste que cette trace existe pour éviter. */
     console.info(partial
-      ? `[SunLib] lecture TRONQUÉE : ${mesure}. ${erreur
+      ? `[SunLib] ${nom} — lecture TRONQUÉE : ${mesure}. ${erreur
           ? "Lecture en ERREUR (cf. `res.error`) — drainage arrêté, ce n'est PAS un plafond."
           : `Borne atteinte — ${lignes >= DRAIN_MAX_ROWS ? `DRAIN_MAX_ROWS (${DRAIN_MAX_ROWS} lignes)` : `COM_MAX_PAGES (${maxPages} pages)`}.`}`
-      : `[SunLib] lecture complète : ${mesure}.`);
+      : `[SunLib] ${nom} — lecture complète : ${mesure}.`);
   }, [partial, fini, nPages, erreur]);
 
   return { partial, draining, borne };
@@ -3798,7 +3813,7 @@ function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { p
    Lecture seule — l'accueil ne modifie pas un dossier abonné. */
 function ComKpiSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.abonnes, select: SELECT_COM, orderBy: q.desc("moisSignature") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, true, "abonnes/com");
   return <>{children(useSnapshot("comKpi", SELECT_COM, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
@@ -3810,7 +3825,7 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
      pas lancée. Cette source est la bonne cobaye : un seul champ, et c'est un COMPTEUR,
      donc aucun widget n'affiche ses lignes. */
   const res = useRecords({ from: DS.abonnes, select: SELECT_PARC_ABO, ...(SOFTR_PAGE_SIZE ? { count: SOFTR_PAGE_SIZE } : {}) });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, true, "abonnes/parc — le seul avec `count`");
   return <>{children(useSnapshot("parcAbo", SELECT_PARC_ABO, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
@@ -3820,12 +3835,12 @@ function ParcAboSource({ children }: { children: SourceChildren }) {
    parc » d'`excKpis` sont désormais chiffrés au lieu de rester muets. */
 function ExcAboSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excAbo, select: SELECT_EXC_ABO, orderBy: q.desc("creeLe") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, true, "excAbo");
   return <>{children(useSnapshot("excAbo", SELECT_EXC_ABO, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 function ExcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.excPart, select: SELECT_EXC_PART, orderBy: q.desc("creeLe") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, true, "excPart");
   return <>{children(useSnapshot("excPart", SELECT_EXC_PART, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
@@ -3833,13 +3848,13 @@ function ExcPartSource({ children }: { children: SourceChildren }) {
    dénominateur des « X % du parc », il doit être JUSTE (~510 lignes au 2026-08-04). */
 function ParcPartSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.parcPart, select: SELECT_PARC_PART });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, true, "parcPart");
   return <>{children(useSnapshot("parcPart", SELECT_PARC_PART, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
 function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "notesIns");
   const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
@@ -3850,7 +3865,7 @@ function NotesInsSource({ children, drain }: { children: SourceChildren; drain?:
 
 function NotesProSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "notesPro");
   const updM = useRecordUpdate({ from: DS.notesPro, fields: SELECT_NOTE_PRO_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
@@ -3865,7 +3880,7 @@ function NotesProSource({ children, drain }: { children: SourceChildren; drain?:
    note « pas de création de tâche » dans le descripteur. */
 function TachesPaSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "tachesPa");
   const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
@@ -3876,7 +3891,7 @@ function TachesPaSource({ children, drain }: { children: SourceChildren; drain?:
 
 function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "tachesPr");
   const updM = useRecordUpdate({ from: DS.tachesPr, fields: SELECT_TACHE_PR_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email
@@ -3915,7 +3930,7 @@ function TachesPrSource({ children, drain }: { children: SourceChildren; drain?:
    comme partiel au lieu d'être présenté comme un total. */
 function SavSource({ children }: { children: SourceChildren }) {
   const res = useRecords({ from: DS.sav, select: SELECT_SAV, orderBy: q.desc("debut") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, true, "sav");
   return <>{children(useSnapshot("sav", SELECT_SAV, true, { ...liveState(res), partial, draining, borne }))}</>;
 }
 /* ── CONTACTS PARTENAIRES — l'annuaire de la page Softr `contact-partenaire`. Connectée le
@@ -3942,7 +3957,7 @@ function SavSource({ children }: { children: SourceChildren }) {
    autant trier sur ce qui est sûr. */
 function ContactsInsSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res = useRecords({ from: DS.contactsIns, select: SELECT_CONTACT_INS, orderBy: q.asc("nom") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "contactsIns");
   return <>{children(useSnapshot("contactsIns", SELECT_CONTACT_INS, drain, { ...liveState(res), partial, draining, borne }))}</>;
 }
 
@@ -3956,7 +3971,7 @@ function ContactsInsSource({ children, drain }: { children: SourceChildren; drai
    lieu de simplement y chercher un état. `partial` remonte si le drainage a été coupé. */
 function NotifCSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
   const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
-  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain);
+  const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "notifC");
   const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
   const email = asText(useCurrentUser()?.email).trim();
   const write = email ? {

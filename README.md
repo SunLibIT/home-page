@@ -37,13 +37,80 @@ de l'en-tête de `Block.tsx`.
 | Filtre « Service technique » sur **« Nouveaux dossiers abonnés »** | ligne prête **en commentaire** dans `SELECT_NOTIF_C` | ce widget lit `notifC`, pas `abonnes` : il lui faut le lookup `Service technique (from Liens BDD)`. **Vérifier qu'il existe côté Airtable** — le décommenter à tort fait échouer le bloc comme un champ non coché. |
 | Repli e-mail par **cookie JWT** | `emailFromJwtCookie`, côté partenaire seulement | chez lui c'est vital (sans e-mail, pas de périmètre) ; ici l'e-mail ne sert qu'aux clés du cache et des préférences, qui dégradent proprement. Lire un cookie et décoder un JWT mérite un accord. |
 
-### Mesure jamais faite, et elle conditionne un calibrage
+### 🔬 MESURE EN COURS — la taille de page de Softr (activée le 2026-08-25)
 
-**La taille de page de Softr** (`SOFTR_PAGE_SIZE` / `TRACE_PAGES`). Rien ne documente si Softr
-honore `count` : c'est **le levier de performance le moins cher du projet** — s'il l'honore, les
-dizaines d'allers-retours d'une source drainée tombent à quelques-uns. La marche à suivre est
-écrite au-dessus de la constante, à mener **sur la page publiée**. Le bloc imprime déjà la mesure
-quand un plafond saute : `[SunLib] lecture TRONQUÉE : N pages, M lignes (~X par page)`.
+**`SOFTR_PAGE_SIZE = 100` et `TRACE_PAGES = true` sont posés dans `Block.tsx`. Ce sont des
+valeurs PROVISOIRES à remettre à `undefined` / `false` dès le relevé fait.**
+
+Ce qui l'a déclenchée : un widget branché sur « Abonnés » annonçait **« 12 sur 1 774 dossiers ·
+lecture en cours »** pendant un temps qui paraissait infini. 1 774 lignes, c'est **toute la
+table** — la lecture faisait donc son travail, mais **une page à la fois, en série**, et personne
+n'a jamais su combien de lignes tient une page. À 25 lignes ce sont ~71 allers-retours ; à 10,
+~178. Cette inconnue seule décide si la lenteur est réductible.
+
+**Ce qu'il faut faire, dans cet ordre :**
+
+1. **Recoller `Block.tsx` dans Softr** et ouvrir la page publiée, connecté.
+2. Ouvrir la console. Chaque source drainée imprime désormais **son nom** :
+   `[SunLib] abonnes — lecture complète : N pages, M lignes (~X par page)`.
+   ⚠️ Le nom vient d'être ajouté (`useDrainPages(…, nom)`, paramètre **obligatoire** pour que
+   `tsc` refuse un adapter oublié) : sans lui, la trace sortait **treize lignes anonymes** et la
+   mesure était inexploitable — on ne pouvait pas rattacher un chiffre à sa source.
+3. **Comparer deux lignes, et deux seulement** : `abonnes/parc — le seul avec \`count\`` face à
+   n'importe quelle autre. C'est toute l'expérience :
+   - `parc` à ~100 et les autres à ~25 → **Softr honore `count`** : généraliser aux autres
+     adapters drainés et **resserrer `COM_MAX_PAGES`** (le plafond doit rester, seulement se
+     resserrer) ;
+   - `parc` resté à ~25 → **Softr ignore `count`** : remettre `undefined`, et **noter le
+     résultat négatif** dans `ARCHITECTURE.md` pour ne pas le retester dans six mois. La
+     lenteur est alors structurelle, et la seule sortie devient de lire moins (cf. la
+     profondeur ci-dessous).
+4. Dans **tous** les cas, remettre `TRACE_PAGES = false`.
+
+⚠️ Non porté dans le bloc partenaire : c'est un relevé temporaire, et sa table d'abonnés n'a pas
+le même volume.
+
+### Défaut trouvé le 2026-08-25, pas encore corrigé : la profondeur ne mord pas
+
+Le réglage de **profondeur** (« 300 derniers » / « 1 000 derniers » / « tout l'historique »)
+**n'entre pas dans la requête** : tous les widgets d'une même source appellent le même
+`useRecords({from: DS.abonnes, select: SELECT_ABONNE, orderBy: q.desc("creeLe")})`, et react-query
+dédoublonne par cette clé — `data.pages` est donc **partagé**. La profondeur n'arrête que la pompe
+*de ce widget-là* ; elle ne peut pas retirer du cache ce qu'un autre y a mis.
+
+Or les **deux files d'attente** sont câblées en dur sur `profondeur: 0` (« tout l'historique », et
+c'est justifié : une file doit montrer le dossier qui traîne depuis décembre). Elles drainent donc
+la table entière, et un widget réglé sur « 1 000 » voit quand même les **1 774** lignes.
+
+⚠️ **Et il ne le dit pas** : le suffixe « · 1 000 derniers » n'apparaît que si `borne` est vrai,
+ce qui exige `hasNext` — quand toute la table est lue, il est faux. La carte affiche donc « 1 774 »
+**sans un mot** sur le réglage qu'elle vient d'ignorer. La profondeur entre bien dans la clé du
+cache d'instantanés (`snapKey`, où le raisonnement est écrit), mais pas dans celle de la requête :
+le raisonnement s'est arrêté à mi-chemin.
+
+**À décider** : faire entrer la profondeur dans la requête (elle mordrait, mais elle multiplierait
+les entrées de cache par source), ou l'assumer comme un plancher de lecture et **le dire dans le
+sous-titre**. Le second est moins cher et plus honnête ; le premier seul rend le réglage utile.
+
+### Un cas qui n'est PAS un bug, et qu'il faut connaître avant de le signaler
+
+Les **files d'attente paraissent vides pendant tout le drainage**, et c'est mécanique : la source
+est lue du **plus récent au plus ancien** (`q.desc("creeLe")`), la file trie du **plus ancien au
+plus récent** (délibérément — ce qui traîne doit passer devant), et le filtre de statut s'applique
+**côté client** sur les lignes déjà reçues. Les dossiers qu'une file doit montrer sont donc
+exactement ceux qui arrivent **en dernier**. Tant que la lecture n'est pas finie, la file est vide
+ou presque, puis se remplit d'un coup.
+⚠️ C'est ce qui rendait le bug du drainage sans fin si trompeur : « aucun dossier en attente de
+solvabilité » et « ça charge à l'infini » n'étaient pas deux problèmes, mais le même vu de deux
+cartes.
+
+### La mesure qui n'avait jamais été faite — elle est lancée
+
+**La taille de page de Softr** (`SOFTR_PAGE_SIZE` / `TRACE_PAGES`) est restée une inconnue du
+2026-08-18 au 2026-08-25, et c'est **le levier de performance le moins cher du projet** : si Softr
+honore `count`, les dizaines d'allers-retours d'une source drainée tombent à quelques-uns — plus
+de gain que tout le cache d'instantanés. Elle est **armée depuis le 2026-08-25** : voir
+« 🔬 Mesure en cours » ci-dessus pour le relevé à faire et ce qu'il faut en conclure.
 
 ### À vérifier à l'écran dans Softr
 
