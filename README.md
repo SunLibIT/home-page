@@ -89,10 +89,13 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
    sources d'un coup. Le geste est passé sur **chaque carte qui lit la base** (voir §5).*
 2. **PageNavBar** (sticky) — onglets **in-block** : Accueil (le tableau de bord) + **Outils**.
 3. **Onglet Outils** — une grille de boutons ; un clic ouvre l'outil **in-page** (iframe, sous la
-   grille qui reste visible). Six apps Vercel publiques embarquées : Calculette d'abonnement,
-   **Simulateur** (**ajouté le 2026-08-25**, c'est lui qui est mis en avant —
-   une app à part, la Calculette reste), **Map** (carte des installateurs), **ERP**,
+   grille qui reste visible). Six apps Vercel publiques embarquées : **Simulateur**,
+   **Calculette d'abonnement** (**ajoutée le 2026-08-25**, c'est elle qui est mise en
+   avant — une app à part, la première reste), **Map** (carte des installateurs), **ERP**,
    **Demandes de contact**, Bibliothèque.
+   ⚠️ Les deux premiers ont vu leurs **noms d'affichage échangés le 2026-08-25** : la clé
+   `calculette` porte « Simulateur », la clé `simulateurAbonnement` porte « Calculette
+   d'abonnement ». Les clés et les adresses, elles, n'ont pas bougé.
    **You Sign et Tik&Lib ont été retirés le 2026-08-18**, adresses comprises ; **Simulateur
    Grille** est **masqué** (`hidden`) — l'entrée et son adresse restent au registre, seul
    l'affichage est suspendu. Le départ en **nouvel onglet** (`url`) n'est plus utilisé par
@@ -667,10 +670,10 @@ l'exécution — c'est ce qui fait marcher les mêmes liens **en aperçu et en p
 C'est précisément l'intérêt du registre : **le code parle métier** (`PAGES.partenaires`) là où
 l'espace garde ses adresses historiques (`/clients-list`).
 
-**✅ Plus aucune adresse manquante.** Outils externes, tous embarqués : Calculette d'abonnement
-(`calculette-abonnement.vercel.app`, **adresse changée le 2026-08-18**), Simulateur
-(`aidealavente2.vercel.app`, **ajouté le 2026-08-25** — la même app que côté partenaire ;
-clé `simulateurAbonnement`), Map (`sunlib-carte-installateurs.vercel.app`), ERP
+**✅ Plus aucune adresse manquante.** Outils externes, tous embarqués : Simulateur
+(clé `calculette` → `calculette-abonnement.vercel.app`, **adresse changée le 2026-08-18**),
+Calculette d'abonnement (clé `simulateurAbonnement` → `aidealavente2.vercel.app`, **ajoutée
+le 2026-08-25** — la même app que côté partenaire), Map (`sunlib-carte-installateurs.vercel.app`), ERP
 (`erp-sunlib.vercel.app`), Demandes de contact (`formulairedecontact.vercel.app`), Bibliothèque
 (`documentation-interne.vercel.app`) — plus `simulateurGrille`
 (`simulateur-grille-v2.vercel.app`), présent au registre mais **masqué** côté tuile.

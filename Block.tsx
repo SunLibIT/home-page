@@ -188,16 +188,30 @@ const PAGES = {
  *  confirmer en ouvrant une fiche depuis l'app et en lisant son URL. */
 const PAGE_RECORD_PARAM = "recordId";
 
+/** Paramètres d'URL ATTACHÉS À UN SLUG — `pageUrl` les fusionne avec ceux de l'appel, et
+ *  l'appelant l'emporte (le cas particulier doit pouvoir surcharger le général).
+ *  ⚠️ VIDE aujourd'hui : aucune page de cet espace ne réclame de paramètre permanent. Le
+ *  registre existe pour le jour où l'une en voudra un (`show-toolbar`, `autoUser`…) —
+ *  déclaré ICI, il suit la page PARTOUT où elle est liée, sans qu'aucun appelant ait à le
+ *  connaître ni à le recopier. Jumeau du `PAGE_PARAMS` du bloc partenaire, où trois pages
+ *  en portent (aligné le 2026-08-25).
+ *  ⚠️ Ce qui dépend d'UNE LIGNE (un `recordId`) n'a rien à faire ici : ça se passe à
+ *  l'appel, cf. `PAGE_RECORD_PARAM` juste au-dessus. */
+const PAGE_PARAMS: Record<string, Record<string, string>> = {};
+
 /** Outils externes. Même règle : "" = adresse inconnue → tuile inerte. */
 const TOOLS = {
-  /* Calculette d'abonnement (fournie le 2026-08-04). App Vercel PUBLIQUE, donc
+  /* L'app fournie le 2026-08-04 — affichée « Calculette d'abonnement » jusqu'au 2026-08-25,
+     « Simulateur » depuis (les deux libellés ont été échangés ; la clé n'a pas bougé).
+     App Vercel PUBLIQUE, donc
      EMBARQUÉE depuis le 2026-08-05 : elle s'ouvre in-page dans l'onglet « Outils ».
      ⚠️ ADRESSE CHANGÉE LE 2026-08-18 : `sunlib-simulation-economique.vercel.app` →
      `calculette-abonnement.vercel.app` (nouveau déploiement). L'ancienne peut encore
      répondre : si la tuile affiche une version périmée, c'est qu'un cache la sert. */
   calculette: "https://calculette-abonnement.vercel.app/",
-  /* Simulateur — AJOUTÉ le 2026-08-25 (demandé, dans les deux blocs).
-     ⚠️ C'est une SECONDE app, pas un renommage de la précédente : la Calculette reste, à
+  /* AJOUTÉE le 2026-08-25 (demandé, dans les deux blocs), et affichée « Calculette
+     d'abonnement » depuis l'échange des libellés du même jour — la clé, elle, dit l'inverse.
+     ⚠️ C'est une SECONDE app, pas un renommage de la précédente : celle du dessus reste, à
      côté. Projet Vercel `juliensunlibs-projects/aidealavente2`, domaine de production
      `aidealavente2.vercel.app` — PUBLIQUE, donc embarquée in-page comme les autres.
      C'est l'app que l'espace partenaire servait jusqu'au 2026-08-24 ; elle revient, des
@@ -252,7 +266,11 @@ function topOrigin(): string {
 function pageUrl(slug: string, params?: Record<string, string>): string {
   if (!slug) return "";
   const base = `${topOrigin()}/${slug.replace(/^\/+/, "")}`;
-  const query = new URLSearchParams(params ?? {}).toString();
+  /* Les paramètres ATTACHÉS AU SLUG (`PAGE_PARAMS`) d'abord, ceux de l'appel ensuite —
+     donc l'appelant peut surcharger, jamais l'inverse. C'est ce qui fait qu'un paramètre
+     déclaré une fois voyage avec la page partout où elle est liée, sans qu'aucun appelant
+     ait à le savoir. */
+  const query = new URLSearchParams({ ...(PAGE_PARAMS[slug] ?? {}), ...(params ?? {}) }).toString();
   return query ? `${base}?${query}` : base;
 }
 
@@ -1087,16 +1105,48 @@ function ownerIsUser(proprio: string, ident: UserIdent): boolean {
   return correspond(ident.name) || correspond(ident.mail);
 }
 
-/** Prénom pour le héro. En prod, user.name est souvent vide → repli sur l'e-mail. */
-function firstNameOf(user: { name?: string; email?: string } | null | undefined): string {
-  const name = asText(user?.name).trim();
-  if (name) return name.split(/\s+/)[0];
-  const email = asText(user?.email).trim();
-  if (email) {
-    const local = email.split("@")[0].split(/[._-]/)[0];
-    return local ? local.charAt(0).toUpperCase() + local.slice(1) : "";
-  }
-  return "";
+/* --- LE PRÉNOM DU HÉRO — aligné le 2026-08-25 sur le bloc partenaire, qui l'avait réécrit
+   le 2026-08-21 (« il affiche que la première lettre »). DEUX défauts, et le second était
+   masqué par le mock de dev.
+
+   1) ON NE LISAIT PAS LE CHAMP QUE SOFTR ENVOIE. La fonction cherchait `user.name` — une
+      clé que Softr NE RENSEIGNE PAS. Le relevé du 07/08/2026 sur l'app publiée est
+      explicite : `useCurrentUser()` rend `id / fullName / firstName / lastName / email /
+      avatar / properties`. En production, le premier test échouait donc TOUJOURS et on
+      tombait systématiquement sur le repli par e-mail — alors que `firstName` était là,
+      juste à côté. En dev, le mock renseigne `name` : le chemin réel n'était jamais
+      exercé, et le défaut invisible.
+
+   2) LE REPLI PAR E-MAIL RENDAIT UNE INITIALE. Il découpait la partie locale sur `. _ -`
+      et prenait le PREMIER morceau : pour `p.dupont@societe.fr` — la forme la plus
+      courante des adresses professionnelles — cela donnait « P ». D'où « Bienvenue P ! ».
+      Le morceau suivant n'est pas une solution : « Dupont » est un NOM de famille, et le
+      héro promet un prénom. Quand la partie locale commence par une initiale, on ne SAIT
+      donc pas le prénom : on ne met rien, et le héro dit « Bienvenue ! » — une phrase
+      complète, plutôt qu'une lettre orpheline qui ressemble à une panne.
+
+   ⚠️ `lastName` n'est volontairement JAMAIS utilisé : « Bienvenue Dupont ! » n'est pas ce
+   qu'on affiche à quelqu'un dans son propre espace. --- */
+
+/** Le prénom du connecté, ou "" si aucune source ne le donne de façon fiable.
+ *  Ordre : `firstName` (ce que Softr envoie) → `fullName` → `name` (le mock local) →
+ *  partie locale de l'e-mail. PURE. */
+function firstNameOf(
+  user: { firstName?: string; fullName?: string; name?: string; email?: string } | null | undefined,
+): string {
+  /* Softr d'abord, et directement : c'est LE champ prévu pour ça. */
+  const direct = asText(user?.firstName).trim();
+  if (direct) return direct;
+  /* Un nom complet : le premier mot en est le prénom. `fullName` est celui de Softr,
+     `name` celui du mock de dev — les deux se lisent pareil. */
+  const complet = asText(user?.fullName).trim() || asText(user?.name).trim();
+  if (complet) return complet.split(/\s+/)[0];
+  /* Repli e-mail. On ne garde le premier morceau que s'il fait DEUX lettres ou plus :
+     en dessous, c'est une initiale, donc le prénom est inconnu (cf. l'en-tête). */
+  const local = asText(user?.email).trim().split("@")[0];
+  const tete = local.split(/[._\-+]/)[0].replace(/[^\p{L}]/gu, "");
+  if (tete.length < 2) return "";
+  return tete.charAt(0).toUpperCase() + tete.slice(1);
 }
 
 /* ============================================================================
@@ -3651,7 +3701,10 @@ function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true): { p
   /* `TRACE_PAGES` élargit l'émission à toute lecture TERMINÉE, et pas seulement tronquée :
      c'est ce qui permet de mesurer la taille de page SANS attendre qu'un plafond saute
      (cf. l'expérience documentée sur `SOFTR_PAGE_SIZE`). Faux en fonctionnement normal. */
-  const fini = enabled && !hasNext && nPages > 0;
+  /* ⚠️ La page vide compte ici autant que `!hasNext` (aligné sur le bloc partenaire le
+     2026-08-25) : une source qui annonce toujours une page suivante s'arrête sur une page
+     VIDE, et la mesure ne serait jamais émise si on n'attendait que `!hasNext`. */
+  const fini = enabled && nPages > 0 && (!hasNext || dernierePageVide);
   useEffect(() => {
     if (dit.current || !(partial || (TRACE_PAGES && fini))) return;
     dit.current = true;
@@ -4120,16 +4173,20 @@ const OUTILS: Outil[] = [
   { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid,
     desc: "Grille tarifaire et scénarios d'abonnement.", embed: TOOLS.simulateurGrille,
     hidden: true },
-  { id: "calculette", label: "Calculette d'abonnement", icon: Calculator,
+  /* ⚠️ LIBELLÉS CROISÉS PAR RAPPORT AUX CLÉS, ET C'EST VOULU (2026-08-25, demandé) : les
+     deux noms d'affichage ont été ÉCHANGÉS, ni les clés ni les adresses. Donc
+     `calculette` s'affiche « Simulateur » (`calculette-abonnement.vercel.app`) et
+     `simulateurAbonnement` s'affiche « Calculette d'abonnement » (`aidealavente2.vercel.app`).
+     Ne pas « corriger » l'un pour le faire ressembler à l'autre : un `id` est une CLÉ
+     (résolution de l'outil ouvert, `openId`), il ne se renomme pas pour suivre un libellé.
+     Les `desc` et les icônes, elles, ont suivi le NOM — c'est ce que voit l'utilisateur. */
+  { id: "calculette", label: "Simulateur", icon: TrendingUp,
     desc: "Simulation économique d'un projet.", embed: TOOLS.calculette },
-  /* AJOUTÉ le 2026-08-25 (demandé, dans les deux blocs) : une tuile DE PLUS — la Calculette
-     ci-dessus reste, les deux apps cohabitent. C'est cette entrée qui porte désormais
-     `solar: true` : la mise en avant a quitté la Calculette, parce que teinter deux tuiles
-     revient à n'en mettre aucune en avant.
-     ⚠️ Libellé « Simulateur » tout court (demandé), mais `id` `simulateurAbonnement` :
-     `simulateur` est déjà la clé du Simulateur Grille ci-dessus, et deux entrées de même
-     `id` casseraient la résolution de l'outil ouvert (`openId`). */
-  { id: "simulateurAbonnement", label: "Simulateur", icon: TrendingUp,
+  /* La tuile AJOUTÉE le 2026-08-25 : une seconde app, l'autre reste — elles cohabitent.
+     C'est elle qui porte `solar: true`, parce que teinter deux tuiles revient à n'en mettre
+     aucune en avant. ⚠️ La mise en avant est restée sur CETTE app quand les libellés ont été
+     échangés : c'est une app qu'on met en avant, pas un nom. */
+  { id: "simulateurAbonnement", label: "Calculette d'abonnement", icon: Calculator,
     desc: "Aide à la vente — simulation d'un abonnement.",
     embed: TOOLS.simulateurAbonnement, solar: true },
   { id: "map", label: "Map", icon: MapIcon,
@@ -12963,6 +13020,25 @@ function usePersistentLayout() {
   const updateM = useRecordUpdate({ from: DS.prefs, fields: SELECT_PREFS });
   const createM = useRecordCreate({ from: DS.prefs, fields: SELECT_PREFS });
 
+  /* --- PLAFOND D'ATTENTE DE LA DISPOSITION (2026-08-24, repris du bloc partenaire) -----
+     ⚠️ `if (bddRes.isLoading) return;` attend la table SANS LIMITE. Si elle ne répond
+     jamais — source mal remappée, panne réseau, session sans droit de lecture — la page
+     reste sur ses squelettes pour toujours, et rien ne dit pourquoi. « Quatre squelettes
+     éternels ne sont pas un chargement, ce sont des débris. »
+     Passé ce délai on affiche ce qu'on a : le cache local si le poste en a un, l'écran
+     d'accueil sinon. Ce n'est pas une capitulation — si la table répond ensuite, l'effet
+     retourne et la BDD reprend la main (elle reste la source de vérité).
+     ⚠️ `attentePrefsExpiree` est dans SES PROPRES dépendances (le minuteur ne se réarme pas
+     une fois expiré) ET dans celles de l'effet principal, plus bas : sans cette seconde
+     mention, l'effet ne repasserait jamais et l'attente ne finirait pas. Nom, place et
+     forme alignés sur le bloc partenaire le 2026-08-25. */
+  const [attentePrefsExpiree, setAttentePrefsExpiree] = useState(false);
+  useEffect(() => {
+    if (!PREFS_ENABLED || attentePrefsExpiree) return;
+    const t = window.setTimeout(() => setAttentePrefsExpiree(true), PREFS_WAIT_MS);
+    return () => window.clearTimeout(t);
+  }, [attentePrefsExpiree]);
+
   const [layout, setLayout] = useState<Layout | null>(() => readLocalLayout(email));
   const [status, setStatus] = useState<"loading" | "ready">(() => (readLocalLayout(email) ? "ready" : "loading"));
   const recordId = useRef<string | null>(null);
@@ -12971,20 +13047,6 @@ function usePersistentLayout() {
   const bddId = bddRec?.id ?? null;
   const bddLayoutStr = bddRec ? String(bddRec.fields.layout ?? "") : null;
 
-  /* --- PLAFOND D'ATTENTE DE LA DISPOSITION (2026-08-24, repris du bloc partenaire) -----
-     ⚠️ `if (bddRes.isLoading) return;` attend la table SANS LIMITE. Si elle ne répond
-     jamais — source mal remappée, panne réseau, session sans droit de lecture — la page
-     reste sur ses squelettes pour toujours, et rien ne dit pourquoi. « Quatre squelettes
-     éternels ne sont pas un chargement, ce sont des débris. »
-     Passé ce délai on affiche ce qu'on a : le cache local si le poste en a un, l'écran
-     d'accueil sinon. Ce n'est pas une capitulation — si la table répond ensuite, l'effet
-     retourne et la BDD reprend la main (elle reste la source de vérité). */
-  const [tropLong, setTropLong] = useState(false);
-  useEffect(() => {
-    const t = window.setTimeout(() => setTropLong(true), PREFS_WAIT_MS);
-    return () => window.clearTimeout(t);
-  }, []);
-
   useEffect(() => {
     if (!PREFS_ENABLED) {                 // table non branchée : cache local seul
       recordId.current = null;
@@ -12992,7 +13054,7 @@ function usePersistentLayout() {
       setStatus("ready");
       return;
     }
-    if (bddRes.isLoading && !tropLong) return;   // squelettes tant que la BDD répond — ou que le plafond tient
+    if (bddRes.isLoading && !attentePrefsExpiree) return;   // squelettes tant que la BDD répond — ou que le plafond tient
     recordId.current = bddId;
     if (bddId) {                          // BDD = SOURCE DE VÉRITÉ → écrase le cache
       const next = normalizeLayout(bddLayoutStr);   // v1 → migré en mémoire (écrit au prochain « Enregistrer »)
@@ -13002,7 +13064,7 @@ function usePersistentLayout() {
       setLayout((cur) => cur ?? cloneDefault());
     }
     setStatus("ready");
-  }, [email, bddRes.isLoading, bddId, bddLayoutStr, tropLong]);
+  }, [email, bddRes.isLoading, bddId, bddLayoutStr, attentePrefsExpiree]);
 
   /** Écrit le layout : optimiste (état + cache local), puis BDD Softr.
    *  · CREATE (aucun record) : mutateAsync DIRECT { alias: valeur } — forme Softr create.
