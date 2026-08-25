@@ -213,6 +213,38 @@ celle où l'élément apparaît en même temps que sa classe.
 Vérifié sous jsdom, 9 cas — et **contre-épreuve faite** : les 3 cas du bug échouent bien sur la
 version d'avant, ce qui prouve que le banc mesure quelque chose.
 
+### Les loaders ne repartent plus au retour d'onglet — 2026-08-25 (troisième passage)
+
+> « quand je quitte la page et je reviens, **même juste changer d'onglet**, ça relance les loaders,
+> ce qui n'est pas très logique »
+
+**Et c'est juste.** Changer d'onglet ne démonte rien : ni le cache d'instantanés ni le remontage
+n'y sont pour quelque chose. C'est le **`refetchOnWindowFocus`** de react-query, dans le
+QueryClient de Softr, qui relance les requêtes au retour du focus. `isFetching` passait à vrai,
+`reading` l'écoutait, et toutes les cartes se remettaient à clignoter — **alors que les lignes
+affichées ne changeaient pas d'un pixel**. Un indicateur qui s'allume sans qu'on ait rien demandé
+et sans que rien ne change à l'écran n'informe pas : il inquiète.
+
+`fetching` est donc retiré de `reading`. Une ligne.
+
+⚠️ **Ce qu'on perd, et pourquoi c'est acceptable.** `fetching` avait été ajouté le 2026-08-19 avec
+`REFRESH_FLOOR_MS`, le même jour et pour le même symptôme (« on a l'impression que le bouton ne
+fonctionne pas »). Des deux, **le plancher est celui qui répondait vraiment** : il tient l'accusé
+de réception 650 ms quoi qu'il arrive, et une relecture servie par le cache dure 80 ms. Reste le
+cas d'une relecture **longue sans drainage**, qui s'éteindrait après 650 ms — marginal, parce que
+les sources qui durent sont exactement celles qui **drainent**, et `draining` les couvre déjà
+(« · lecture en cours »).
+
+⚠️ Si ce cas devient gênant un jour, **ne pas remettre `fetching` tel quel** : il faudrait
+distinguer le refetch **demandé** du refetch **spontané** — publier `fetching` jusqu'à
+`SourceFeed`, qui sait, lui, si un clic l'a demandé. C'est la seule forme qui garde le signal sans
+réintroduire le bruit. `SourceState.fetching` est conservé pour cette raison.
+
+**Ce que ça ne change pas** : les trois sources en `fraicheur: "ouverture"` (`notifC`,
+`tachesPa`, `tachesPr`) relisent toujours la base à chaque ouverture — c'est un choix métier, pas
+un effet de bord. Elles le feront simplement **sans l'annoncer** quand elles ont déjà des lignes à
+l'écran.
+
 **Reste à faire, et c'est un défaut distinct** : `refresh` appelle `parent?.refresh()` en premier,
 ce qui change le `key` du niveau du dessus et **détruit tout le sous-arbre** — les `useState(0)`
 des `SourceFeed` internes repartent donc à **0**. Or `nonce === 0` veut dire « premier chargement »

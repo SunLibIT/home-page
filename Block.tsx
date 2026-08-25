@@ -3373,12 +3373,34 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: D
        · `sansDonnees` — la lecture n'a encore RIEN de complet à montrer (`loading`), ou son
          total est en cours de constitution (`draining`). C'est LUI, et lui seul, qui autorise à
          servir l'instantané à la place ;
-       · `reading` — il se passe quelque chose, RELECTURE COMPRISE (`fetching`). C'est ce que le
-         bouton et la barre de la carte doivent montrer.
+       · `reading` — il se passe quelque chose que le bouton et la barre de la carte doivent
+         montrer.
      Mettre `fetching` dans `serving` ferait réapparaître l'instantané par-dessus des lignes
      fraîches à chaque relecture : le contraire du but. */
   const sansDonnees = live.loading || !!live.draining;
-  const reading = sansDonnees || !!live.fetching;
+  /* ⚠️⚠️ `fetching` N'ALLUME PLUS RIEN — retiré de `reading` le 2026-08-25, sur le retour
+     « quand je quitte la page et je reviens, MÊME JUSTE CHANGER D'ONGLET, ça relance les
+     loaders, ce qui n'est pas très logique ». Et c'est juste.
+     LA CAUSE, et elle n'est pas chez nous : changer d'onglet ne démonte rien, donc ni le cache
+     d'instantanés ni le remontage n'y sont pour quelque chose. C'est le `refetchOnWindowFocus`
+     de react-query, dans le QueryClient de Softr, qui relance les requêtes au retour du focus.
+     `isFetching` passe à vrai, les lignes affichées ne changent pas d'un pixel — et toutes les
+     cartes se remettaient à clignoter. Un indicateur qui s'allume sans qu'on ait rien demandé et
+     sans que rien ne change à l'écran n'informe pas : il inquiète.
+     ⚠️ CE QU'ON PERD, ET POURQUOI C'EST ACCEPTABLE. `fetching` avait été ajouté le 2026-08-19
+     avec `REFRESH_FLOOR_MS`, le même jour et pour le même symptôme (« on a l'impression que le
+     bouton ne fonctionne pas ») : au remontage, Softr rend ses lignes de cache mémoire, donc
+     `isLoading` reste faux et rien ne passait « en cours ». Des deux ajouts, le PLANCHER est
+     celui qui répondait vraiment — il tient l'accusé de réception 650 ms quoi qu'il arrive, et
+     une relecture servie par le cache dure 80 ms. Reste le cas d'une relecture LONGUE sans
+     drainage, qui s'éteindrait après 650 ms : il est marginal, parce que les sources qui durent
+     sont exactement celles qui DRAINENT, et `draining` les couvre déjà (« · lecture en cours »).
+     ⚠️ Si ce cas devient gênant, ne PAS remettre `fetching` tel quel : il faudrait distinguer le
+     refetch DEMANDÉ du refetch SPONTANÉ (publier `fetching` à `SourceFeed`, qui sait, lui, si un
+     clic l'a demandé). C'est la seule forme qui garde le signal sans réintroduire le bruit.
+     `SourceState.fetching` est CONSERVÉ : il décrit ce que l'API rend, et c'est la pièce dont
+     cette distinction aurait besoin. */
+  const reading = sansDonnees;
   const serving = !!snap && sansDonnees;
 
   /* Écriture : une fois par clé, à la fin de la lecture. Indexé par clé pour la même
