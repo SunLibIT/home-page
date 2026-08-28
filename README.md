@@ -792,11 +792,12 @@ Tout est dans le registre `PAGES` / `TOOLS` — voir la section **E** ci-dessous
 écrite ailleurs, et une adresse qui change se change là, une fois.
 
 ### C — Embeds Elfsight ✅ intégrés
-Les trois embeds (fil LinkedIn `2df6db63-…`, bannière « À la une » `488a28ed-…`, barre d'annonces
+Les trois embeds (fil LinkedIn `2df6db63-…`, bannière « À la une » `2d460ae0-…` — webinaire
+installateur depuis le 2026-08-28, elle change avec l'annonce du moment —, barre d'annonces
 `8f372b94-…`) passent par le composant **`ElfsightWidget`** (refonte du 2026-08-07) :
 
 ```tsx
-<ElfsightWidget widgetId="488a28ed-f4b6-4f5b-af44-c16613885c98" />
+<ElfsightWidget widgetId="2d460ae0-ad39-41cd-81d3-e0ef8a834f31" />
 ```
 
 Il rend une **iframe `srcDoc`** qui contient le snippet officiel — doctype, `body` sans marge,

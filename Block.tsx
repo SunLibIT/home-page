@@ -9610,18 +9610,31 @@ function LinkedinCard() {
 }
 
 /* Titre volontairement NEUTRE : côté Elfsight, cette bannière change de contenu
-   (aujourd'hui « Webinaire l'abonnement pour l'ACC »), et ce n'est pas un embed
-   LinkedIn. La CLÉ de type reste `linkedinBanner` — c'est un contrat de
+   (webinaires, annonces — l'identifiant du widget lui-même change avec), et ce n'est
+   pas un embed LinkedIn. La CLÉ de type reste `linkedinBanner` — c'est un contrat de
    persistance, les layouts sauvegardés y font référence. */
 function LinkedinBannerCard() {
   return (
     <Widget icon={Megaphone} title="À la une SunLib" sub="Webinaires et annonces">
       {/* ▼ EMBED Elfsight — bannière (contenu piloté depuis Elfsight) ▼
-          `hideLabel` : la bannière porte un en-tête « SunLib sur LinkedIn » réglé côté
-          Elfsight, qui n'a rien à faire sous un titre de carte « À la une SunLib » — et qui
-          était en plus le doublon signalé le 2026-08-04. Le retirer dans l'éditeur du
-          widget Elfsight rendrait cette prop inutile. */}
-      <ElfsightWidget widgetId="488a28ed-f4b6-4f5b-af44-c16613885c98" hideLabel="SunLib sur LinkedIn" />
+          IDENTIFIANT CHANGÉ LE 2026-08-28 : cette carte porte désormais le webinaire
+          installateur. L'ancienne bannière — 488a28ed-f4b6-4f5b-af44-c16613885c98,
+          « Webinaire l'abonnement pour l'ACC » — est REMPLACÉE, pas doublée : c'est UNE
+          carte « à la une », elle montre l'annonce du moment.
+          ⚠️ CHANGER D'ANNONCE NE DEMANDE QUE CETTE LIGNE, et rien d'autre dans le fichier :
+          ni le titre de la carte (volontairement neutre), ni la clé de type
+          `linkedinBanner` — un contrat de persistance, les dispositions enregistrées y font
+          référence — ne bougent avec le contenu.
+          ⚠️ `hideLabel` A ÉTÉ RETIRÉ AVEC L'ANCIENNE BANNIÈRE, et c'est à vérifier à
+          l'écran : il masquait un en-tête « SunLib sur LinkedIn » réglé côté Elfsight sur CE
+          widget-là (le doublon signalé le 2026-08-04). Le widget d'aujourd'hui n'est pas le
+          même, il n'a aucune raison de porter ce texte. S'il apparaissait quand même sous le
+          titre de la carte, remettre `hideLabel="…"` avec le texte EXACT suffit — la voie
+          propre restant de décocher l'en-tête dans l'éditeur du widget.
+          ⚠️ `data-elfsight-app-lazy` du snippet officiel N'EST PAS REPRIS : le différé est
+          porté par le `loading="lazy"` de l'iframe (cf. `ElfsightWidget`), qui ne dépend pas
+          du runtime Elfsight. */}
+      <ElfsightWidget widgetId="2d460ae0-ad39-41cd-81d3-e0ef8a834f31" />
     </Widget>
   );
 }
