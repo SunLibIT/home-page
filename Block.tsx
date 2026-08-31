@@ -1319,6 +1319,14 @@ const SELECT_ABONNE = q.select({
      ne s'affiche pas du tout (`FacetFilter`), et il réapparaîtra tout seul le jour où la
      colonne sera renseignée. */
   technique: "Service technique",
+  /* COMMERCIAL SUNLIB (2026-08-31, demandé) — le propriétaire SunLib du dossier, remonté
+     depuis la fiche installateur liée (même lookup que `partenaire`, même espace avant la
+     parenthèse : « Proprietaire (from Installateur ) », sans accent). Porte le filtre à
+     cases « Commercial SunLib » sur le widget générique et sur les deux files d'attente.
+     ⚠️⚠️ À COCHER DANS L'ONGLET SOURCES du bloc pour la datasource `abonnes`, comme
+     `client`/`entreprise`/`technique` juste au-dessus — sinon Softr refuse la datasource
+     ENTIÈRE (« does not match / Remap the fields »), pas seulement ce filtre. */
+  proprio: "Proprietaire (from Installateur )",
   creeLe: "date de création",
   // ── Ajouts « fiche détaillée ». Ils servent aussi de colonnes et de filtres aux
   //    widgets génériques, puisque le catalogue les déclare (§6-bis).
@@ -2414,6 +2422,12 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          ⚠️ `kind: "text"` et non `badge` : sans liste de valeurs connue, une pastille
          serait grise pour tout le monde et n'apprendrait rien de plus qu'un nom écrit. */
       technique: { label: "Service technique", kind: "text", multi: true },
+      /* COMMERCIAL SUNLIB (2026-08-31, demandé) — filtrer les dossiers sur un seul
+         commercial SunLib, quel qu'il soit (pas seulement « les miens », cf. `ownerField`
+         que cette source ne déclare pas). `multi: true` par le même raisonnement que
+         `technique` juste au-dessus : lookup, donc potentiellement plusieurs noms.
+         Pas dans `defaultFacet` (déjà à `FACETS_MAX`) : disponible, pas actif d'office. */
+      proprio: { label: "Commercial SunLib", kind: "text", multi: true },
       /* LE CLIENT, tel qu'il faut l'écrire sur une ligne — la raison sociale pour un pro,
          le nom de famille pour un particulier. Les replis vont dans les deux sens : un pro
          sans raison sociale saisie garde son « Nom » plutôt que de n'avoir plus rien.
@@ -9432,15 +9446,22 @@ const DATA_CFG: InstanceCfg = cfgOfSource("abonnes");
    UN filtre, pas la barre d'outils entière : la recherche reste coupée, le tri reste le
    seul autre réglage, et la carte continue de promettre exactement ce que son titre
    annonce — filtrer par personne ne change pas la nature de la file, ça la découpe.
-   ⚠️ Contrairement au reste, ce filtre s'applique aux instances DÉJÀ POSÉES : la cfg de ces
-   deux widgets est reconstruite à chaque rendu (elle est figée dans le code, pas dans le
-   document de disposition), donc personne n'a de ⋮ à ouvrir.
 
    ⚠️ `"ref"` (le N° SL) s'y ajoute le 2026-08-24, et ici il a une raison de plus qu'ailleurs :
    la RECHERCHE EST COUPÉE sur ces deux cartes (`search: false`), donc sans lui rien ne
    permettait de pointer un dossier précis dans la file. Deux filtres sur une carte qui n'en
    voulait aucun, c'est le maximum de ce qu'elle peut porter sans redevenir un widget
-   générique déguisé : ne pas en ajouter un troisième sans rouvrir la question. --- */
+   générique déguisé — d'où l'avertissement d'alors : ne pas en ajouter un troisième sans
+   rouvrir la question.
+
+   ⚠️ LA QUESTION EST ROUVERTE le 2026-08-31 (demandé) : `"proprio"` (Commercial SunLib)
+   devient un TROISIÈME candidat, mais PAS un troisième filtre actif d'office — ce tableau
+   ne fixe plus les filtres, il ne sert que de VALEUR DE REPLI (`fileFacetsOf`, §10) pour
+   les instances qui n'ont encore rien choisi. Le choix réel se fait maintenant dans le ⋮
+   (`FileOptions`) : trois candidats pour un plafond (`FACETS_MAX`) qui vaut trois, donc les
+   trois PEUVENT être actifs ensemble — seul le défaut reste à deux (technique + ref), le
+   troisième se coche volontairement. Ces deux widgets ONT donc désormais un ⋮ à ouvrir pour
+   ça, contrairement à ce que disait la ligne au-dessus. --- */
 const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
   title, unit: "dossier",
   source: "abonnes",
@@ -9466,7 +9487,8 @@ const fileCfg = (title: string, filtre: Filter): InstanceCfg => coerceCfg({
    longtemps ?) et par l'enjeu (quels dossiers pèsent le plus ?). C'est le seul choix qui
    change la façon de travailler ; tout le reste — source, filtre, colonnes — resterait
    une invitation à détourner le widget de ce que son titre promet.
-   Quatre entrées et pas un formulaire : le ⋮ n'offre donc que le nom, la couleur, et ceci. */
+   Quatre entrées et pas un formulaire générique : le ⋮ n'offre donc que le nom, la couleur,
+   ceci, et depuis le 2026-08-31 les trois cases à cocher ci-dessous (`FILE_FACETS`). */
 const FILE_TRIS = [
   { key: "ancien", label: "Le plus ancien d'abord", by: "creeLe", dir: "asc" },
   { key: "recent", label: "Le plus récent d'abord", by: "creeLe", dir: "desc" },
@@ -9477,6 +9499,25 @@ type FileTri = (typeof FILE_TRIS)[number]["key"];
 /* Par défaut l'ancienneté : c'est une FILE, et ce qui traîne doit se voir en premier. */
 const fileTriOf = (raw: unknown): (typeof FILE_TRIS)[number] =>
   FILE_TRIS.find((t) => t.key === asText(asObj(raw).tri)) ?? FILE_TRIS[0];
+
+/* Les TROIS candidats du filtre à cases de ces deux widgets (2026-08-31) — un sous-
+   ensemble volontairement restreint du catalogue `abonnes` complet : ouvrir toute la
+   liste comme le widget générique en ferait un widget générique déguisé (cf. le grand
+   commentaire au-dessus de `fileCfg`, §10). `FACETS_MAX` vaut 3, donc les trois PEUVENT
+   être actifs à la fois — rien ici ne les plafonne à deux, seul le DÉFAUT l'est. */
+const FILE_FACETS = ["technique", "ref", "proprio"] as const;
+/* Lit `cfg.facets` du document de disposition, validé contre `FILE_FACETS` : une valeur
+   étrangère (widget d'une version future, document corrompu) retombe sur `fallback`
+   plutôt que d'afficher un filtre sur un champ que ce widget ne propose pas. Absent ou
+   vide → `fallback` aussi, pour que les instances déjà posées gardent leurs deux filtres
+   d'aujourd'hui sans qu'on ait besoin de migrer leur document. */
+const fileFacetsOf = (raw: unknown, fallback: string[]): string[] => {
+  const arr = asObj(raw).facets;
+  const gardees = Array.isArray(arr)
+    ? arr.filter((a): a is string => (FILE_FACETS as readonly string[]).includes(asText(a))).map(asText)
+    : [];
+  return gardees.length ? gardees.slice(0, FACETS_MAX) : fallback;
+};
 
 
 /* ⚠️ `eq` et non `contains` : « contient solvabilité » ramasserait CINQ statuts, dont
@@ -12310,35 +12351,61 @@ const fileType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTyp
   coerce: (raw) => {
     const t = fileTriOf(raw);
     return { ...base, tri: t.key, clientele: clienteleOf(raw),
+             facets: fileFacetsOf(raw, base.facets ?? []),
              query: { ...base.query, sort: { by: t.by, dir: t.dir } } };
   },
   Options: FileOptions,
 });
 
-/** Le formulaire d'une file : DEUX sélecteurs. Il rend `{ tri, clientele }` et RIEN
- *  d'autre — la cfg stockée dans le layout tient donc en deux clés, et `coerce`
- *  reconstruit le reste. */
+/** Le formulaire d'une file : trois réglages. Il rend `{ tri, clientele, facets }` et RIEN
+ *  d'autre — la cfg stockée dans le layout tient donc en trois clés, et `coerce`
+ *  reconstruit le reste. `facets` a rejoint les deux premiers le 2026-08-31 : avant, il
+ *  était figé dans `base` et personne n'avait de ⋮ pour le changer (cf. `fileCfg`, §10). */
 function FileOptions({ cfg, onChange }: { cfg: any; onChange: (next: any) => void }) {
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "2px 0 5px" };
   const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
   const tri = fileTriOf(cfg).key;
   const clientele = clienteleOf(cfg);
+  // `cfg.facets` n'existe pas forcément encore (instance posée avant le 2026-08-31) :
+  // repli sur les deux d'origine, exactement ce que faisait `base.facets` avant ce jour.
+  const facets: string[] = Array.isArray(cfg.facets) ? cfg.facets : ["technique", "ref"];
   return (
     <>
       <div style={lbl}>Ordre d'affichage</div>
       <select value={tri} style={field}
-        onChange={(e) => onChange({ tri: e.target.value as FileTri, clientele })}>
+        onChange={(e) => onChange({ tri: e.target.value as FileTri, clientele, facets })}>
         {FILE_TRIS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
       </select>
-      {/* CLIENTÈLE — le second et dernier réglage. Même liste que le widget générique
-          (`CLIENTELES`), pour que le même mot désigne partout le même périmètre. */}
+      {/* CLIENTÈLE — même liste que le widget générique (`CLIENTELES`), pour que le même
+          mot désigne partout le même périmètre. */}
       <div style={{ ...lbl, marginTop: "10px" }}>Clientèle</div>
       <select value={clientele} style={field}
-        onChange={(e) => onChange({ tri, clientele: e.target.value as Clientele })}>
+        onChange={(e) => onChange({ tri, clientele: e.target.value as Clientele, facets })}>
         {CLIENTELES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
       </select>
+      {/* FILTRES À CASES — trois candidats seulement (`FILE_FACETS`), pas tout le
+          catalogue `abonnes` comme le widget générique : voir le grand commentaire au-
+          dessus de `fileCfg` (§10) sur pourquoi cette carte n'en propose pas plus. */}
+      <div style={{ ...lbl, marginTop: "10px" }}>Filtres à cases</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "5px 14px", marginTop: "5px" }}>
+        {FILE_FACETS.map((a) => {
+          const on = facets.includes(a);
+          const plein = !on && facets.length >= FACETS_MAX;
+          return (
+            <label key={a} style={{ display: "inline-flex", alignItems: "center", gap: "7px", fontSize: "12.5px", fontWeight: 500, color: plein ? T.ink4 : T.ink2 }}>
+              <input type="checkbox" checked={on} disabled={plein}
+                onChange={(e) => {
+                  const reste = facets.filter((x) => x !== a);
+                  const next = e.target.checked ? [...reste, a].slice(0, FACETS_MAX) : reste;
+                  onChange({ tri, clientele, facets: next });
+                }} />
+              {CATALOG.abonnes.fields[a].label}
+            </label>
+          );
+        })}
+      </div>
       <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-        Ce sont les deux seuls réglages de ce widget : le statut qu'il suit, sa source et ses
+        Ce sont les seuls réglages de ce widget : le statut qu'il suit, sa source et ses
         colonnes ne se changent pas. « Particuliers » regroupe les dossiers Solo et Duo.
       </p>
     </>
