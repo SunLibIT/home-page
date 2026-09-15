@@ -274,6 +274,23 @@ function pageUrl(slug: string, params?: Record<string, string>): string {
   return query ? `${base}?${query}` : base;
 }
 
+/** NOUVEL ONGLET — props communes aux liens qui QUITTENT l'accueil (2026-09-15).
+ *  Demandé : « ça change la page actuelle, comme ça on ne perd pas notre home page ».
+ *  Consulter un dossier depuis l'accueil est une PARENTHÈSE : on revient toujours à la
+ *  liste qu'on était en train de parcourir. `_top` remplaçait la page d'accueil, donc il
+ *  fallait revenir en arrière — et un retour arrière RECHARGE le bloc : filtres, recherche,
+ *  défilement et cache de session repartent de zéro. C'est ce coût-là qui était payé, pas
+ *  seulement le confort de garder l'onglet.
+ *  ⚠️ `_blank` fonctionne bien depuis l'iframe Softr (les popups y sont autorisées) À
+ *  CONDITION que l'URL soit ABSOLUE : une adresse relative se résoudrait contre l'origine de
+ *  l'IFRAME (`…preview.softr.app`) et non contre la page hôte. C'est déjà le cas — `pageUrl`
+ *  rend une URL absolue bâtie sur `topOrigin()` — mais tout nouveau lien doit en passer par là.
+ *  ⚠️ `rel="noopener noreferrer"` : même règle que les liens externes du bloc (tuiles Outils),
+ *  et la page ouverte n'a aucun besoin d'un handle sur l'accueil.
+ *  ⚠️ NE COUVRE PAS la barre d'onglets (`NAV_TABS`) ni les tuiles Raccourcis : celles-là sont
+ *  de la NAVIGATION, on veut y rester — un onglet par clic de menu serait insupportable. */
+const NOUVEL_ONGLET = { target: "_blank", rel: "noopener noreferrer" } as const;
+
 /* Assets officiels — dépôt SunLibIT/Documents-PNG (charte, §Dépôt images)
    `logoRond` n'est plus affiché : le héro utilise <Sunburst>, le même motif
    reconstruit en SVG inline pour pouvoir l'animer rayon par rayon. Conservé
@@ -2250,7 +2267,7 @@ type SourceDesc = {
   detailPage?: string;
   /* Page de l'espace Softr qui porte la LISTE COMPLÈTE de cette source (slug de `PAGES`,
      §0-bis). Renseignée, tout widget `data` de cette source gagne un pied « Ouvrir dans le
-     CRM » qui y renvoie en `target="_top"` (cf. `DataView`).
+     CRM » qui y renvoie dans un NOUVEL ONGLET (`NOUVEL_ONGLET`, cf. `DataView`).
      Pourquoi ce n'est pas un doublon de `detailPage` : un widget d'accueil montre au mieux
      50 lignes d'une table qui en compte des centaines, avec UN filtre à cases. Le pied est
      la porte de sortie assumée vers l'écran complet — sans elle, celui qui ne trouve pas sa
@@ -6105,9 +6122,10 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
           est absent (ligne orpheline) ou quand ce n'est pas un record id — un « Détail »
           qui mène à une fiche vide vaut moins qu'un « Détail » absent. */}
       {cfg.detail && /^rec[A-Za-z0-9]{14}$/.test(n.abonneId) && (
-        /* Lien et NON bouton : c'est une navigation. `target="_top"` parce que le bloc
-           vit dans une iframe — sans lui, la fiche s'ouvrirait DANS le widget. */
-        <a href={pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: n.abonneId })} target="_top"
+        /* Lien et NON bouton : c'est une navigation. NOUVEL ONGLET (2026-09-15, même
+           demande que la pop-up) : consulter le dossier d'une notification ne doit pas
+           coûter la liste des notifications qu'on est en train de dépiler. */
+        <a href={pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: n.abonneId })} {...NOUVEL_ONGLET}
           onClick={(e) => e.stopPropagation()}
           className="slb-btng" aria-label={`Fiche complète — ${title}`} title="Ouvrir la fiche abonné"
           style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12px", fontWeight: 600, textDecoration: "none" }}>
@@ -7279,7 +7297,9 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
     || DASH;
   const badge = map.badge ? asText(row[map.badge]) : "";
   /* Lien vers la FICHE COMPLÈTE de l'espace Softr, si le descripteur en déclare une.
-     `target="_top"` : le bloc vit dans une iframe, sans lui la page s'ouvrirait dedans.
+     NOUVEL ONGLET (`NOUVEL_ONGLET`, 2026-09-15) : la pop-up est une parenthèse ouverte
+     depuis une liste qu'on parcourt — la remplacer par la fiche faisait perdre l'accueil,
+     et le retour arrière rechargeait le bloc (filtres, recherche et défilement perdus).
      ⚠️ Le record id de la ligne n'est un id de fiche que si la source EST la table de
      cette fiche — d'où `detailPage` porté par le descripteur et non déduit ici. */
   const fiche = ficheHref ?? (desc.detailPage ? pageUrl(desc.detailPage, { [PAGE_RECORD_PARAM]: row.id }) : "");
@@ -7344,7 +7364,7 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
 
         {lien && (
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", padding: "12px 18px", borderTop: `1px solid ${T.line}`, flex: "none" }}>
-            <a href={lien} target="_top" className="slb-btng"
+            <a href={lien} {...NOUVEL_ONGLET} className="slb-btng"
               style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 13px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
               {libelleLien}<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
             </a>
@@ -7944,15 +7964,16 @@ function GenericKpi({ rows, cfg, desc, api, ident }: ViewProps) {
    ornement : une carte d'accueil montre au mieux 50 lignes d'une table qui peut en compter
    1 266, avec un seul filtre à cases. Sans ce lien, celui qui ne trouve pas sa ligne n'a aucun
    chemin vers l'écran complet — sinon deviner le menu du CRM.
-   `target="_top"` : le bloc vit dans une iframe ; sans lui, le CRM s'ouvrirait DEDANS, dans un
-   cadre de la taille du widget. Même règle que les Raccourcis (§7) et que la fiche détaillée.
+   NOUVEL ONGLET (`NOUVEL_ONGLET`, 2026-09-15) : l'écran complet s'ouvre À CÔTÉ de l'accueil,
+   qui reste tel qu'on l'avait laissé. Sans cela, revenir rechargeait le bloc — et ce pied est
+   justement le geste de quelqu'un qui n'a PAS trouvé sa ligne : il y revient.
    Un slug vide rend `pageUrl` = "" (§0-bis) : on n'affiche alors RIEN, plutôt qu'un bouton qui
    n'ouvre rien — la même règle que les tuiles Outils et que le pied du SAV. */
 function ListPageFooter({ desc }: { desc: SourceDesc }) {
   const href = desc.listPage ? pageUrl(desc.listPage) : "";
   if (!href) return null;
   return (
-    <a href={href} target="_top" className="slb-btng"
+    <a href={href} {...NOUVEL_ONGLET} className="slb-btng"
       style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
       {/* Le même libellé que le bouton de la fiche : deux chemins vers la même page ne
           doivent pas la nommer autrement. Repli sur « dans le CRM » pour une source qui
@@ -9282,7 +9303,7 @@ function SavWidget({ api, cfg }: { api: SourceApi; cfg: SavCfg }) {
      rien vaut moins que pas de bouton (même règle que les tuiles Outils). */
   const savHref = pageUrl(PAGES.sav);
   const footer = savHref ? (
-    <a href={savHref} target="_top" className="slb-btng"
+    <a href={savHref} {...NOUVEL_ONGLET} className="slb-btng"
       style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "8px 13px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontSize: "12.5px", fontWeight: 600, textDecoration: "none" }}>
       Ouvrir le pilotage SAV<ChevronRight aria-hidden style={{ width: 14, height: 14 }} />
     </a>

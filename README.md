@@ -459,7 +459,7 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      (contact · entreprise · mail · téléphone · service · type de contact), mail et téléphone
      **cliquables** (`mailto:` / `tel:`), multi-sélections rendues en **une pastille par
      valeur**, et un pied **« Ouvrir la page Contact partenaire »** qui renvoie en
-     `target="_top"` vers `/contact-partenaire` (libellé raccourci le 2026-08-19 : « Ouvrir
+     **dans un nouvel onglet** (`NOUVEL_ONGLET`, 2026-09-15) vers `/contact-partenaire` (libellé raccourci le 2026-08-19 : « Ouvrir
      Contact partenaire » — dans un pied de carte, « la page » ne dit rien de plus). **Un seul modèle** dans la galerie (groupe **Partenaires**), en
      tableau pleine largeur — demandé tel quel le 2026-08-19 ; une variante en liste a existé
      quelques minutes avant d'être retirée. Sept colonnes Softr deviennent six : `contact`
@@ -586,7 +586,8 @@ npm run build      # tsc --noEmit + vite build : vérifie la compilation
      les trois que la ligne montrait. Générique : ajouter un alias au catalogue l'ajoute à la
      fiche. Accessible au clavier (Entrée / Espace, Échap pour fermer) ; les boutons d'action
      de la ligne n'ouvrent pas la fiche. Pour les dossiers abonné, un bouton « Ouvrir la fiche
-     complète » mène à la page de l'espace (`target="_top"`).
+     complète » mène à la page de l'espace, **dans un NOUVEL ONGLET** depuis le 2026-09-15
+     (`NOUVEL_ONGLET`) : la pop-up est une parenthèse, on revient à la liste qu'on parcourait.
      Au passage, `SELECT_ABONNE` a été **élargi de 10 champs** (référence, statut abonné, CAPEX,
      abonnement, kWc, état facture 2, dates de signature et d'édition, contrats signé / en
      attente) — tous déjà lus par `SELECT_COM` sur la même datasource, donc leur exposition est
@@ -934,7 +935,9 @@ d'une page de connexion Auth0 portant un jeton
 redirige d'elle-même vers le login, et ne périme pas.
 
 **Trois cibles, trois comportements** — et c'est le type de l'entrée qui décide, jamais le
-composant : une entrée de `PAGES` ouvre en **`_top`** (page de l'espace, on quitte l'accueil), une
+composant : une entrée de `PAGES` ouvre en **`_top`** (page de l'espace, on quitte l'accueil —
+vaut pour la barre d'onglets et les Raccourcis ; les liens de SORTIE d'un widget, eux, passent
+par `NOUVEL_ONGLET` depuis le 2026-09-15), une
 entrée de `TOOLS` utilisée comme `url` ouvre dans un **nouvel onglet** (`_blank` + `noopener`), et
 une entrée de `TOOLS` utilisée comme `embed` s'affiche **dans la page** (onglet à iframe). On ne
 navigue jamais **dans** l'iframe du bloc : le CRM autour disparaîtrait.
@@ -1266,7 +1269,7 @@ sur la dernière page, et la boucle réclame des pages vides jusqu'au plafond. R
 - `from` sur chaque hook data ; **un seul** `datasource.define`, IDs littéraux inline.
 - `q.select({...})` littéral ; filtres/tri par **alias**.
 - Update **enveloppé** `mutate({ recordId, fields })` ; lecture paginée `data.pages.flatMap(p => p.items)`.
-- Iframe : `useCurrentUser()` (jamais `window.logged_in_user`) ; navigation inter-pages en `<a target="_top">`.
+- Iframe : `useCurrentUser()` (jamais `window.logged_in_user`) ; navigation inter-pages en `<a target="_top">` pour la barre d'onglets et les Raccourcis (on veut y rester), **nouvel onglet** (`NOUVEL_ONGLET`) pour tout lien qui QUITTE l'accueil vers une fiche ou un écran complet (2026-09-15).
 - `useCurrentUser()` renvoie `{ id, email, name }` — **pas** `firstName` : le prénom du héro est dérivé de `name`, avec repli sur l'e-mail si `name` est vide (fréquent en prod).
 - Aucune dépendance externe, aucune Google Font (`Plus Jakarta Sans` en fallback `system-ui`).
 - Accessibilité charte : focus visible teal, `prefers-reduced-motion`, statuts en badge couleur **+** icône, dates relatives avec date absolue en `title`, états vides guidants.
