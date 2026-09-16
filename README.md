@@ -1264,6 +1264,42 @@ sur une **page revenue vide**. Le drainage s'arrête sinon sur `hasNextPage`, c'
 sur la dernière page, et la boucle réclame des pages vides jusqu'au plafond. Relever celui-ci de
 120 à 1 000 rendait ce garde-fou indispensable.
 
+## 4-bis. Changer une annonce sans toucher au code (2026-09-16)
+
+Les trois cartes de communication — « À la une SunLib », « Annonces SunLib », « SunLib sur
+LinkedIn » — ne portent plus leur identifiant Elfsight en dur : elles le lisent dans la table
+**« Embeds Accueil CRM »** (`appHZaD5BkDsWxR65` · `tblExkt9zAibetuvU`, une ligne par
+emplacement : `alaune`, `annonces`, `linkedin`), branchée sur le bloc sous le nom `embeds`.
+
+**Le geste** : bouton **« Modifier les widgets »**, à côté de « Ajouter un widget » sur le
+tableau de bord, puis on colle le snippet reçu de la communication. Le bloc en extrait
+l'identifiant — snippet entier ou UUID seul — et refuse tout le reste.
+
+**Le titre aussi.** La même feuille porte le titre de la carte (champ `titre`) : laissé vide,
+c'est celui du code qui s'applique. ⚠️ Ces trois cartes ne se renomment donc plus depuis le
+menu ⋮ (`titreFigeDe`) : un titre personnel l'emporterait sur celui de la communication, et la
+même annonce porterait autant de noms que de pages. Un renommage enregistré avant cette règle
+n'est pas effacé, il est ignoré.
+
+**Qui le voit** : les membres du groupe Softr autorisé sur l'action (aujourd'hui **Direction**).
+Le bloc ne lit pas les groupes — Softr ne les lui expose pas — il lit le `enabled` du hook de
+mutation, qui reflète la permission de l'action. ⚠️ Pas de repli ici, contrairement à l'espace
+partenaire : sans `enabled`, le bouton n'apparaît pas. Tout le monde étant SunLib dans le CRM,
+un repli sur l'entreprise l'aurait ouvert à tout le monde.
+
+⚠️⚠️ **LA PERMISSION EST RÉINITIALISÉE À CHAQUE RECOMPILE DU BLOC**, sans un mot : après
+**chaque** collage de code, la rouvrir dans l'onglet Actions et la restreindre au groupe, sinon
+n'importe quel connecté peut réécrire l'annonce vue par tous.
+
+⚠️ **Ce qui reste écrit en dur est le REPLI** (`EMBEDS_REPLI`) : table injoignable, ligne
+absente, identifiant mal formé — la carte affiche alors la valeur du code, jamais du vide.
+
+⚠️ **Le contenu, lui, reste chez Elfsight.** Cette table ne porte que l'aiguillage.
+
+**Le jumeau** : le même dispositif existe sur l'espace partenaire (`home-page-partenaire`),
+avec sa propre table « Embeds Accueil Partenaire ». Une correction ici en vaut presque toujours
+une là-bas.
+
 ## 5. Règles Softr respectées
 
 - `from` sur chaque hook data ; **un seul** `datasource.define`, IDs littéraux inline.

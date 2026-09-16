@@ -41,6 +41,9 @@ export const DS_IDS = {
   notifC: "fecd4e37-cc12-4780-ae87-e412b431a852",   // BDD Abonné · « Notification Center »
   // Bdd Installateurs · « Détails des contacts par installateur » (annuaire, 2026-08-19)
   contactsIns: "acc8398e-5798-4e1c-9b57-f13ee1cbb2b1",
+  // Préférences · « Embeds Accueil CRM » — l'aiguillage des trois cartes de communication.
+  // Son id de datasource est un mot, pas un UUID : il a été posé à la main à la connexion.
+  embeds: "embeds",
 } as const;
 
 /* ============================ Types ============================ */
@@ -245,6 +248,13 @@ type Mutation<TArg> = {
   mutateAsync: (arg: TArg) => Promise<any>;
   isLoading: boolean;
   isPending: boolean;
+  /** Ce que la vraie API attache à TOUTE mutation : la permission de l'action, côté
+   *  Softr, pour l'utilisateur connecté. Le bloc ne peut pas lire les user groups — c'est
+   *  son seul canal (cf. l'aiguillage des embeds dans `Block.tsx`).
+   *  ⚠️ `true` EN DEV, ET C'EST UN CHOIX : ici il n'y a ni groupe ni permission, et un
+   *  `false` rendrait invisible en local tout ce qui dépend du droit d'écrire. Le refus
+   *  ne se teste donc PAS ici, il se teste sur la préversion avec un compte non autorisé. */
+  enabled: boolean;
 };
 
 function makeMutation<TArg>(fn: (arg: TArg) => any): Mutation<TArg> {
@@ -255,6 +265,7 @@ function makeMutation<TArg>(fn: (arg: TArg) => any): Mutation<TArg> {
     mutateAsync: async (arg) => fn(arg),
     isLoading: false,
     isPending: false,
+    enabled: true,
   };
 }
 

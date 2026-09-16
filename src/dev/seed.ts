@@ -100,6 +100,23 @@ const contactsIns: Rec[] = [
       tel: "", service: ["Administratif"], typeContact: ["Admin"], proprio: "Ilan LEVY", creeLe: daysAgo(500) } },
 ];
 
+/* ── L'AIGUILLAGE DES EMBEDS — alias de `SELECT_EMBEDS` ────────────────────────────
+   Les trois emplacements, aux identifiants réellement en ligne le 2026-09-16. Il ne manque
+   QUE la ligne `linkedin` : c'est délibéré, pour que le repli soit visible en dev sans
+   avoir à casser quoi que ce soit — la carte LinkedIn doit afficher l'identifiant de
+   `EMBEDS_REPLI`, et la grille de la feuille le dire (« par défaut »).
+   `titre` est VIDE sur `alaune` et rempli sur `annonces` : les deux moitiés de la règle se
+   voient donc côte à côte — « À la une SunLib », le titre du code, et « Rentrée SunLib »,
+   celui que la communication a posé pour tout le monde. */
+const SNIPPET_DEMO = (id: string) =>
+  '<script src="https://elfsightcdn.com/platform.js" async></script>\n'
+  + `<div class="elfsight-app-${id}" data-elfsight-app-lazy></div>`;
+
+const embeds: Rec[] = [
+  { id: "e1", fields: { cle: "alaune", widgetId: "2d460ae0-ad39-41cd-81d3-e0ef8a834f31", snippet: SNIPPET_DEMO("2d460ae0-ad39-41cd-81d3-e0ef8a834f31"), titre: "", updatedAt: daysAgo(0), updatedBy: "karine.romano@sunlib.fr" } },
+  { id: "e2", fields: { cle: "annonces", widgetId: "8f372b94-937a-4aa2-8762-0e56f6515ac7", snippet: SNIPPET_DEMO("8f372b94-937a-4aa2-8762-0e56f6515ac7"), titre: "Rentrée SunLib", updatedAt: daysAgo(0), updatedBy: "karine.romano@sunlib.fr" } },
+];
+
 export const SEED: Record<string, Rec[]> = {
   [DS_IDS.abonnes]: abonnes,
   [DS_IDS.notesIns]: notesIns,
@@ -108,4 +125,5 @@ export const SEED: Record<string, Rec[]> = {
   [DS_IDS.tachesPr]: tachesPr,
   [DS_IDS.sav]: sav,
   [DS_IDS.contactsIns]: contactsIns,
+  [DS_IDS.embeds]: embeds,
 };

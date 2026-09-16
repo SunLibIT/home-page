@@ -1267,6 +1267,13 @@ const DS = datasource.define({
      ⚠️ Les DIX champs de `SELECT_CONTACT_INS` doivent être cochés sur CETTE connexion : un seul
      oubli fait échouer la datasource entière au collage, donc tout le bloc. */
   contactsIns: "acc8398e-5798-4e1c-9b57-f13ee1cbb2b1",
+  /* ✅ Connectée le 2026-09-16 — « Embeds Accueil CRM » (appHZaD5BkDsWxR65 ·
+     tblExkt9zAibetuvU), l'aiguillage des trois cartes de communication (§9-quinquies).
+     ⚠️ SA JUMELLE EST CELLE DE L'ESPACE PARTENAIRE, et ce sont bien DEUX tables : les
+     deux accueils ne montrent pas les mêmes annonces, et une table commune obligerait
+     à inventer une colonne « espace » pour les redistinguer aussitôt. Même choix que
+     « Home Preferences » / « Home Preferences Partenaire ». */
+  embeds: "embeds",
 });
 
 /* Le registre est COMPLET depuis le 2026-08-05 : les 9 sources du catalogue qui
@@ -1694,6 +1701,18 @@ const SELECT_PREFS = q.select({
   layout: "layout_json",         // document v2 {v,items,parked,seeded} sérialisé (Plan A)
   updatedAt: "updated_at",       // DATETIME (chaîne ISO)
   schemaVersion: "schema_version", // Number — recopie de LAYOUT_VERSION (diagnostic du parc)
+});
+
+// Aiguillage des embeds Elfsight ← une ligne par emplacement (§9-quinquies).
+// Même règle que ci-dessus : NOMS EXACTS des champs. Ce select sert aussi de whitelist
+// d'écriture — les cinq champs modifiables le sont tous.
+const SELECT_EMBEDS = q.select({
+  cle: "cle",              // "alaune" | "annonces" | "linkedin" — clé de recherche
+  widgetId: "widget_id",   // l'UUID Elfsight, seul (sans le <div> autour) — CE QUI EST RENDU
+  snippet: "snippet",      // le snippet collé tel quel — ce qu'on RELIT, jamais ce qui est rendu
+  titre: "titre",          // le titre de la carte, pour tout le monde — vide = celui du code
+  updatedAt: "updated_at", // DATETIME (chaîne ISO)
+  updatedBy: "updated_by", // EMAIL — qui a changé
 });
 
 // Modèles de vue — mêmes formes pour le mock et le mapping Airtable.
@@ -4694,6 +4713,12 @@ type WidgetOptions = {
   Form?: FC<{ cfg: any; onChange: (next: any) => void }>;
   /** Titre choisi par l'utilisateur pour CETTE instance ("" = titre par défaut). */
   title: string;
+  /** Ce type refuse le renommage personnel : le panneau n'affiche alors AUCUN champ
+   *  « Titre ». Vrai pour les embeds de communication (§9-quinquies), dont le titre est
+   *  administré pour tout le monde — laisser chacun renommer sa carte reviendrait à
+   *  donner trois noms différents à la même annonce, et à rendre muet le seul réglage
+   *  que la communication peut faire. */
+  titreFige?: boolean;
   /** Clé de teinte de CETTE instance ("" = aucune). Cf. `WIDGET_TINTS`. */
   tint: string;
   /** LARGEUR de CETTE instance, réglable depuis le ⋮ (les poignées latérales font la même
@@ -5074,16 +5099,24 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
                 {/* ── APPARENCE ───────────────────────────────────────────────── */}
                 <div style={secApparence}>
                   <div style={secTitle}><Pencil aria-hidden style={{ width: 14, height: 14, color: T.ink3 }} />Apparence</div>
-                  {/* TITRE — présent pour TOUS les types (le seul réglage de ceux qui n'ont
-                      pas de formulaire). Le `placeholder` montre le titre par défaut :
-                      vider le champ le rétablit, sans bouton « réinitialiser ». */}
-                  <label style={lbl} htmlFor="slb-w-title">Titre</label>
-                  <input id="slb-w-title" style={field} value={draftTitle} placeholder={defaultTitle}
-                    maxLength={WIDGET_TITLE_MAX} aria-describedby="slb-w-title-hint"
-                    onChange={(e) => setDraftTitle(e.target.value)} />
-                  <div id="slb-w-title-hint" style={{ margin: "5px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
-                    Laisser vide pour garder « {defaultTitle} ».
-                  </div>
+                  {/* TITRE — présent pour presque tous les types (le seul réglage de ceux
+                      qui n'ont pas de formulaire). Le `placeholder` montre le titre par
+                      défaut : vider le champ le rétablit, sans bouton « réinitialiser ».
+                      ⚠️ ABSENT quand le type le refuse (`titreFige`) : les cartes de
+                      communication portent le titre décidé pour tout le monde. Le champ est
+                      RETIRÉ plutôt que désactivé — un champ grisé sans explication pose plus
+                      de questions qu'il n'en règle, et il n'y a rien à y faire. */}
+                  {!opts.titreFige && (
+                    <>
+                      <label style={lbl} htmlFor="slb-w-title">Titre</label>
+                      <input id="slb-w-title" style={field} value={draftTitle} placeholder={defaultTitle}
+                        maxLength={WIDGET_TITLE_MAX} aria-describedby="slb-w-title-hint"
+                        onChange={(e) => setDraftTitle(e.target.value)} />
+                      <div id="slb-w-title-hint" style={{ margin: "5px 0 0", fontSize: "10.5px", fontWeight: 500, color: T.ink4 }}>
+                        Laisser vide pour garder « {defaultTitle} ».
+                      </div>
+                    </>
+                  )}
 
                   {/* TEINTE — palette fermée (cf. WIDGET_TINTS). Chaque pastille est un vrai
                       bouton : le choix doit être atteignable au clavier, et son `aria-label`
@@ -9654,6 +9687,231 @@ function ElfsightWidget({ widgetId, height, title = "Contenu SunLib", hideLabel 
   );
 }
 
+/* --- L'AIGUILLAGE DES EMBEDS — changer d'annonce sans repasser par le code ---------
+   ⚠️ CE QUI EST PILOTÉ ICI N'EST PAS LE CONTENU, C'EST L'ADRESSE. Les annonces restent
+   composées côté Elfsight, par la communication, dans son outil et avec son rendu. La
+   table ne dit qu'une chose : QUEL widget chaque carte affiche. C'est le minimum qui
+   supprime l'aller-retour par le code — avant elle, changer d'annonce demandait d'éditer
+   une ligne de ce fichier, de régénérer le livrable et de recoller 900 Ko dans Softr.
+
+   ⚠️ LES IDENTIFIANTS EN DUR NE DISPARAISSENT PAS : ils deviennent le REPLI. Source non
+   branchée, table injoignable, ligne absente, identifiant mal formé — dans tous ces cas la
+   carte affiche ce que ce fichier déclare, exactement comme avant. Une panne de la table
+   ne peut donc pas vider la page de sa communication : elle la fige sur le dernier état
+   connu du code. C'est délibérément le contraire d'un écran vide.
+
+   ⚠️ QUI PEUT ÉCRIRE : un groupe Softr, par la permission de l'ACTION (onglet Actions du
+   bloc). Le bouton qu'on ne voit pas n'est QUE de l'UX — ce filtrage-là se fait dans le
+   navigateur, il ne protège rien. ⚠️⚠️ ET UN RECOMPILE DU BLOC RÉINITIALISE LA VISIBILITÉ
+   DES ACTIONS : après CHAQUE collage, la permission est à réappliquer, sinon n'importe
+   quel connecté peut réécrire l'annonce vue par tous, sans un bruit.
+
+   ⚠️ CE DISPOSITIF EST LE JUMEAU DE CELUI DE L'ESPACE PARTENAIRE (même mécanique, même
+   feuille, table distincte). Une correction ici en vaut presque toujours une là-bas. --- */
+
+type EmbedCle = "alaune" | "annonces" | "linkedin";
+
+/** Les trois emplacements, dans l'ordre où la pop-up les présente. */
+const EMBED_CLES: readonly EmbedCle[] = ["alaune", "annonces", "linkedin"];
+
+/** Le TYPE de widget qui porte chaque emplacement.
+ *  ⚠️ CE N'EST PAS LA MÊME CHOSE QUE LA CLÉ, et c'est irréductible : « À la une » est du
+ *  type `linkedinBanner` — un contrat de persistance, les dispositions enregistrées y font
+ *  référence —, alors que sa clé de table est `alaune`. Renommer l'un pour aligner l'autre
+ *  casserait les layouts déjà écrits. */
+const EMBED_TYPE: Record<EmbedCle, string> = {
+  alaune: "linkedinBanner",
+  annonces: "annonces",
+  linkedin: "linkedin",
+};
+
+/** Ces trois cartes ne se renomment pas depuis le ⋮ : leur titre est administré (2026-09-16,
+ *  demandé). Un titre personnel l'emporterait sur celui de la communication, et la même
+ *  annonce porterait autant de noms que de pages — exactement ce qu'un titre commun doit
+ *  éviter. Le réglage reste dans la feuille « Modifier les widgets ».
+ *  ⚠️ Un titre déjà enregistré par quelqu'un n'est pas supprimé de son layout, il est
+ *  IGNORÉ : si cette décision était un jour rendue, il reviendrait tel quel. */
+const TYPES_TITRE_FIGE: readonly string[] = EMBED_CLES.map((c) => EMBED_TYPE[c]);
+const titreFigeDe = (type: string): boolean => TYPES_TITRE_FIGE.includes(type);
+
+/** Ce que chaque emplacement montre quand la table ne dit rien — l'état du 2026-09-16.
+ *  ⚠️ NE PAS LES RETIRER en jugeant la table « suffisante » : c'est le filet, et c'est
+ *  aussi la seule trace lisible, dans ce fichier, de ce que la page affiche. */
+const EMBEDS_REPLI: Record<EmbedCle, string> = {
+  alaune: "2d460ae0-ad39-41cd-81d3-e0ef8a834f31",
+  annonces: "8f372b94-937a-4aa2-8762-0e56f6515ac7",
+  linkedin: "2df6db63-fd6e-498a-8a61-a97803d9d96f",
+};
+
+/** Le nom de la carte tel qu'il est écrit dans son en-tête : la pop-up ne doit pas
+ *  inventer un vocabulaire que personne n'a sous les yeux. */
+const EMBEDS_LABEL: Record<EmbedCle, string> = {
+  alaune: "À la une SunLib",
+  annonces: "Annonces SunLib",
+  linkedin: "SunLib sur LinkedIn",
+};
+
+/** L'icône de la carte, la MÊME que celle de son en-tête sur le tableau de bord : la
+ *  grille d'administration doit se reconnaître d'un coup d'œil dans la page qu'elle règle. */
+const EMBEDS_ICON: Record<EmbedCle, LucideIcon> = {
+  alaune: Megaphone,
+  annonces: Sparkles,
+  linkedin: Newspaper,
+};
+
+/** Même garde que `PREFS_ENABLED` (§11) : un littéral « TODO » n'est jamais lu. */
+const EMBEDS_ENABLED = !DS.embeds.startsWith("TODO");
+
+const UUID_ELF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** Ce qu'on accepte dans le champ de collage, et c'est volontairement large : le snippet
+ *  ENTIER servi par Elfsight (son commentaire, son `<script>`, son `<div class="elfsight-
+ *  app-…">`), ou l'identifiant seul. On ne demande à personne de découper un bout de HTML
+ *  — on prend ce qu'il a dans le presse-papiers.
+ *  ⚠️ Rend `null` quand rien de valide ne s'y trouve, et l'appelant REFUSE alors la
+ *  saisie : écrire une valeur douteuse viderait la carte chez tout le monde. */
+function elfsightIdDe(saisie: string): string | null {
+  const t = asText(saisie).trim();
+  if (!t) return null;
+  const m = /elfsight-app-([0-9a-fA-F-]{36})/.exec(t);
+  const cand = (m ? m[1] : t).trim().toLowerCase();
+  return UUID_ELF.test(cand) ? cand : null;
+}
+
+type EmbedLigne = { recordId: string; widgetId: string; snippet: string; titre: string; updatedAt: string; updatedBy: string };
+
+type EmbedsApi = {
+  /** L'identifiant à afficher : jamais vide, repli compris. */
+  idDe: (cle: EmbedCle) => string;
+  /** Le titre voulu pour tout le monde, ou "" — à l'appelant de retomber sur le sien. */
+  titreDe: (cle: EmbedCle) => string;
+  ligneDe: (cle: EmbedCle) => EmbedLigne | null;
+  /** Vrai si l'écriture est possible — voir la nuance dans `useEmbedsSource`. */
+  peutEcrire: boolean;
+  enregistrer: (cle: EmbedCle, widgetId: string, snippet: string, titre: string) => Promise<{ ok: boolean; error?: string }>;
+};
+
+const EmbedsCtx = createContext<EmbedsApi | null>(null);
+
+/** L'identifiant d'un emplacement, repli compris. Utilisable HORS du fournisseur : une
+ *  carte rendue ailleurs montre alors le repli, jamais du vide. */
+function useEmbedId(cle: EmbedCle): string {
+  const api = useContext(EmbedsCtx);
+  return api ? api.idDe(cle) : EMBEDS_REPLI[cle];
+}
+
+/** Le titre de la carte. TROIS NIVEAUX, du plus fort au plus faible : celui que la personne
+ *  s'est donné sur SA carte (menu ⋮ — `Widget` le résout seul), puis celui de la table, puis
+ *  `defaut` — ce que ce fichier déclare.
+ *  ⚠️ Pour ces trois cartes, le titre personnel est NEUTRALISÉ en amont (`titreFigeDe`) :
+ *  il ne reste donc, en pratique, que la table puis le défaut. */
+function useEmbedTitre(cle: EmbedCle, defaut: string): string {
+  const api = useContext(EmbedsCtx);
+  return (api?.titreDe(cle) || "") || defaut;
+}
+
+/** LA lecture de la table, montée une seule fois par `Block` et partagée par contexte :
+ *  trois cartes qui liraient chacune la sienne feraient trois requêtes pour trois lignes. */
+function useEmbedsSource(): EmbedsApi {
+  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
+
+  /* Hooks TOUJOURS appelés, jamais conditionnels (Rules of Hooks) — même patron que
+     `usePersistentLayout` : on monte, puis on neutralise en aval. */
+  const res = useRecords({ from: DS.embeds, select: SELECT_EMBEDS, count: 20 });
+  const updateM = useRecordUpdate({ from: DS.embeds, fields: SELECT_EMBEDS });
+  const createM = useRecordCreate({ from: DS.embeds, fields: SELECT_EMBEDS });
+
+  /* ÉCRITURE OPTIMISTE, même principe que la persistance du layout (§11) : ce qu'on vient
+     d'enregistrer s'affiche SANS attendre la relecture. Sans cela, tout dépendrait du
+     `refetch` — et si Softr ne le sert pas, ou le sert en retard, la feuille continuerait
+     d'annoncer l'ANCIENNE annonce juste après l'avoir remplacée. C'est le genre de doute
+     qui fait recoller deux fois.
+     La valeur relue reprend la main dès qu'elle arrive : cet état ne fait que combler
+     l'intervalle, il ne devient jamais la vérité. */
+  const [optimiste, setOptimiste] = useState<Partial<Record<EmbedCle, EmbedLigne>>>({});
+
+  const lignes: Partial<Record<EmbedCle, EmbedLigne>> = {};
+  if (EMBEDS_ENABLED) {
+    for (const r of flattenRows(res)) {
+      const cle = asText(r.cle).trim().toLowerCase() as EmbedCle;
+      /* Clé inconnue ou doublon : ignorés sans bruit. La PREMIÈRE ligne trouvée fait foi,
+         comme la lecture des préférences (§11) — deux lignes pour une même clé sont une
+         faute de saisie, pas une intention, et on ne devine pas laquelle l'emporte. */
+      if (!EMBED_CLES.includes(cle) || lignes[cle]) continue;
+      lignes[cle] = {
+        recordId: asText(r.id),
+        widgetId: asText(r.widgetId).trim().toLowerCase(),
+        snippet: asText(r.snippet),
+        titre: asText(r.titre),
+        updatedAt: asText(r.updatedAt),
+        updatedBy: asText(r.updatedBy),
+      };
+    }
+  }
+
+  /* LE DROIT D'ÉCRIRE. `enabled` est ce que la doc Softr attache aux hooks de mutation, et
+     il reflète la permission de l'ACTION — donc l'appartenance au groupe autorisé, que le
+     bloc ne peut pas lire autrement (Softr applique ses user groups mais ne les expose pas
+     au code).
+     ⚠️ S'IL MANQUAIT, ON REFUSE. C'est l'écart assumé avec l'espace partenaire, qui retombe
+     là-bas sur « Nom Entreprise » = SUNLIB : ici, TOUT LE MONDE est SunLib, ce repli
+     ouvrirait donc le bouton à tout le CRM. Mieux vaut un bouton absent — l'annonce se
+     change alors depuis Airtable, comme avant — qu'un bouton offert à cinquante personnes
+     dont l'enregistrement échouera pour quarante-neuf. */
+  const brutEnabled = (updateM as { enabled?: unknown }).enabled;
+  const peutEcrire = EMBEDS_ENABLED && typeof brutEnabled === "boolean" && brutEnabled;
+
+  const enregistrer = async (cle: EmbedCle, widgetId: string, snippet: string, titre: string) => {
+    if (!EMBEDS_ENABLED) return { ok: false, error: "Source des embeds non branchée." };
+    /* Même garde que la persistance du layout : sans session, Softr refuse l'insert et
+       l'échec serait incompréhensible. On le dit avant de tenter. */
+    if (!email) return { ok: false, error: "Aperçu non connecté : l'enregistrement demande une session (à tester sur la page publiée)." };
+    const stamp = new Date().toISOString();
+    const ligne = lignes[cle];
+    try {
+      let recordId = ligne?.recordId ?? "";
+      if (recordId) {
+        await updateM.mutateAsync({ recordId, fields: { widgetId, snippet, titre, updatedAt: stamp, updatedBy: email } });
+      } else {
+        /* Aucune ligne pour cette clé : on la crée. `create` prend l'objet de champs EN
+           DIRECT, `update` l'enveloppe dans `{ recordId, fields }` — l'asymétrie est
+           réelle, elle est documentée en §11 et ce n'est pas une coquille.
+           On RETIENT l'id rendu : sans lui, un second enregistrement de suite recréerait
+           une ligne au lieu de corriger la première, et la clé se retrouverait en double. */
+        const cree = await createM.mutateAsync({ cle, widgetId, snippet, titre, updatedAt: stamp, updatedBy: email }) as { id?: string } | undefined;
+        recordId = asText(cree?.id);
+      }
+      setOptimiste((o) => ({ ...o, [cle]: { recordId, widgetId, snippet, titre, updatedAt: stamp, updatedBy: email } }));
+      await res.refetch?.();
+      return { ok: true };
+    } catch (e) {
+      console.error("[SunLib] Échec d'écriture de l'aiguillage des embeds :", e);
+      return { ok: false, error: msgOf(e) };
+    }
+  };
+
+  /* La valeur RELUE l'emporte sur l'optimiste dès qu'elle porte le même identifiant : à ce
+     moment-là l'intervalle est comblé, et garder l'optimiste masquerait une modification
+     faite ailleurs (un autre membre du groupe, ou la main dans Airtable). */
+  const vue = (cle: EmbedCle): EmbedLigne | null => {
+    const lu = lignes[cle] ?? null;
+    const opt = optimiste[cle] ?? null;
+    if (!opt) return lu;
+    return lu && lu.widgetId === opt.widgetId ? lu : opt;
+  };
+
+  return {
+    idDe: (cle) => {
+      const w = vue(cle)?.widgetId ?? "";
+      return UUID_ELF.test(w) ? w : EMBEDS_REPLI[cle];
+    },
+    titreDe: (cle) => asText(vue(cle)?.titre).trim(),
+    ligneDe: (cle) => vue(cle),
+    peutEcrire,
+    enregistrer,
+  };
+}
+
 /* ⚠️ TITRE EN DOUBLE : ne pas le chercher ici. Signalé le 2026-08-04 — « SunLib sur
    LinkedIn » apparaît deux fois, dans l'en-tête de la carte ET en gros dans le corps.
    Le second N'EST PAS RENDU PAR CE FICHIER : c'est l'en-tête du widget Elfsight, monté
@@ -9663,10 +9921,14 @@ function ElfsightWidget({ widgetId, height, title = "Contenu SunLib", hideLabel 
    → Il se masque DANS L'ÉDITEUR DU WIDGET côté Elfsight (réglages de mise en page /
    apparence, affichage de l'en-tête ou du titre). Rien à changer dans le code. */
 function LinkedinCard() {
+  /* L'identifiant et le titre viennent de la table (« l'aiguillage », plus haut), et
+     retombent sur ce que ce fichier déclare si elle ne dit rien. */
+  const widgetId = useEmbedId("linkedin");
+  const titre = useEmbedTitre("linkedin", "SunLib sur LinkedIn");
   return (
-    <Widget icon={Newspaper} title="SunLib sur LinkedIn" sub="Dernières publications">
+    <Widget icon={Newspaper} title={titre} sub="Dernières publications">
       {/* ▼ EMBED Elfsight — feed LinkedIn ▼ */}
-      <ElfsightWidget widgetId="2df6db63-fd6e-498a-8a61-a97803d9d96f" />
+      <ElfsightWidget widgetId={widgetId} />
     </Widget>
   );
 }
@@ -9676,17 +9938,21 @@ function LinkedinCard() {
    pas un embed LinkedIn. La CLÉ de type reste `linkedinBanner` — c'est un contrat de
    persistance, les layouts sauvegardés y font référence. */
 function LinkedinBannerCard() {
+  const widgetId = useEmbedId("alaune");
+  const titre = useEmbedTitre("alaune", "À la une SunLib");
   return (
-    <Widget icon={Megaphone} title="À la une SunLib" sub="Webinaires et annonces">
+    <Widget icon={Megaphone} title={titre} sub="Webinaires et annonces">
       {/* ▼ EMBED Elfsight — bannière (contenu piloté depuis Elfsight) ▼
           IDENTIFIANT CHANGÉ LE 2026-08-28 : cette carte porte désormais le webinaire
           installateur. L'ancienne bannière — 488a28ed-f4b6-4f5b-af44-c16613885c98,
           « Webinaire l'abonnement pour l'ACC » — est REMPLACÉE, pas doublée : c'est UNE
           carte « à la une », elle montre l'annonce du moment.
-          ⚠️ CHANGER D'ANNONCE NE DEMANDE QUE CETTE LIGNE, et rien d'autre dans le fichier :
-          ni le titre de la carte (volontairement neutre), ni la clé de type
-          `linkedinBanner` — un contrat de persistance, les dispositions enregistrées y font
-          référence — ne bougent avec le contenu.
+          ⚠️ CHANGER D'ANNONCE NE PASSE PLUS PAR CE FICHIER (2026-09-16) : c'est le bouton
+          « Modifier les widgets » de l'accueil qui le fait, et la table le retient
+          (« l'aiguillage », plus haut). La valeur ci-dessous — `EMBEDS_REPLI.alaune` — n'est
+          plus que le repli, servi quand la table ne répond pas. La clé de type
+          `linkedinBanner` reste, elle, un contrat de persistance : les dispositions
+          enregistrées y font référence, elle ne bouge pas avec le contenu.
           ⚠️ `hideLabel` A ÉTÉ RETIRÉ AVEC L'ANCIENNE BANNIÈRE, et c'est à vérifier à
           l'écran : il masquait un en-tête « SunLib sur LinkedIn » réglé côté Elfsight sur CE
           widget-là (le doublon signalé le 2026-08-04). Le widget d'aujourd'hui n'est pas le
@@ -9696,7 +9962,7 @@ function LinkedinBannerCard() {
           ⚠️ `data-elfsight-app-lazy` du snippet officiel N'EST PAS REPRIS : le différé est
           porté par le `loading="lazy"` de l'iframe (cf. `ElfsightWidget`), qui ne dépend pas
           du runtime Elfsight. */}
-      <ElfsightWidget widgetId="2d460ae0-ad39-41cd-81d3-e0ef8a834f31" />
+      <ElfsightWidget widgetId={widgetId} />
     </Widget>
   );
 }
@@ -9704,10 +9970,12 @@ function LinkedinBannerCard() {
 /* Barre d'annonces Elfsight — troisième embed. Non livré par défaut (absent de
    DEFAULT_INSTANCES) : il s'ajoute depuis la galerie « Ajouter un widget ». */
 function AnnoncesCard() {
+  const widgetId = useEmbedId("annonces");
+  const titre = useEmbedTitre("annonces", "Annonces SunLib");
   return (
-    <Widget icon={Sparkles} title="Annonces SunLib" sub="Informations internes">
+    <Widget icon={Sparkles} title={titre} sub="Informations internes">
       {/* ▼ EMBED Elfsight — barre d'annonces ▼ */}
-      <ElfsightWidget widgetId="8f372b94-937a-4aa2-8762-0e56f6515ac7" />
+      <ElfsightWidget widgetId={widgetId} />
     </Widget>
   );
 }
@@ -13010,6 +13278,267 @@ function WidgetGallery({ posed, onAdd, onClose }: {
   );
 }
 
+/* L'aperçu d'un embed : le widget RÉEL, servi par le même `ElfsightWidget` que les cartes
+   — pas une imitation. C'est la seule façon d'être sûr que ce qu'on regarde est ce qui sera
+   publié, et c'est ce qui permet de ne RIEN écrire autour : une annonce se juge à l'œil,
+   pas sur une phrase qui la décrit.
+   ⚠️ HAUTEUR FORCÉE, et elle n'est pas celle de la carte : hors du tableau de bord, aucun
+   `WidgetHeightCtx` ne répond. On voit ce que l'annonce DIT, pas la place qu'elle prendra —
+   ce réglage-là reste sur la carte (§9-quinquies). */
+function ApercuEmbed({ widgetId, hauteur = 200, etiquette }: { widgetId: string; hauteur?: number; etiquette?: string }) {
+  return (
+    <div style={{ position: "relative", border: `1px solid ${T.line}`, borderRadius: T.rSm, background: T.surface, overflow: "hidden" }}>
+      {/* Une pastille d'un mot, posée SUR l'aperçu : deux aperçus voisins doivent se
+          distinguer, et un bandeau au-dessus de chacun coûterait deux lignes de plus. */}
+      {etiquette ? (
+        <span style={{ position: "absolute", top: 7, left: 9, zIndex: 1, padding: "2px 8px", borderRadius: 999, background: "rgba(255,255,255,.93)", border: `1px solid ${T.line}`, fontSize: "10px", fontWeight: 700, color: T.ink3 }}>
+          {etiquette}
+        </span>
+      ) : null}
+      <ElfsightWidget widgetId={widgetId} height={hauteur} title="Aperçu" />
+    </div>
+  );
+}
+
+/* --- « MODIFIER LES WIDGETS » : la feuille qui change d'annonce sans le code -------
+   Deux temps, comme « Ajouter un widget » : la grille des emplacements, puis celui qu'on a
+   choisi. Le geste attendu est celui qu'on a déjà — coller le snippet reçu de la
+   communication —, et le champ accepte le snippet ENTIER : demander à quelqu'un d'extraire
+   un UUID d'un bout de HTML serait lui faire faire le travail du code.
+   ⚠️ TOUT CE QUI SE VOIT SE MONTRE, RIEN NE SE RACONTE : les aperçus sont TOUJOURS à
+   l'écran, y compris dans la grille, et ce qui les entoure tient en un mot. Les
+   explications sont ici, en commentaire, là où elles servent à qui reprend le code — pas
+   devant qui veut publier une annonce. --- */
+function EmbedsAdmin({ onClose }: { onClose: () => void }) {
+  const api = useContext(EmbedsCtx);
+  /* L'emplacement ouvert, ou `null` pour la grille. */
+  const [choisi, setChoisi] = useState<EmbedCle | null>(null);
+  const [saisies, setSaisies] = useState<Partial<Record<EmbedCle, string>>>({});
+  const [titres, setTitres] = useState<Partial<Record<EmbedCle, string>>>({});
+  const [busy, setBusy] = useState<EmbedCle | null>(null);
+  const [erreur, setErreur] = useState<Partial<Record<EmbedCle, string>>>({});
+  const [fait, setFait] = useState<Partial<Record<EmbedCle, boolean>>>({});
+  useModalScrollLock();
+
+  /* Échap RECULE avant de fermer : depuis le détail il revient à la grille, et ne ferme
+     qu'ensuite. Fermer tout sur la première touche ferait perdre un collage en cours à qui
+     voulait seulement reculer d'un pas.
+     Pas de fermeture au clic extérieur : cette feuille porte des champs de saisie, et un
+     clic mal placé ne doit pas jeter ce qu'on vient de coller. */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (choisi) setChoisi(null); else onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, choisi]);
+
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "0 0 5px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  const btn: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "7px", padding: "8px 13px", borderRadius: T.rSm, fontSize: "12.5px", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", border: "none", background: T.brand, color: "#fff" };
+
+  /* ⚠️ DEUX OPÉRATEURS DIFFÉRENTS SUR LA MÊME LIGNE, ET C'EST VOULU.
+     `??` sur la frappe : une chaîne vide est une VALEUR — celle de qui a effacé le champ
+     exprès —, elle ne doit pas être remplacée.
+     `||` sur le snippet enregistré : là, une chaîne vide n'est PAS une intention, c'est une
+     ligne qui n'en porte pas encore. Elle doit retomber sur l'identifiant, sinon le champ
+     s'ouvrirait vide sur ces lignes-là. */
+  const saisieDe = (cle: EmbedCle, actuel: string) => saisies[cle] ?? (api?.ligneDe(cle)?.snippet || actuel);
+  /* Vide est ici une VALEUR : c'est « pas de titre voulu, garde celui du code ». D'où `??`,
+     et un placeholder qui montre ce que ce vide donnera. */
+  const titreDe = (cle: EmbedCle) => titres[cle] ?? asText(api?.titreDe(cle));
+
+  const appliquer = async (cle: EmbedCle) => {
+    const id = elfsightIdDe(saisieDe(cle, api?.idDe(cle) ?? EMBEDS_REPLI[cle]));
+    if (!id) {
+      setErreur((e) => ({ ...e, [cle]: "Snippet non reconnu." }));
+      return;
+    }
+    setBusy(cle);
+    setErreur((e) => ({ ...e, [cle]: "" }));
+    const res = await api!.enregistrer(cle, id, saisieDe(cle, api?.idDe(cle) ?? EMBEDS_REPLI[cle]).trim(), titreDe(cle).trim());
+    setBusy(null);
+    if (res.ok) {
+      /* ⚠️ ON NE VIDE PAS LE CHAMP : le vider faisait disparaître avec lui la trace de ce
+         qu'on venait de publier, si bien que l'écran d'après une réussite ressemblait à
+         l'écran d'avant toute saisie. */
+      setFait((f) => ({ ...f, [cle]: true }));
+    } else {
+      setErreur((e) => ({ ...e, [cle]: res.error ?? "Échec." }));
+    }
+  };
+
+  /* --- LE DÉTAIL : l'annonce en place, ce qu'on colle, et rien d'autre. --- */
+  const detail = (cle: EmbedCle) => {
+    const actuel = api?.idDe(cle) ?? EMBEDS_REPLI[cle];
+    const ligne = api?.ligneDe(cle) ?? null;
+    const saisie = saisieDe(cle, actuel);
+    const extrait = elfsightIdDe(saisie);
+    const err = erreur[cle];
+    /* ⚠️ INERTE SEULEMENT SUR CHAMP VIDE OU ÉCRITURE EN COURS — plus rien d'autre. Il l'a
+       été aussi quand le collage VALAIT DÉJÀ l'annonce en place, pour épargner un clic sans
+       effet : le bouton s'éteignait donc en silence sur le cas le plus fréquent du premier
+       essai — recoller le snippet qu'on a sous la main, celui qui est déjà en ligne. Un
+       bouton mort sans un mot est un cul-de-sac ; réécrire la même valeur ne coûte rien, et
+       le TITRE compte aussi : le changer seul doit pouvoir s'enregistrer. */
+    const inerte = !saisie || busy === cle;
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+        {/* Pas d'étiquette sur celui-ci : il est en tête, sous le nom du widget, et c'est
+            déjà ce qui le désigne. Seul le second en porte une — « Nouveau » —, parce que
+            lui seul dit quelque chose qui ne se déduit pas de sa place. */}
+        <ApercuEmbed key={`a-${actuel}`} widgetId={actuel} />
+
+        <div>
+          {/* ⚠️ TOUT SE SÉLECTIONNE AU CLIC, et c'est ce qui rend le pré-remplissage sûr :
+              sans cela, coller sans avoir tout sélectionné AJOUTE le snippet à la suite de
+              celui qui est déjà là. `elfsightIdDe` retient alors la PREMIÈRE occurrence
+              trouvée — l'ancienne — et on publierait l'annonce qu'on croyait remplacer. */}
+          <label style={lbl} htmlFor={`slb-emb-${cle}`}>Coller le snippet</label>
+          <textarea id={`slb-emb-${cle}`} value={saisie} rows={3}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={(e) => { setSaisies((s) => ({ ...s, [cle]: e.target.value })); setFait((f) => ({ ...f, [cle]: false })); }}
+            placeholder={'<div class="elfsight-app-…"></div>'}
+            style={{ ...field, resize: "vertical", minHeight: 58 }} />
+        </div>
+
+        {/* L'aperçu du collage n'apparaît QUE s'il diffère : identique, il ferait double
+            emploi avec celui du dessus, qui est déjà ce widget-là.
+            ⚠️ `key` sur l'identifiant : sans elle, React garderait l'iframe et son document,
+            et l'aperçu resterait sur l'annonce précédente après un second collage. */}
+        {extrait && extrait !== actuel ? (
+          <ApercuEmbed key={extrait} widgetId={extrait} etiquette="Nouveau" />
+        ) : null}
+
+        <div>
+          {/* Le titre de la carte, pour tout le monde. Le placeholder montre ce que donne un
+              champ vide — le titre du code —, si bien qu'on voit ce qu'on abandonne avant de
+              le remplacer. C'est le SEUL endroit où ces trois cartes se renomment : le ⋮ ne
+              le propose plus (`titreFigeDe`). */}
+          <label style={lbl} htmlFor={`slb-embt-${cle}`}>Titre de la carte</label>
+          <input id={`slb-embt-${cle}`} value={titreDe(cle)} maxLength={WIDGET_TITLE_MAX}
+            onChange={(e) => { setTitres((t) => ({ ...t, [cle]: e.target.value })); setFait((f) => ({ ...f, [cle]: false })); }}
+            placeholder={EMBEDS_LABEL[cle]} style={field} />
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <button className="slb-btnp" style={{ ...btn, opacity: inerte ? .55 : 1, cursor: inerte ? "default" : "pointer" }}
+            disabled={inerte} onClick={() => void appliquer(cle)}>
+            <Save aria-hidden style={{ width: 15, height: 15 }} />
+            {busy === cle ? "Enregistrement…" : "Appliquer"}
+          </button>
+          {/* Un mot, jamais deux, et JAMAIS RIEN quand l'état mérite d'être dit : le cas
+              « ce snippet est déjà celui en place » arrive au premier essai — on recolle
+              volontiers ce qu'on a sous la main — et le passer sous silence laissait croire
+              à une panne. L'ordre compte : après un enregistrement, c'est « En ligne » qui
+              répond, pas le constat. */}
+          {err ? (
+            <span role="status" style={{ fontSize: "11.5px", fontWeight: 600, color: T.danger }}>{err}</span>
+          ) : saisie && !extrait ? (
+            <span style={{ fontSize: "11.5px", fontWeight: 600, color: T.danger }}>Snippet non reconnu.</span>
+          ) : fait[cle] ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 600, color: T.ok }}>
+              <Check aria-hidden style={{ width: 14, height: 14 }} />En ligne
+            </span>
+          ) : extrait && extrait === actuel ? (
+            <span style={{ fontSize: "11.5px", fontWeight: 600, color: T.ink4 }}>Déjà en place</span>
+          ) : null}
+          {/* La traçabilité tient sur une ligne, à droite et en gris : elle répond à « qui a
+              changé ça ? », une question qu'on se pose après coup, jamais avant. */}
+          {ligne?.updatedBy ? (
+            <span style={{ marginLeft: "auto", fontSize: "11px", fontWeight: 500, color: T.ink4 }}>
+              {ligne.updatedBy}{ligne.updatedAt ? ` · ${ligne.updatedAt.slice(8, 10)}/${ligne.updatedAt.slice(5, 7)}` : ""}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    /* `data-slb-nodrag` : cette feuille est un descendant de l'en-tête `draggable` du
+       tableau de bord (pas de portail — `react-dom` n'est pas importable ici). Sans ce
+       marqueur, un glissement parti de la feuille déplace ce qu'il y a derrière. */
+    <div data-slb-nodrag role="presentation"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      style={{
+        position: "fixed", inset: 0, zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "20px", background: "rgba(16,26,40,.30)", backdropFilter: "blur(7px)",
+        WebkitBackdropFilter: "blur(7px)", animation: "slb-fade .16s ease both",
+      }}>
+      <div role="dialog" aria-modal="true" aria-label="Modifier les widgets"
+        style={{
+          width: "min(720px, 100%)", maxHeight: "86%", display: "flex", flexDirection: "column",
+          background: T.surface, borderRadius: T.rXl, boxShadow: T.shMd, border: `1px solid ${T.line}`,
+          overflow: "hidden", animation: "slb-fade .18s ease both",
+        }}>
+        {/* En-tête : le titre, et rien sous lui. Ce que la feuille fait se voit dans la
+            grille ; l'écrire en plus serait le dire deux fois. */}
+        <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.line}`, flex: "none", display: "flex", alignItems: "center", gap: "10px" }}>
+          {/* Le retour prend la place de l'icône : au même endroit, on ne cherche pas. */}
+          {choisi ? (
+            <button className="slb-nbtn" style={NBTN_SM} onClick={() => setChoisi(null)} aria-label="Revenir aux widgets" title="Revenir">
+              <ChevronRight aria-hidden style={{ width: 16, height: 16, transform: "rotate(180deg)" }} />
+            </button>
+          ) : (
+            <span style={icoPillSm(false)}><Megaphone aria-hidden style={{ width: 15, height: 15 }} /></span>
+          )}
+          <div style={{ flex: 1, minWidth: 0, fontSize: "15px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {choisi ? EMBEDS_LABEL[choisi] : "Modifier les widgets"}
+          </div>
+          <button className="slb-nbtn" style={NBTN_SM} onClick={onClose} aria-label="Fermer" title="Fermer">
+            <X aria-hidden style={{ width: 16, height: 16 }} />
+          </button>
+        </div>
+
+        {/* Corps : seule zone qui défile. `maxHeight: none` ANNULE le plafond de
+            `.slb-scrolly`, fait pour le corps d'un widget et non pour une feuille. */}
+        <div className="slb-scrolly" style={{ ...MODAL_BODY, maxHeight: "none", padding: "16px 18px 20px", background: T.surface2 }}>
+          {choisi ? detail(choisi) : (
+            /* LA GRILLE. Même forme que « Ajouter un widget », à une différence près : la
+               vignette schématique cède la place à l'ANNONCE ELLE-MÊME.
+               ⚠️ Trois iframes se chargent donc à l'ouverture, `platform.js` compris. C'est
+               le prix demandé — et assumé : on ouvre cette feuille pour regarder les
+               annonces, une vignette abstraite n'y répondait pas. */
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "14px" }}>
+              {EMBED_CLES.map((cle) => {
+                const Icon = EMBEDS_ICON[cle];
+                const ligne = api?.ligneDe(cle) ?? null;
+                const surRepli = !ligne || !UUID_ELF.test(ligne.widgetId);
+                return (
+                  <div key={cle}
+                    style={{ display: "flex", flexDirection: "column", gap: "9px", padding: "12px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
+                    <ApercuEmbed key={`g-${cle}-${api?.idDe(cle)}`} widgetId={api?.idDe(cle) ?? EMBEDS_REPLI[cle]} hauteur={140} />
+                    <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
+                      <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />
+                      <span style={{ minWidth: 0, fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{EMBEDS_LABEL[cle]}</span>
+                      {/* RIEN quand tout va bien. Ne reste que l'anomalie — aucune ligne ne
+                          répond pour cet emplacement, donc c'est le code qui parle. */}
+                      {surRepli ? (
+                        <span style={{ marginLeft: "auto", flex: "none", fontSize: "10.5px", fontWeight: 600, color: T.warnInk }}>par défaut</span>
+                      ) : null}
+                    </div>
+                    <button className="slb-btnp" onClick={() => setChoisi(cle)}
+                      aria-label={`Modifier ${EMBEDS_LABEL[cle]}`}
+                      style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                        padding: "8px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700,
+                        cursor: "pointer", border: "none", background: T.brand, color: "#fff",
+                      }}>
+                      <Pencil aria-hidden style={{ width: 14, height: 14 }} />Modifier
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Copie défensive d'une instance. La cfg est clonée EN PROFONDEUR (elle contient
    des objets imbriqués : `map`, `sort`) : deux instances issues d'un même modèle,
    ou une duplication, ne doivent jamais partager de référence. Le passage par JSON
@@ -13588,8 +14117,13 @@ function Dashboard() {
     // Repli avant la première mesure (et si ResizeObserver manque) : en-tête ~52 px,
     // pied ~49 px. Évite un saut de mise en page au premier rendu.
     Math.ceil((h + 52 + (hasFooter ? 49 : 0) + DASH_GAP) / DASH_ROW);
-  // Galerie d'ajout : une feuille modale, seul bouton de la barre du tableau de bord.
+  // Galerie d'ajout : une feuille modale, ouverte par un bouton de la barre.
   const [gallery, setGallery] = useState(false);
+  /* La feuille « Modifier les widgets » (§9-quinquies), et le droit qui décide de montrer
+     son bouton. `embeds` peut être `null` hors du fournisseur : le bouton n'apparaît alors
+     pas, ce qui est le bon défaut. */
+  const [embedsAdmin, setEmbedsAdmin] = useState(false);
+  const embeds = useContext(EmbedsCtx);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; layout?: Layout; error?: string } | null>(null);
@@ -13954,6 +14488,17 @@ function Dashboard() {
           Tout le reste se règle sur la carte elle-même. */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
         <h2 style={{ ...H2, flex: 1, minWidth: 120 }}>Tableau de bord</h2>
+        {/* LE SECOND BOUTON (2026-09-16), et il n'apparaît que pour qui peut écrire — le
+            groupe Softr autorisé sur l'action. C'est la règle du bloc : un bouton d'écriture
+            disparaît quand l'écriture est impossible, plutôt que d'échouer sous les doigts.
+            ⚠️ Ce masquage est de l'UX, pas une sécurité : la barrière est la permission de
+            l'action côté Softr (§9-quinquies). */}
+        {loading || !embeds?.peutEcrire ? null : (
+          <button className="slb-nbtn" style={btn} onClick={() => setEmbedsAdmin(true)}
+            title="Changer les annonces affichées sur l'accueil">
+            <Megaphone aria-hidden style={{ width: 16, height: 16 }} />Modifier les widgets
+          </button>
+        )}
         {loading ? null : (
           <button className="slb-btnp" style={btnPrimary} onClick={() => setGallery(true)}>
             <Plus aria-hidden style={{ width: 16, height: 16 }} />Ajouter un widget
@@ -14058,7 +14603,8 @@ function Dashboard() {
                       (`Form` est alors `undefined` et le panneau n'affiche que
                       « Apparence »). */}
                   <WidgetOptionsCtx.Provider
-                    value={{ cfg, Form: def.Options, title: inst.title ?? "", tint: inst.tint ?? "",
+                    value={{ cfg, Form: def.Options, title: titreFigeDe(inst.type) ? "" : (inst.title ?? ""),
+                      titreFige: titreFigeDe(inst.type), tint: inst.tint ?? "",
                       wide,
                       onSave: ({ title, tint, cfg: c, wide: w }) => persistOptions(id, title, tint, c, w),
                       onRemove: () => persistRemove(id) }}>
@@ -14067,7 +14613,9 @@ function Dashboard() {
                     <WidgetCfgCtx.Provider value={{ save: (c) => persistCfg(id, c) }}>
                       {/* Préhension par l'en-tête (réordonnancement à la souris). */}
                       <WidgetGrabCtx.Provider value={grabOf(id, i)}>
-                        <WidgetTitleCtx.Provider value={inst.title ?? ""}>
+                        {/* "" pour un type à titre figé : un renommage enregistré avant
+                            cette règle serait sinon encore servi. */}
+                        <WidgetTitleCtx.Provider value={titreFigeDe(inst.type) ? "" : (inst.title ?? "")}>
                           <WidgetTintCtx.Provider value={inst.tint ?? ""}>
                             {/* Hauteur du corps scrollable — posée en ligne par ScrollBody. */}
                             <WidgetHeightCtx.Provider value={size}>
@@ -14140,6 +14688,11 @@ function Dashboard() {
           }} />
       )}
 
+      {/* LA FEUILLE « MODIFIER LES WIDGETS » — l'aiguillage des embeds (§9-quinquies).
+          Montée seulement si le droit tient encore : `peutEcrire` est relu à chaque rendu,
+          si bien qu'une permission retirée ferme la porte sans attendre un rechargement. */}
+      {embedsAdmin && embeds?.peutEcrire && <EmbedsAdmin onClose={() => setEmbedsAdmin(false)} />}
+
       {/* Toast discret : succès (disparition auto) / échec + Réessayer.
           En cas d'échec, le layout reste appliqué localement (spec §Persistance). */}
       {toast && (
@@ -14203,7 +14756,12 @@ export default function Block() {
     purgeSnapshots(email);
   }, [email]);
 
+  /* L'aiguillage des embeds (§9-quinquies), monté ICI et nulle part ailleurs : c'est la
+     racine, donc une seule lecture de la table pour les trois cartes et pour le bouton. */
+  const embeds = useEmbedsSource();
+
   return (
+    <EmbedsCtx.Provider value={embeds}>
     <div id="slb" ref={rootRef} style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
       {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
@@ -14233,5 +14791,6 @@ export default function Block() {
 
       </div>
     </div>
+    </EmbedsCtx.Provider>
   );
 }

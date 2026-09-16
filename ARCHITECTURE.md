@@ -628,6 +628,21 @@ chose à offrir, donc il n'est pas redevenu le bouton décoratif que la v1 avait
 - Borné à `WIDGET_TITLE_MAX` (48) : l'en-tête d'une carte est étroit, autant borner à la saisie
   plutôt que tronquer à l'écran.
 
+#### Sauf trois : le titre administré (2026-09-16)
+
+Les cartes de communication (`linkedinBanner`, `annonces`, `linkedin`) font exception : leur
+titre vient de la table des embeds, pour tout le monde, et le champ « Titre » du ⋮ **disparaît**
+pour elles (`titreFigeDe` → `WidgetOptions.titreFige`).
+
+- **Retiré, pas grisé.** Il n'y a rien à y faire, et un champ mort pose plus de questions qu'il
+  n'en règle.
+- **Un réglage partagé annule le réglage personnel qui le contredit.** Laisser chacun renommer
+  sa carte donnerait autant de noms que de pages à la même annonce — exactement ce qu'un titre
+  commun doit éviter.
+- **La valeur personnelle n'est pas supprimée du layout, elle est neutralisée à la lecture**
+  (`WidgetOptionsCtx.title` et `WidgetTitleCtx` reçoivent `""`). La décision reste réversible :
+  retirer le type de `EMBED_TYPE` rend son titre à qui l'avait choisi.
+
 ### Teinter un widget — palette fermée (2026-08-04)
 
 Même mécanique que le titre : `Instance.tint` porte une **CLÉ** de `WIDGET_TINTS`, jamais une
