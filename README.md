@@ -1281,7 +1281,7 @@ menu ⋮ (`titreFigeDe`) : un titre personnel l'emporterait sur celui de la comm
 même annonce porterait autant de noms que de pages. Un renommage enregistré avant cette règle
 n'est pas effacé, il est ignoré.
 
-**Qui le voit** : les membres du groupe Softr autorisé sur l'action (aujourd'hui **Direction**).
+**Qui le voit** : les membres du groupe Softr **Admins** (assigné à la main), autorisé sur l'action.
 Le bloc ne lit pas les groupes — Softr ne les lui expose pas — il lit le `enabled` du hook de
 mutation, qui reflète la permission de l'action. ⚠️ Pas de repli ici, contrairement à l'espace
 partenaire : sans `enabled`, le bouton n'apparaît pas. Tout le monde étant SunLib dans le CRM,
