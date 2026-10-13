@@ -557,20 +557,30 @@ const HOVER_RULES: HoverRule[] = [
   /* `var(--slb-row-hover, …)` et non la couleur en dur : une carte teintée publie sa propre
      nuance (§8), et une valeur figée ici ramènerait du gris au milieu d'un widget coloré.
      Le repli du `var()` garde le comportement d'origine partout ailleurs. */
-  { sel: ".slb-row", trans: "background-color .15s ease", self: { "background-color": `var(--slb-row-hover, ${T.surface2})` },
-    kids: [{ sel: ".slb-hact", trans: "opacity .15s ease", on: { opacity: "1" } }] },
+  {
+    sel: ".slb-row", trans: "background-color .15s ease", self: { "background-color": `var(--slb-row-hover, ${T.surface2})` },
+    kids: [{ sel: ".slb-hact", trans: "opacity .15s ease", on: { opacity: "1" } }]
+  },
   { sel: ".slb-tab", trans: "color .16s ease", self: { color: T.ink } },
-  { sel: ".slb-nbtn:not(.slb-nbtn-ok)", trans: "background-color .15s ease, color .15s ease",
-    self: { "background-color": T.neutral050, color: T.ink2 } },
-  { sel: ".slb-nbtn-ok", trans: "background-color .15s ease, color .15s ease",
-    self: { "background-color": T.ok050, color: T.okInk } },
-  { sel: ".slb-btng:not(:disabled)", trans: "border-color .15s ease, color .15s ease, background-color .15s ease",
-    self: { "border-color": T.brand100, color: T.brand700, "background-color": T.brand050 } },
+  {
+    sel: ".slb-nbtn:not(.slb-nbtn-ok)", trans: "background-color .15s ease, color .15s ease",
+    self: { "background-color": T.neutral050, color: T.ink2 }
+  },
+  {
+    sel: ".slb-nbtn-ok", trans: "background-color .15s ease, color .15s ease",
+    self: { "background-color": T.ok050, color: T.okInk }
+  },
+  {
+    sel: ".slb-btng:not(:disabled)", trans: "border-color .15s ease, color .15s ease, background-color .15s ease",
+    self: { "border-color": T.brand100, color: T.brand700, "background-color": T.brand050 }
+  },
   // Tuiles (Raccourcis, Outils) : la tuile se soulève, sa flèche glisse de ~6 px — la
   // micro-interaction de la charte, c'est-à-dire précisément ce que l'écran ne montrait plus.
-  { sel: ".slb-tile:not(:disabled)", trans: "border-color .16s ease, box-shadow .16s ease, transform .16s ease",
+  {
+    sel: ".slb-tile:not(:disabled)", trans: "border-color .16s ease, box-shadow .16s ease, transform .16s ease",
     self: { "border-color": T.brand100, "box-shadow": T.shMd, transform: "translateY(-1px)" },
-    kids: [{ sel: ".slb-arrow", trans: "transform .5s ease, color .16s ease", on: { transform: "translateX(6px)", color: T.brand600 } }] },
+    kids: [{ sel: ".slb-arrow", trans: "transform .5s ease, color .16s ease", on: { transform: "translateX(6px)", color: T.brand600 } }]
+  },
   { sel: ".slb-btnp:not(:disabled)", trans: "background-color .15s ease", self: { "background-color": T.brand600 } },
   { sel: ".slb-menu-item:not(:disabled)", trans: "background-color .12s ease", self: { "background-color": T.surface2 } },
   /* Poignées de redimensionnement — RÉVÉLÉES PAR LEUR PROPRE BORD, et par lui seul.
@@ -585,11 +595,13 @@ const HOVER_RULES: HoverRule[] = [
   { sel: ".slb-rzv", kids: [{ sel: ":scope > span", trans: "opacity .15s ease, background-color .15s ease, width .15s ease", on: { opacity: "1", "background-color": T.brand, width: "48px" } }] },
   // Podium CAPEX : la marche survolée se soulève, pastille et numéro grossissent. On
   // n'anime que `transform` — leur `box-shadow` est en ligne (cf. §2).
-  { sel: ".slb-pod", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", self: { transform: "translateY(-4px)" },
+  {
+    sel: ".slb-pod", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", self: { transform: "translateY(-4px)" },
     kids: [
       { sel: ".slb-pod-av", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", on: { transform: "scale(1.07)" } },
       { sel: ".slb-pod-rk", trans: "transform .18s cubic-bezier(.22,.61,.36,1)", on: { transform: "scale(1.14)" } },
-    ] },
+    ]
+  },
 ];
 
 // Anneau de focus clavier — l'équivalent en ligne de `#slb :focus-visible` (§2).
@@ -604,7 +616,7 @@ function useHoverFX(rootRef: RefObject<HTMLElement | null>) {
     const motion = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
     type Entry = { saved: Map<HTMLElement, HoverStyles> };
-    const active = new Map<HTMLElement, Entry>();          // déclencheur → valeurs à rendre
+    const active = new Map < HTMLElement, Entry> ();          // déclencheur → valeurs à rendre
     let hoverNode: Element | null = null;
     let focusNode: Element | null = null;
 
@@ -628,10 +640,10 @@ function useHoverFX(rootRef: RefObject<HTMLElement | null>) {
     };
 
     const enter = (el: HTMLElement, rule: HoverRule) => {
-      const saved = new Map<HTMLElement, HoverStyles>();
+      const saved = new Map < HTMLElement, HoverStyles> ();
       if (rule.self) put(el, rule.self, saved, rule.trans);
       else if (motion && rule.trans) el.style.setProperty("transition", rule.trans);
-      rule.kids?.forEach((k) => el.querySelectorAll<HTMLElement>(k.sel).forEach((n) => put(n, k.on, saved, k.trans)));
+      rule.kids?.forEach((k) => el.querySelectorAll < HTMLElement > (k.sel).forEach((n) => put(n, k.on, saved, k.trans)));
       active.set(el, { saved });
     };
     const leave = (el: HTMLElement) => {
@@ -653,7 +665,7 @@ function useHoverFX(rootRef: RefObject<HTMLElement | null>) {
     };
 
     const sync = () => {
-      const want = new Map<HTMLElement, HoverRule>();
+      const want = new Map < HTMLElement, HoverRule> ();
       chain(hoverNode, want);
       chain(focusNode, want);
       // Copie des clés : `leave` mute la map qu'on parcourt.
@@ -679,7 +691,7 @@ function useHoverFX(rootRef: RefObject<HTMLElement | null>) {
       // `:focus-visible` n'existe pas partout ; sans lui, pas d'anneau — jamais d'erreur.
       try {
         if (el.matches?.(":focus-visible")) {
-          const saved = new Map<HTMLElement, HoverStyles>();
+          const saved = new Map < HTMLElement, HoverStyles> ();
           put(el, FOCUS_RING, saved);
           ring = { el, saved };
         }
@@ -795,11 +807,11 @@ function useMotionFX(rootRef: RefObject<HTMLElement | null>) {
        casser le rendu — les squelettes restent des formes grises, comme avant ce moteur. */
     if (typeof Element === "undefined" || !Element.prototype.animate) return;
 
-    const vus = new WeakSet<Element>();
+    const vus = new WeakSet < Element > ();
     /* ⚠️⚠️ LES ANIMATIONS SONT GARDÉES depuis le 2026-08-25, et c'est tout le correctif
        ci-dessous : sans référence, une animation `iterations: Infinity` posée sur un élément
        qui SURVIT ne peut plus jamais être arrêtée. Voir `arrete`. */
-    const anims = new WeakMap<Element, Animation>();
+    const anims = new WeakMap < Element, Animation> ();
     const anime = (el: Element) => {
       if (vus.has(el)) return;
       for (const r of MOTION_RULES) {
@@ -949,7 +961,7 @@ function TabBar({
   onSelect: (id: string) => void;
   dense?: boolean;
 }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const refs = useRef < (HTMLButtonElement | null)[] > ([]);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
   useEffect(() => {
     const idx = tabs.findIndex((t) => t.id === activeTab);
@@ -1834,31 +1846,45 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
      Les lignes couvrent les trois valeurs de `client` (Pro / Solo / Duo) et les deux files
      d'attente : c'est le minimum pour éprouver le réglage « Clientèle » sans base. */
   abonnes: [
-    { id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Demande d'infos : technique", offre: "PV + Batterie", creeLe: daysAgo(1), client: "Solo",
+    {
+      id: "n1", prenom: "Nicolas", nom: "Laborderie", partenaire: "Mandat Energie", statut: "Demande d'infos : technique", offre: "PV + Batterie", creeLe: daysAgo(1), client: "Solo",
       ref: "SL-002310", statutAbonne: "", capex: 21400, aboMoyen: 189, kwc: 9, etatFacture2: "A traiter",
-      dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: [] },
+      dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: []
+    },
     /* ⚠️ `nom` VIDE sur les pros, comme dans la base : c'est ce qui rend visible en aperçu
        le trou que `clientNom` bouche. Ne pas « réparer » ces lignes en y remettant un nom. */
-    { id: "n2", prenom: "", nom: "", entreprise: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Demande d'infos : solvabilité", offre: "PV seul", creeLe: daysAgo(2), client: "Pro",
+    {
+      id: "n2", prenom: "", nom: "", entreprise: "Commune de Payssous", partenaire: "FLG SOLAR", statut: "Demande d'infos : solvabilité", offre: "PV seul", creeLe: daysAgo(2), client: "Pro",
       ref: "SL-002104", statutAbonne: "", capex: 0, aboMoyen: 0, kwc: 36, etatFacture2: "En attente de document",
-      dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
-    { id: "n3", prenom: "", nom: "", entreprise: "TOULOSE TRANSIT", partenaire: "Neosoleil", statut: "En attente de solvabilité", offre: "PV seul", creeLe: daysAgo(120), client: "Pro",
+      dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }]
+    },
+    {
+      id: "n3", prenom: "", nom: "", entreprise: "TOULOSE TRANSIT", partenaire: "Neosoleil", statut: "En attente de solvabilité", offre: "PV seul", creeLe: daysAgo(120), client: "Pro",
       ref: "SL-002291", statutAbonne: "", capex: 118500, aboMoyen: 940, kwc: 62, etatFacture2: "Traitement IA en cours",
-      dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
+      dateSignature: "", dateEdition: daysAgo(1), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }]
+    },
     /* Le plus ANCIEN des dossiers en attente : il doit sortir EN TÊTE des deux nouveaux
        modèles (tri ascendant). S'il s'affiche en bas, c'est le tri qui est faux. */
-    { id: "n7", prenom: "Amandine", nom: "Castéran", partenaire: "Neosoleil", statut: "En attente de solvabilité", offre: "PV seul", creeLe: daysAgo(240), client: "Duo",
+    {
+      id: "n7", prenom: "Amandine", nom: "Castéran", partenaire: "Neosoleil", statut: "En attente de solvabilité", offre: "PV seul", creeLe: daysAgo(240), client: "Duo",
       ref: "SL-001845", statutAbonne: "", capex: 16800, aboMoyen: 141, kwc: 7, etatFacture2: "A traiter",
-      dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: [] },
-    { id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15), client: "Solo",
+      dateSignature: "", dateEdition: "", contratSigne: [], contratNonSigne: []
+    },
+    {
+      id: "n4", prenom: "Salvatore", nom: "Vizzini", partenaire: "MC ENERGY", statut: "Contrat envoyé et en attente signature", offre: "PV + Batterie Virtuelle", creeLe: daysAgo(15), client: "Solo",
       ref: "SL-002188", statutAbonne: "", capex: 27300, aboMoyen: 232, kwc: 11.5, etatFacture2: "A traiter",
-      dateSignature: "", dateEdition: daysAgo(9), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }] },
-    { id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15), client: "Duo",
+      dateSignature: "", dateEdition: daysAgo(9), contratSigne: [], contratNonSigne: [{ url: "#", filename: "contrat-a-signer.pdf" }]
+    },
+    {
+      id: "n5", prenom: "Jocelyne", nom: "Guintrand", partenaire: "MC ENERGY", statut: "Contrat signé", offre: "Batterie seule (sur une installation SunLib)", creeLe: daysAgo(15), client: "Duo",
       ref: "SL-002077", statutAbonne: "Repris", capex: 14900, aboMoyen: 128, kwc: 6, etatFacture2: "Validée",
-      dateSignature: daysAgo(6), dateEdition: daysAgo(12), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
-    { id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Dossier finalisé", offre: "Extension PV", creeLe: daysAgo(15), client: "Solo",
+      dateSignature: daysAgo(6), dateEdition: daysAgo(12), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: []
+    },
+    {
+      id: "n6", prenom: "Julian", nom: "Maillo Moreno", partenaire: "MC ENERGY", statut: "Dossier finalisé", offre: "Extension PV", creeLe: daysAgo(15), client: "Solo",
       ref: "SL-002050", statutAbonne: "Annulé", capex: 9200, aboMoyen: 84, kwc: 4.5, etatFacture2: "Non conforme",
-      dateSignature: daysAgo(8), dateEdition: daysAgo(14), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: [] },
+      dateSignature: daysAgo(8), dateEdition: daysAgo(14), contratSigne: [{ url: "#", filename: "contrat-signe.pdf" }], contratNonSigne: []
+    },
   ],
 
   /* ← SELECT_TACHE_PR / SELECT_TACHE_PA : desc / associe / fin / fait / assignee.
@@ -1930,36 +1956,54 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
          src/lib/user.tsx) : sans ce mélange, activer un jour `ownerField` ne se verrait pas
          en aperçu. */
   contactsIns: [
-    { id: "k1", prenom: "Sébastien", nom: "MARCHAND", entreprise: "MC ENERGY", mail: "s.marchand@mc-energy.example", tel: "+33 6 12 34 56 78",
+    {
+      id: "k1", prenom: "Sébastien", nom: "MARCHAND", entreprise: "MC ENERGY", mail: "s.marchand@mc-energy.example", tel: "+33 6 12 34 56 78",
       service: ["Gérant(e)"], typeContact: ["Commercial", "Direction"], proprio: "Frédéric Martin", creeLe: daysAgo(320),
-      commentaire: "Interlocuteur unique pour les grilles tarifaires." },
-    { id: "k2", prenom: "Nadia", nom: "BELKACEM", entreprise: "MC ENERGY", mail: "n.belkacem@mc-energy.example", tel: "+33 4 90 40 46 62",
+      commentaire: "Interlocuteur unique pour les grilles tarifaires."
+    },
+    {
+      id: "k2", prenom: "Nadia", nom: "BELKACEM", entreprise: "MC ENERGY", mail: "n.belkacem@mc-energy.example", tel: "+33 4 90 40 46 62",
       service: ["Administratif", "Comptable"], typeContact: ["Admin", "Finance"], proprio: "Frédéric Martin", creeLe: daysAgo(280),
-      commentaire: "" },
+      commentaire: ""
+    },
     // SANS TÉLÉPHONE : la colonne doit afficher un tiret, pas un lien `tel:` vide.
-    { id: "k3", prenom: "Yoann", nom: "PERRET", entreprise: "MC ENERGY", mail: "y.perret@mc-energy.example", tel: "",
+    {
+      id: "k3", prenom: "Yoann", nom: "PERRET", entreprise: "MC ENERGY", mail: "y.perret@mc-energy.example", tel: "",
       service: ["Technique"], typeContact: ["Technique"], proprio: "Frédéric Martin", creeLe: daysAgo(95),
-      commentaire: "Suit les mises en service et les Consuel." },
-    { id: "k4", prenom: "Élodie", nom: "RAVEL", entreprise: "Neosoleil", mail: "e.ravel@neosoleil.example", tel: "+33 6 65 09 86 82",
+      commentaire: "Suit les mises en service et les Consuel."
+    },
+    {
+      id: "k4", prenom: "Élodie", nom: "RAVEL", entreprise: "Neosoleil", mail: "e.ravel@neosoleil.example", tel: "+33 6 65 09 86 82",
       service: ["Directeur commercial"], typeContact: ["Commercial"], proprio: "Philippe GERY", creeLe: daysAgo(410),
-      commentaire: "" },
-    { id: "k5", prenom: "Marc", nom: "TEISSIER", entreprise: "Neosoleil", mail: "m.teissier@neosoleil.example", tel: "+33 7 68 57 81 32",
+      commentaire: ""
+    },
+    {
+      id: "k5", prenom: "Marc", nom: "TEISSIER", entreprise: "Neosoleil", mail: "m.teissier@neosoleil.example", tel: "+33 7 68 57 81 32",
       service: ["Poseur"], typeContact: ["Technique"], proprio: "Philippe GERY", creeLe: daysAgo(150),
-      commentaire: "" },
+      commentaire: ""
+    },
     // SANS MAIL : c'est le contact qu'on ne peut qu'appeler, et il faut le voir.
-    { id: "k6", prenom: "Christelle", nom: "AUBRY", entreprise: "FLG SOLAR", mail: "", tel: "+33 6 59 97 19 79",
+    {
+      id: "k6", prenom: "Christelle", nom: "AUBRY", entreprise: "FLG SOLAR", mail: "", tel: "+33 6 59 97 19 79",
       service: ["Président"], typeContact: ["Direction"], proprio: "Audrey QUINTANA", creeLe: daysAgo(200),
-      commentaire: "Ne répond qu'aux appels, jamais aux mails." },
+      commentaire: "Ne répond qu'aux appels, jamais aux mails."
+    },
     // NI SERVICE NI TYPE — la table en compte beaucoup. La ligne reste lisible.
-    { id: "k7", prenom: "Idriss", nom: "OUAZZANI", entreprise: "Mandat Energie", mail: "i.ouazzani@mandat-energie.example", tel: "+33 7 61 90 12 65",
-      service: [], typeContact: [], proprio: "", creeLe: daysAgo(60), commentaire: "" },
+    {
+      id: "k7", prenom: "Idriss", nom: "OUAZZANI", entreprise: "Mandat Energie", mail: "i.ouazzani@mandat-energie.example", tel: "+33 7 61 90 12 65",
+      service: [], typeContact: [], proprio: "", creeLe: daysAgo(60), commentaire: ""
+    },
     // SANS PRÉNOM : « Secrétariat » doit sortir seul, sans espace devant (cf. `derive`).
-    { id: "k8", prenom: "", nom: "Secrétariat", entreprise: "HDD ENERGIES", mail: "contact@hdd-energies.example", tel: "+33 5 53 20 65 00",
+    {
+      id: "k8", prenom: "", nom: "Secrétariat", entreprise: "HDD ENERGIES", mail: "contact@hdd-energies.example", tel: "+33 5 53 20 65 00",
       service: ["Administratif"], typeContact: ["Admin"], proprio: "Ilan LEVY", creeLe: daysAgo(500),
-      commentaire: "Boîte partagée : passer par elle pour les pièces de dossier." },
-    { id: "k9", prenom: "Amélie", nom: "FONTAINE", entreprise: "Enertec", mail: "a.fontaine@enertec.example", tel: "+33 6 24 51 56 16",
+      commentaire: "Boîte partagée : passer par elle pour les pièces de dossier."
+    },
+    {
+      id: "k9", prenom: "Amélie", nom: "FONTAINE", entreprise: "Enertec", mail: "a.fontaine@enertec.example", tel: "+33 6 24 51 56 16",
       service: ["Marketing", "Commercial"], typeContact: ["Commercial"], proprio: "Frédéric Martin", creeLe: daysAgo(30),
-      commentaire: "" },
+      commentaire: ""
+    },
   ],
 
   /* ← SELECT_NOTIF_C. Depuis la refonte du 2026-08-06, ces lignes sont TOUT ce que lit
@@ -1976,43 +2020,59 @@ const MOCK_ROWS: Partial<Record<SourceKey, Row[]>> = {
      aperçu là où le filtre « mes dossiers » est actif par défaut. La ligne orpheline le
      laisse VIDE, comme la base — c'est le cas non classable. */
   notifC: [
-    { id: "nc1", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: true, etat: "Non lue", creeLe: daysAgo(1),
+    {
+      id: "nc1", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: true, etat: "Non lue", creeLe: daysAgo(1),
       texte: "Nouveau contrat signé pour l'abonné : Mathéo et Lionel RAMBEAUX", nom: "RAMBEAUX",
-      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY", client: "Duo" },
+      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY", client: "Duo"
+    },
     // ⚠️ La JUMELLE de nc1 (même dossier, même texte, état inverse) : elle doit être
     // regroupée avec elle, et c'est nc1 — encore « à lire » — qui doit rester.
-    { id: "nc1b", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: false, etat: "Lue", creeLe: daysAgo(1),
+    {
+      id: "nc1b", liens: [{ id: "recAAAAAAAAAAAAA1", name: "09185962330167" }], aLire: false, etat: "Lue", creeLe: daysAgo(1),
       texte: "Nouveau contrat signé pour l'abonné : Mathéo et Lionel RAMBEAUX", nom: "RAMBEAUX",
-      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY", client: "Duo" },
-    { id: "nc2", liens: [{ id: "recAAAAAAAAAAAAA2", name: "80000000572270" }], aLire: true, etat: "Non lue", creeLe: daysAgo(2),
+      partenaire: "HDD ENERGIES", statut: "Contrat envoyé et en attente signature", proprio: "Ilan LEVY", client: "Duo"
+    },
+    {
+      id: "nc2", liens: [{ id: "recAAAAAAAAAAAAA2", name: "80000000572270" }], aLire: true, etat: "Non lue", creeLe: daysAgo(2),
       texte: "Nouveau abonné créé pour : Frederic Fouqueteau", nom: "Fouqueteau",
-      partenaire: "HORIZON ENERGIE", statut: "En attente de validation technique", proprio: "Fabrice MORVAN", client: "Solo" },
-    { id: "nc3", liens: [{ id: "recAAAAAAAAAAAAA3", name: "80000000318842" }], aLire: false, etat: "Lue", creeLe: daysAgo(2),
+      partenaire: "HORIZON ENERGIE", statut: "En attente de validation technique", proprio: "Fabrice MORVAN", client: "Solo"
+    },
+    {
+      id: "nc3", liens: [{ id: "recAAAAAAAAAAAAA3", name: "80000000318842" }], aLire: false, etat: "Lue", creeLe: daysAgo(2),
       texte: "Nouveau abonné créé pour : Sandrine Delaunay", nom: "Delaunay",
-      partenaire: "MC ENERGY", statut: "Contrat signé", proprio: "Philippe GERY", client: "Pro" },
-    { id: "nc4", liens: [{ id: "recAAAAAAAAAAAAA4", name: "09185962331004" }], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
+      partenaire: "MC ENERGY", statut: "Contrat signé", proprio: "Philippe GERY", client: "Pro"
+    },
+    {
+      id: "nc4", liens: [{ id: "recAAAAAAAAAAAAA4", name: "09185962331004" }], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
       texte: "Nouveau abonné créé pour : Julien Charrier", nom: "Charrier",
-      partenaire: "Enertec", statut: "Demande d'infos : solvabilité", proprio: "Audrey QUINTANA", client: "Pro" },
+      partenaire: "Enertec", statut: "Demande d'infos : solvabilité", proprio: "Audrey QUINTANA", client: "Pro"
+    },
     /* ⚠️ AU NOM DE L'UTILISATEUR MOCK (« Frédéric Martin », cf. src/lib/user.tsx) : sans
        elle, le filtre « mes dossiers » écarterait TOUT en aperçu et on ne verrait jamais
        le cas qui fonctionne — seulement l'état vide. Le mock porte donc les deux.
        ⚠️ « Frédéric HUET » est volontairement ABSENT de cet échantillon : c'est le
        faux positif que `ownerIsUser` doit refuser (même prénom, autre personne). Le
        jour où on l'ajoute, il DOIT apparaître dans « à un autre propriétaire ». */
-    { id: "nc6", liens: [{ id: "recAAAAAAAAAAAAA6", name: "09185962331188" }], aLire: true, etat: "Non lue", creeLe: daysAgo(4),
+    {
+      id: "nc6", liens: [{ id: "recAAAAAAAAAAAAA6", name: "09185962331188" }], aLire: true, etat: "Non lue", creeLe: daysAgo(4),
       texte: "Nouveau contrat signé pour l'abonné : Claire BONNET", nom: "BONNET",
-      partenaire: "Neosoleil", statut: "Contrat signé", proprio: "Frédéric Martin", client: "Solo" },
+      partenaire: "Neosoleil", statut: "Contrat signé", proprio: "Frédéric Martin", client: "Solo"
+    },
     /* SECONDE ligne au nom de l'utilisateur mock, et PRO (2026-08-20) : « mes dossiers »
        étant actif par défaut, sans elle le périmètre « Professionnels » ne laisserait
        RIEN en aperçu et on ne saurait pas distinguer un filtre qui marche d'un filtre qui
        vide tout. Les deux périmètres ont donc chacun une ligne, chez la même personne. */
-    { id: "nc7", liens: [{ id: "recAAAAAAAAAAAAA7", name: "09185962331402" }], aLire: true, etat: "Non lue", creeLe: daysAgo(6),
+    {
+      id: "nc7", liens: [{ id: "recAAAAAAAAAAAAA7", name: "09185962331402" }], aLire: true, etat: "Non lue", creeLe: daysAgo(6),
       texte: "Nouveau abonné créé pour : Commune de Payssous", nom: "Commune de Payssous",
-      partenaire: "FLG SOLAR", statut: "En attente de solvabilité", proprio: "Frédéric Martin", client: "Pro" },
+      partenaire: "FLG SOLAR", statut: "En attente de solvabilité", proprio: "Frédéric Martin", client: "Pro"
+    },
     // ⚠️ SANS PROPRIÉTAIRE : le widget doit l'ÉCARTER et la compter dans « lignes
     // écartées ». C'est le cas des ~380 lignes réelles sans lien vers un abonné.
-    { id: "nc5", liens: [], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
-      texte: "Nouveau abonné créé pour :  ", nom: "", partenaire: "", statut: "", proprio: "", client: "" },
+    {
+      id: "nc5", liens: [], aLire: true, etat: "Non lue", creeLe: daysAgo(15),
+      texte: "Nouveau abonné créé pour :  ", nom: "", partenaire: "", statut: "", proprio: "", client: ""
+    },
   ],
 
   /* ← SELECT_SAV. Échantillon RÉALISTE plutôt qu'aléatoire : il reproduit les
@@ -2505,9 +2565,11 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          première livraison du jour l'avait mis en cases comme les autres : inutilisable,
          puisque chaque dossier a son propre numéro (voir `saisie` sur `FieldDesc`). */
       ref: { label: "N° SL", kind: "text", saisie: true },
-      statutAbonne: { label: "Statut de l'abonné", kind: "badge",
-                      options: ["Annulé", "Repris", "Refusé"],
-                      variants: { "Annulé": "neutral", "Repris": "info", "Refusé": "danger" } },
+      statutAbonne: {
+        label: "Statut de l'abonné", kind: "badge",
+        options: ["Annulé", "Repris", "Refusé"],
+        variants: { "Annulé": "neutral", "Repris": "info", "Refusé": "danger" }
+      },
       capex: { label: "CAPEX HT (€)", kind: "number" },
       aboMoyen: { label: "Abonnement mensuel (€)", kind: "number" },
       kwc: { label: "Puissance (kWc)", kind: "number" },
@@ -2560,9 +2622,13 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          savait dire ce qui avait été vu. Le widget dédié lit désormais « Notification
          Center » et s'appelle « Nouveaux dossiers abonnés » (§9). Les presets qui restent
          font tous quelque chose que lui ne fait pas. */
-      { label: "Dossiers incomplets", icon: "ClipboardList",
-        cfg: { title: "Dossiers incomplets",
-               query: { filter: [{ field: "statut", op: "contains", value: "incomplet" }] } } },
+      {
+        label: "Dossiers incomplets", icon: "ClipboardList",
+        cfg: {
+          title: "Dossiers incomplets",
+          query: { filter: [{ field: "statut", op: "contains", value: "incomplet" }] }
+        }
+      },
       /* RETIRÉ DE LA GALERIE le 2026-08-18 (demandé : « ne fonctionne pas très bien »).
          L'indicateur comptait les dossiers sur 30 JOURS GLISSANTS via `creeLe` alors que
          son titre annonçait « du mois » — deux périmètres différents sous un seul libellé,
@@ -2572,9 +2638,13 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          ⚠️ Une instance DÉJÀ POSÉE sur un accueil continue de s'afficher : sa cfg est
          autoportante et `coerceCfg` lit toujours `view.kind: "kpi"`. Elle se retire au ⋮
          du widget, pas ici. */
-      { label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: 168, hidden: true,
-        cfg: { title: "Dossiers du mois",
-               view: { kind: "kpi", agg: "count", dateField: "creeLe", compareDays: 30 } } },
+      {
+        label: "Dossiers du mois (indicateur)", icon: "BarChart3", h: 168, hidden: true,
+        cfg: {
+          title: "Dossiers du mois",
+          view: { kind: "kpi", agg: "count", dateField: "creeLe", compareDays: 30 }
+        }
+      },
       /* ⚠️ COLONNES REVUES LE 2026-08-24 (demandé) : le N° SL passe EN TÊTE — c'est
          l'identifiant du dossier, celui qu'on lit ou qu'on recopie en premier.
          ⚠️ Et `nom` devient `clientNom` au passage. Ce n'était pas demandé, mais c'est le
@@ -2583,8 +2653,10 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          tiers des dossiers. `clientNom` montre la raison sociale pour un pro et le nom de
          famille pour un particulier (§6-bis).
          Cinq colonnes sur les six autorisées (`TABLE_COLS_MAX`) : il reste une place. */
-      { label: "Tableau des dossiers", icon: "LayoutGrid",
-        cfg: { view: { kind: "table", columns: ["ref", "clientNom", "partenaire", "statut", "creeLe"] } } },
+      {
+        label: "Tableau des dossiers", icon: "LayoutGrid",
+        cfg: { view: { kind: "table", columns: ["ref", "clientNom", "partenaire", "statut", "creeLe"] } }
+      },
       /* ── AJOUTÉS LE 2026-08-18 (demande) — les deux FILES D'ATTENTE du pipeline.
          Ajoutés EN FIN de tableau, jamais insérés : la clé de galerie est
          « abonnes:<index> » (cf. `hidden` sur `PresetDesc`), donc intercaler déplacerait
@@ -2608,14 +2680,26 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          cachait aussi 5 des 25 dossiers en attente, sans le dire.
          Masqués et non supprimés : la clé de galerie est « abonnes:<index> », et effacer
          une ligne déplacerait les modèles suivants (cf. `hidden` sur `PresetDesc`). */
-      { label: "Dossiers en demande d'infos", icon: "Inbox", hidden: true,
-        cfg: { title: "Demandes d'infos", unit: "dossier",
-               query: { filter: [{ field: "statut", op: "contains", value: "Demande d'infos" }],
-                        sort: { by: "creeLe", dir: "asc" }, limit: 20 } } },
-      { label: "Dossiers en attente de solvabilité", icon: "Clock", hidden: true,
-        cfg: { title: "En attente de solvabilité", unit: "dossier",
-               query: { filter: [{ field: "statut", op: "eq", value: "En attente de solvabilité" }],
-                        sort: { by: "creeLe", dir: "asc" }, limit: 20 } } },
+      {
+        label: "Dossiers en demande d'infos", icon: "Inbox", hidden: true,
+        cfg: {
+          title: "Demandes d'infos", unit: "dossier",
+          query: {
+            filter: [{ field: "statut", op: "contains", value: "Demande d'infos" }],
+            sort: { by: "creeLe", dir: "asc" }, limit: 20
+          }
+        }
+      },
+      {
+        label: "Dossiers en attente de solvabilité", icon: "Clock", hidden: true,
+        cfg: {
+          title: "En attente de solvabilité", unit: "dossier",
+          query: {
+            filter: [{ field: "statut", op: "eq", value: "En attente de solvabilité" }],
+            sort: { by: "creeLe", dir: "asc" }, limit: 20
+          }
+        }
+      },
     ],
     // Le champ qui distingue Pro / Solo / Duo → réglage « Clientèle » sur tout widget
     // de cette source (cf. `clientField` sur `SourceDesc`).
@@ -2693,12 +2777,20 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
     defaultFacet: "associe",      // filtre à cases : par partenaire
     presets: [
-      { label: "Tâches partenaires à faire", cfg: { title: "Tâches partenaires", unit: "tâche",
-        query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
-        actions: { use: ["fait"] } } },
-      { label: "Tâches en retard", icon: "CalendarClock", cfg: { title: "Tâches en retard", unit: "tâche",
-        query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
-        actions: { use: ["fait"] } } },
+      {
+        label: "Tâches partenaires à faire", cfg: {
+          title: "Tâches partenaires", unit: "tâche",
+          query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
+          actions: { use: ["fait"] }
+        }
+      },
+      {
+        label: "Tâches en retard", icon: "CalendarClock", cfg: {
+          title: "Tâches en retard", unit: "tâche",
+          query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
+          actions: { use: ["fait"] }
+        }
+      },
     ],
     /* PREMIÈRE ÉCRITURE RÉELLE DU BLOC (§9-ter) : cocher « Fait » depuis l'accueil.
        C'est le seul champ de `SELECT_TACHE_PA_W`, donc le seul qu'un widget puisse
@@ -2730,9 +2822,13 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
     defaultMap: { title: "desc", sub: "associe", date: "fin" },
     defaultFacet: "associe",      // filtre à cases : par prospect
     presets: [
-      { label: "Tâches prospects à faire", cfg: { title: "Tâches prospects", unit: "tâche",
-        query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
-        actions: { use: ["fait"] } } },
+      {
+        label: "Tâches prospects à faire", cfg: {
+          title: "Tâches prospects", unit: "tâche",
+          query: { filter: [{ field: "fait", op: "neq", value: "true" }] },
+          actions: { use: ["fait"] }
+        }
+      },
     ],
     actions: [{ id: "fait", label: "Fait", kind: "toggle", field: "fait" }],
     // Pas de création — même raison que pour les tâches partenaires (whitelist réduite
@@ -2825,8 +2921,10 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       typeContact: {
         label: "Type de contact SunLib", kind: "badge", multi: true,
         options: ["Admin", "Commercial", "Technique", "Finance", "Direction"],
-        variants: { "Admin": "info", "Commercial": "brand", "Technique": "warn",
-                    "Finance": "ok", "Direction": "neutral" },
+        variants: {
+          "Admin": "info", "Commercial": "brand", "Technique": "warn",
+          "Finance": "ok", "Direction": "neutral"
+        },
       },
       commentaire: { label: "Commentaire installateur", kind: "longtext" },
       proprio: { label: "Propriétaire (SunLib)", kind: "text" },
@@ -2863,11 +2961,17 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          contacts ne doit pas en cacher 18. C'est le plafond du moteur (`LIST_LIMIT_MAX`), écrit
          en dur : la constante est déclarée en §9-bis, bien après ce catalogue, et un `const`
          cité avant sa déclaration lèverait une erreur au chargement du bloc. */
-      { label: "Contact partenaire", icon: "BookUser", h: 560,
-        cfg: { title: "Contact partenaire", unit: "contact",
-               query: { limit: 50 },
-               view: { kind: "table",
-                       columns: ["contact", "entreprise", "mail", "tel", "service", "typeContact"] } } },
+      {
+        label: "Contact partenaire", icon: "BookUser", h: 560,
+        cfg: {
+          title: "Contact partenaire", unit: "contact",
+          query: { limit: 50 },
+          view: {
+            kind: "table",
+            columns: ["contact", "entreprise", "mail", "tel", "service", "typeContact"]
+          }
+        }
+      },
     ],
   },
   notifC: {
@@ -2889,13 +2993,17 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       statut: { label: "Statut du dossier", kind: "badge" },
       proprio: { label: "Propriétaire (SunLib)", kind: "text" },
       aLire: { label: "À lire (case cochée = non lue)", kind: "bool" },
-      etat: { label: "Statut de la notification", kind: "badge",
-              options: ["Lue", "Non lue"], variants: { "Non lue": "warn", "Lue": "neutral" } },
+      etat: {
+        label: "Statut de la notification", kind: "badge",
+        options: ["Lue", "Non lue"], variants: { "Non lue": "warn", "Lue": "neutral" }
+      },
       /* Type de client du dossier lié (2026-08-20) — mêmes options et mêmes couleurs que
          sur `abonnes` : la même information doit se lire pareil sur les deux écrans. */
-      client: { label: "Type de client", kind: "badge",
-                options: ["Pro", "Solo", "Duo"],
-                variants: { Pro: "brand", Solo: "info", Duo: "solar" } },
+      client: {
+        label: "Type de client", kind: "badge",
+        options: ["Pro", "Solo", "Duo"],
+        variants: { Pro: "brand", Solo: "info", Duo: "solar" }
+      },
       creeLe: { label: "Créée le", kind: "date" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
@@ -2957,8 +3065,10 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
          « Refusée », qui n'existent pas dans la table — un filtre sur une option absente
          ne rend jamais rien, sans rien dire. « Inactif » est explicitement NEUTRE : voir
          `excStatutVariant`, le générique le classerait « ok » sur son `/actif/`. */
-      statut: { label: "Statut", kind: "badge", options: ["Brouillon", "En cours", "Validée", "Inactif"],
-                variants: { "Validée": "ok", "En cours": "warn", "Brouillon": "neutral", "Inactif": "neutral" } },
+      statut: {
+        label: "Statut", kind: "badge", options: ["Brouillon", "En cours", "Validée", "Inactif"],
+        variants: { "Validée": "ok", "En cours": "warn", "Brouillon": "neutral", "Inactif": "neutral" }
+      },
       creeLe: { label: "Créée le", kind: "date" },
     },
     defaultSort: { by: "creeLe", dir: "desc" },
@@ -3003,9 +3113,11 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       kwc: { label: "Puissance (kWc)", kind: "number" },
       dateEdition: { label: "Date d'édition du contrat", kind: "date" },
       contratNonSigne: { label: "Contrat en attente (pièce jointe)", kind: "bool" },
-      client: { label: "Type de client", kind: "badge",
-                options: ["Pro", "Solo", "Duo"],
-                variants: { Pro: "brand", Solo: "info", Duo: "solar" } },
+      client: {
+        label: "Type de client", kind: "badge",
+        options: ["Pro", "Solo", "Duo"],
+        variants: { Pro: "brand", Solo: "info", Duo: "solar" }
+      },
     },
     defaultSort: { by: "moisSignature", dir: "desc" },
     /* Les quatre widgets commerciaux (§9-septies) lisent leur périmètre clientèle dans
@@ -3093,13 +3205,21 @@ const CATALOG: Record<SourceKey, SourceDesc> = {
       // Seuil 7 et non 8 : `gt` est STRICT, donc « > 7 » = « ≥ 8 », le seuil de
       // priorité élevée du bloc SAV (priority(), p >= 8). Le décaler ici ferait
       // dire deux choses différentes aux deux écrans.
-      { label: "Dossiers SAV prioritaires", icon: "Ticket",
-        cfg: { title: "SAV — priorité élevée", unit: "dossier",
-               query: { filter: [{ field: "priorite", op: "gt", value: "7" }], sort: { by: "priorite", dir: "desc" } } } },
-      { label: "Coût tiers SAV (indicateur)", icon: "BarChart3", h: 168,
-        cfg: { title: "Coût tiers SAV", view: { kind: "kpi", agg: "sum", field: "cout" } } },
-      { label: "Tableau des dossiers SAV", icon: "LayoutGrid",
-        cfg: { view: { kind: "table", columns: ["ticket", "client", "statut", "priorite", "debut"] } } },
+      {
+        label: "Dossiers SAV prioritaires", icon: "Ticket",
+        cfg: {
+          title: "SAV — priorité élevée", unit: "dossier",
+          query: { filter: [{ field: "priorite", op: "gt", value: "7" }], sort: { by: "priorite", dir: "desc" } }
+        }
+      },
+      {
+        label: "Coût tiers SAV (indicateur)", icon: "BarChart3", h: 168,
+        cfg: { title: "Coût tiers SAV", view: { kind: "kpi", agg: "sum", field: "cout" } }
+      },
+      {
+        label: "Tableau des dossiers SAV", icon: "LayoutGrid",
+        cfg: { view: { kind: "table", columns: ["ticket", "client", "statut", "priorite", "debut"] } }
+      },
     ],
     // Aucune action, aucun `create` : un dossier SAV se crée et se modifie dans le
     // bloc « Pilotage SAV », qui porte les validations de cohérence (dates, tiers
@@ -3269,7 +3389,7 @@ const readSnapshotStamp = (key: string): number => {
 };
 
 /* Une trace par clé, pas une par render : c'est un relevé de calibrage, pas du bruit. */
-const snapTooBig = new Set<string>();
+const snapTooBig = new Set < string > ();
 /** Écrit l'instantané. Rend `true` s'il a été retenu — `false` s'il dépasse le budget
  *  (la source repartira en squelette à la prochaine visite, et la console le dit une
  *  fois : c'est le relevé qui permettra de recalibrer SNAP_MAX_CHARS). */
@@ -3404,7 +3524,7 @@ type SourceRefreshApi = {
 };
 /* `null` par défaut, et c'est le cœur du mécanisme : hors d'un `SourceFeed`, il n'y a
    RIEN à rafraîchir, et `Widget` n'affiche pas de bouton. */
-const SourceRefreshCtx = createContext<SourceRefreshApi | null>(null);
+const SourceRefreshCtx = createContext < SourceRefreshApi | null > (null);
 
 /** Jointure instantané ↔ live, appelée par CHAQUE adapter (§6-bis). Voir le contrat en
  *  tête de section : sert le cache pendant la lecture, l'écrit à la fin, jamais pendant.
@@ -3422,7 +3542,7 @@ function useSnapshot(source: SourceKey, select: Record<string, string>, drain: D
      tout le fichier). Un ref « lu une fois » aurait donc mémorisé `null` pour toujours,
      et le cache n'aurait JAMAIS servi — en passant les tests, puisque le mock local rend
      l'e-mail dès le premier render. */
-  const snapRef = useRef<{ key: string; snap: Snapshot | null }>({ key: "\u0000", snap: null });
+  const snapRef = useRef < { key: string; snap: Snapshot | null } > ({ key: "\u0000", snap: null });
   if (snapRef.current.key !== key) snapRef.current = { key, snap: key ? readSnapshot(key) : null };
   const snap = snapRef.current.snap;
 
@@ -3579,18 +3699,18 @@ function AbonnesSource({ children, drain }: { children: SourceChildren; drain?: 
    sans base, en mutant un état local. En production, une source non connectée n'a
    pas de `write` — mieux vaut un bouton absent qu'un bouton qui ment. */
 function OfflineSource({ source, children }: { source: SourceKey; children: SourceChildren }) {
-  const [rows, setRows] = useState<Row[]>(() => offlineState(source).rows);
+  const [rows, setRows] = useState < Row[] > (() => offlineState(source).rows);
   const write: SourceWriter | undefined = USE_MOCK
     ? {
-        update: async (recordId, fields) => {
-          console.info("[SunLib] écriture SIMULÉE (aperçu) :", source, recordId, fields);
-          setRows((rs) => rs.map((r) => (r.id === recordId ? { ...r, ...fields } : r)));
-        },
-        create: async (values) => {
-          console.info("[SunLib] création SIMULÉE (aperçu) :", source, values);
-          setRows((rs) => [{ id: `mock_${Math.random().toString(36).slice(2, 8)}`, ...values } as Row, ...rs]);
-        },
-      }
+      update: async (recordId, fields) => {
+        console.info("[SunLib] écriture SIMULÉE (aperçu) :", source, recordId, fields);
+        setRows((rs) => rs.map((r) => (r.id === recordId ? { ...r, ...fields } : r)));
+      },
+      create: async (values) => {
+        console.info("[SunLib] création SIMULÉE (aperçu) :", source, values);
+        setRows((rs) => [{ id: `mock_${Math.random().toString(36).slice(2, 8)}`, ...values } as Row, ...rs]);
+      },
+    }
     : undefined;
   return <>{children({ rows, loading: false, error: false, write })}</>;
 }
@@ -3924,8 +4044,8 @@ function useDrainPages(res: any, maxPages: number, drain: DrainSpec = true, nom:
        piste que cette trace existe pour éviter. */
     console.info(partial
       ? `[SunLib] ${nom} — lecture TRONQUÉE : ${mesure}. ${erreur
-          ? "Lecture en ERREUR (cf. `res.error`) — drainage arrêté, ce n'est PAS un plafond."
-          : `Borne atteinte — ${lignes >= DRAIN_MAX_ROWS ? `DRAIN_MAX_ROWS (${DRAIN_MAX_ROWS} lignes)` : `COM_MAX_PAGES (${maxPages} pages)`}.`}`
+        ? "Lecture en ERREUR (cf. `res.error`) — drainage arrêté, ce n'est PAS un plafond."
+        : `Borne atteinte — ${lignes >= DRAIN_MAX_ROWS ? `DRAIN_MAX_ROWS (${DRAIN_MAX_ROWS} lignes)` : `COM_MAX_PAGES (${maxPages} pages)`}.`}`
       : `[SunLib] ${nom} — lecture complète : ${mesure}.`);
   }, [partial, fini, nPages, erreur]);
 
@@ -3976,7 +4096,7 @@ function ParcPartSource({ children }: { children: SourceChildren }) {
 }
 
 function NotesInsSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
-  const res  = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
+  const res = useRecords({ from: DS.notesIns, select: SELECT_NOTE_INS, orderBy: q.desc("date") });
   const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "notesIns");
   const updM = useRecordUpdate({ from: DS.notesIns, fields: SELECT_NOTE_INS_W });
   const email = asText(useCurrentUser()?.email).trim();
@@ -3987,7 +4107,7 @@ function NotesInsSource({ children, drain }: { children: SourceChildren; drain?:
 }
 
 function NotesProSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
-  const res  = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
+  const res = useRecords({ from: DS.notesPro, select: SELECT_NOTE_PRO, orderBy: q.desc("date") });
   const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "notesPro");
   const updM = useRecordUpdate({ from: DS.notesPro, fields: SELECT_NOTE_PRO_W });
   const email = asText(useCurrentUser()?.email).trim();
@@ -4002,7 +4122,7 @@ function NotesProSource({ children, drain }: { children: SourceChildren; drain?:
    toucher ici, quoi que puisse déclarer le catalogue. Pas de `create` : voir la
    note « pas de création de tâche » dans le descripteur. */
 function TachesPaSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
-  const res  = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
+  const res = useRecords({ from: DS.tachesPa, select: SELECT_TACHE_PA, orderBy: q.asc("fin") });
   const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "tachesPa");
   const updM = useRecordUpdate({ from: DS.tachesPa, fields: SELECT_TACHE_PA_W });
   const email = asText(useCurrentUser()?.email).trim();
@@ -4013,7 +4133,7 @@ function TachesPaSource({ children, drain }: { children: SourceChildren; drain?:
 }
 
 function TachesPrSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
-  const res  = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
+  const res = useRecords({ from: DS.tachesPr, select: SELECT_TACHE_PR, orderBy: q.asc("fin") });
   const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "tachesPr");
   const updM = useRecordUpdate({ from: DS.tachesPr, fields: SELECT_TACHE_PR_W });
   const email = asText(useCurrentUser()?.email).trim();
@@ -4093,7 +4213,7 @@ function ContactsInsSource({ children, drain }: { children: SourceChildren; drai
    `NotifsCard`) — indispensable depuis que le widget filtre et regroupe ces lignes au
    lieu de simplement y chercher un état. `partial` remonte si le drainage a été coupé. */
 function NotifCSource({ children, drain }: { children: SourceChildren; drain?: DrainSpec }) {
-  const res  = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
+  const res = useRecords({ from: DS.notifC, select: SELECT_NOTIF_C, orderBy: q.desc("creeLe") });
   const { partial, draining, borne } = useDrainPages(res, COM_MAX_PAGES, drain, "notifC");
   const updM = useRecordUpdate({ from: DS.notifC, fields: SELECT_NOTIF_C_W });
   const email = asText(useCurrentUser()?.email).trim();
@@ -4129,7 +4249,7 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
      ⚠️ Le timer est nettoyé au démontage : sans cela, un widget retiré pendant sa relecture
      déclencherait un `setState` sur un composant démonté. */
   const [accuse, setAccuse] = useState(false);
-  const timer = useRef<number | null>(null);
+  const timer = useRef < number | null > (null);
   useEffect(() => () => { if (timer.current) window.clearTimeout(timer.current); }, []);
 
   /* --- FAUT-IL LIRE ? (§6-quater) ---------------------------------------------------
@@ -4149,7 +4269,7 @@ function SourceFeed({ source, children, drain }: { source: SourceKey; children: 
      deux fois des lignes différentes à son consommateur.
      ⚠️ Indexée par clé, exactement comme le ref de `useSnapshot` et pour la même raison : une
      décision prise avant l'arrivée de l'e-mail resterait figée sur « pas de cache ». */
-  const choix = useRef<{ clef: string; snap: Snapshot | null }>({ clef: "\u0000", snap: null });
+  const choix = useRef < { clef: string; snap: Snapshot | null } > ({ clef: "\u0000", snap: null });
   const select = SELECT_OF[source];
   const clef = email && select ? snapKey(email, source, !!drain, snapSig(select)) : "";
   if (clef && choix.current.clef !== clef) {
@@ -4349,18 +4469,18 @@ function feedFor(source: SourceKey, recoit: SourceChildren, drain?: DrainSpec) {
   const children = withDerived(source, recoit);
   if (!isLive(source)) return <OfflineSource source={source}>{children}</OfflineSource>;
   switch (source) {
-    case "abonnes":  return <AbonnesSource drain={drain}>{children}</AbonnesSource>;
+    case "abonnes": return <AbonnesSource drain={drain}>{children}</AbonnesSource>;
     case "notesIns": return <NotesInsSource drain={drain}>{children}</NotesInsSource>;
     case "notesPro": return <NotesProSource drain={drain}>{children}</NotesProSource>;
     case "tachesPa": return <TachesPaSource drain={drain}>{children}</TachesPaSource>;
     case "tachesPr": return <TachesPrSource drain={drain}>{children}</TachesPrSource>;
-    case "sav":      return <SavSource>{children}</SavSource>;
-    case "comKpi":   return <ComKpiSource>{children}</ComKpiSource>;
-    case "parcAbo":  return <ParcAboSource>{children}</ParcAboSource>;
-    case "excAbo":   return <ExcAboSource>{children}</ExcAboSource>;
-    case "excPart":  return <ExcPartSource>{children}</ExcPartSource>;
+    case "sav": return <SavSource>{children}</SavSource>;
+    case "comKpi": return <ComKpiSource>{children}</ComKpiSource>;
+    case "parcAbo": return <ParcAboSource>{children}</ParcAboSource>;
+    case "excAbo": return <ExcAboSource>{children}</ExcAboSource>;
+    case "excPart": return <ExcPartSource>{children}</ExcPartSource>;
     case "parcPart": return <ParcPartSource>{children}</ParcPartSource>;
-    case "notifC":   return <NotifCSource drain={drain}>{children}</NotifCSource>;
+    case "notifC": return <NotifCSource drain={drain}>{children}</NotifCSource>;
     case "contactsIns": return <ContactsInsSource drain={drain}>{children}</ContactsInsSource>;
     default: return <OfflineSource source={source}>{children}</OfflineSource>;
   }
@@ -4415,9 +4535,11 @@ type Outil = {
 const OUTILS: Outil[] = [
   /* MASQUÉ le 2026-08-18 (demande explicite) : l'entrée et son adresse sont intactes,
      seul l'affichage est suspendu. Retirer `hidden` la remet dans la grille. */
-  { id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid,
+  {
+    id: "simulateur", label: "Simulateur Grille", icon: LayoutGrid,
     desc: "Grille tarifaire et scénarios d'abonnement.", embed: TOOLS.simulateurGrille,
-    hidden: true },
+    hidden: true
+  },
   /* ⚠️ LIBELLÉS CROISÉS PAR RAPPORT AUX CLÉS, ET C'EST VOULU (2026-08-25, demandé) : les
      deux noms d'affichage ont été ÉCHANGÉS, ni les clés ni les adresses. Donc
      `calculette` s'affiche « Simulateur » (`calculette-abonnement.vercel.app`) et
@@ -4425,29 +4547,41 @@ const OUTILS: Outil[] = [
      Ne pas « corriger » l'un pour le faire ressembler à l'autre : un `id` est une CLÉ
      (résolution de l'outil ouvert, `openId`), il ne se renomme pas pour suivre un libellé.
      Les `desc` et les icônes, elles, ont suivi le NOM — c'est ce que voit l'utilisateur. */
-  { id: "calculette", label: "Simulateur", icon: TrendingUp,
-    desc: "Simulation économique d'un projet.", embed: TOOLS.calculette },
+  {
+    id: "calculette", label: "Simulateur", icon: TrendingUp,
+    desc: "Simulation économique d'un projet.", embed: TOOLS.calculette
+  },
   /* La tuile AJOUTÉE le 2026-08-25 : une seconde app, l'autre reste — elles cohabitent.
      C'est elle qui porte `solar: true`, parce que teinter deux tuiles revient à n'en mettre
      aucune en avant. ⚠️ La mise en avant est restée sur CETTE app quand les libellés ont été
      échangés : c'est une app qu'on met en avant, pas un nom. */
-  { id: "simulateurAbonnement", label: "Calculette d'abonnement", icon: Calculator,
+  {
+    id: "simulateurAbonnement", label: "Calculette d'abonnement", icon: Calculator,
     desc: "Aide à la vente — simulation d'un abonnement.",
-    embed: TOOLS.simulateurAbonnement, solar: true },
-  { id: "map", label: "Map", icon: MapIcon,
-    desc: "Carte des installateurs.", embed: TOOLS.carteInstallateurs },
-  { id: "erp", label: "ERP", icon: Boxes,
-    desc: "Gestion interne SunLib.", embed: TOOLS.erp },
+    embed: TOOLS.simulateurAbonnement, solar: true
+  },
+  {
+    id: "map", label: "Map", icon: MapIcon,
+    desc: "Carte des installateurs.", embed: TOOLS.carteInstallateurs
+  },
+  {
+    id: "erp", label: "ERP", icon: Boxes,
+    desc: "Gestion interne SunLib.", embed: TOOLS.erp
+  },
   /* RENOMMÉ le 2026-08-24 (demandé) : « Formulaire de contact » → « Demandes de contact ».
      L'outil ne sert pas à DÉPOSER une demande mais à SUIVRE celles qui arrivent — l'ancien
      libellé décrivait le moyen, le nouveau dit ce qu'on vient y faire.
      ⚠️ L'`id` reste `formulaire` : c'est une CLÉ (résolution de l'outil ouvert, `openId`),
      pas un texte d'écran. La renommer ne changerait rien de visible et casserait l'ouverture
      directe d'un outil déjà en cours. */
-  { id: "formulaire", label: "Demandes de contact", icon: Mail,
-    desc: "Suivi des demandes entrantes.", embed: TOOLS.formulaireContact },
-  { id: "bibliotheque", label: "Bibliothèque", icon: Library,
-    desc: "Documents et supports internes.", embed: TOOLS.bibliotheque },
+  {
+    id: "formulaire", label: "Demandes de contact", icon: Mail,
+    desc: "Suivi des demandes entrantes.", embed: TOOLS.formulaireContact
+  },
+  {
+    id: "bibliotheque", label: "Bibliothèque", icon: Library,
+    desc: "Documents et supports internes.", embed: TOOLS.bibliotheque
+  },
 ];
 
 /** Les outils réellement affichés. `OUTILS` garde TOUT (y compris les masqués) pour que
@@ -4571,7 +4705,7 @@ const DASH_ROW = 4;    // granularité des lignes implicites : le résidu ≤ 3 
    variable CSS `--slb-wh` lue par une règle injectée ne s'appliquait pas dans le
    bloc Softr, et les widgets s'étiraient alors sans jamais scroller. La classe
    `slb-scrolly` reste, mais seulement pour l'habillage de la scrollbar. --- */
-const WidgetHeightCtx = createContext<number>(H_DEFAULT);
+const WidgetHeightCtx = createContext < number > (H_DEFAULT);
 
 /* --- ARRONDI AU DERNIER ÉLÉMENT ENTIER (« snap », 2026-08-07) -------------------
    Les crans de hauteur sont des PIXELS (168 / 340 / 560) et le contenu, lui, a sa
@@ -4598,7 +4732,7 @@ const WidgetHeightCtx = createContext<number>(H_DEFAULT);
    ⚠️ Le rabattement ne vaut que pour l'état de REPOS : une fois qu'on défile, on s'arrête
    où l'on veut. C'est voulu — le défilement libre est la façon dont on lit une liste. --- */
 const scrollUnits = (root: HTMLElement): HTMLElement[] =>
-  Array.from(root.querySelectorAll<HTMLElement>(".slb-row, .slb-unit"));
+  Array.from(root.querySelectorAll < HTMLElement > (".slb-row, .slb-unit"));
 
 /** Bas d'un élément, en pixels depuis le haut du CONTENU de `root`. `-1` si l'élément
  *  n'est pas dans le sous-arbre positionné de `root` (cas d'un ancêtre intermédiaire
@@ -4651,8 +4785,8 @@ function ScrollBody({ children }: { children?: ReactNode }) {
        remesurerait — boucle infinie.
      · Repli sans ResizeObserver : la hauteur reste le cran demandé, donc l'ancien
        comportement (une unité peut être coupée), jamais un widget cassé. */
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-  const [snap, setSnap] = useState<number | null>(null);
+  const bodyRef = useRef < HTMLDivElement | null > (null);
+  const [snap, setSnap] = useState < number | null > (null);
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
@@ -4734,7 +4868,7 @@ type WidgetOptions = {
    *  modale : ici, un clic de trop retire vraiment le widget. */
   onRemove?: () => void;
 };
-const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
+const WidgetOptionsCtx = createContext < WidgetOptions | null > (null);
 
 /* --- TITRE PERSONNALISÉ, valable pour TOUS les widgets ------------------------
    Le titre est une propriété de l'INSTANCE, pas du type : il ne vit donc ni dans la
@@ -4749,7 +4883,7 @@ const WidgetOptionsCtx = createContext<WidgetOptions | null>(null);
    ⚠️ Le titre par défaut n'est donc PAS recopié dans l'instance à la première
    ouverture du panneau : ce serait le figer, et un widget renommé « Dossiers SAV »
    garderait ce nom même après avoir changé de source. --- */
-const WidgetTitleCtx = createContext<string>("");
+const WidgetTitleCtx = createContext < string > ("");
 
 /* --- TEINTE D'UN WIDGET — même logique que le titre -----------------------------
    Une palette FERMÉE, et c'est le point : on choisit une CLÉ (`"teal"`), jamais une
@@ -4789,7 +4923,7 @@ const WIDGET_TINTS: WidgetTint[] = [
   { key: "ardoise", label: "Ardoise", head: T.neutral050, ink: T.ink2, pill: T.line2 },
 ];
 const tintOf = (key: string): WidgetTint => WIDGET_TINTS.find((t) => t.key === key) ?? WIDGET_TINTS[0];
-const WidgetTintCtx = createContext<string>("");
+const WidgetTintCtx = createContext < string > ("");
 
 /* --- ÉCRITURE DE SA PROPRE cfg PAR LE WIDGET -----------------------------------
    `WidgetOptionsCtx` sert le PANNEAU d'options ; celui-ci sert le CONTENU. Un
@@ -4805,7 +4939,7 @@ const WidgetTintCtx = createContext<string>("");
    échec reste annoncé, cf. `runSave`. Ce canal servira aussi au tri par clic sur les
    en-têtes de colonnes. --- */
 type WidgetCfgWriter = { save: (cfg: unknown) => void };
-const WidgetCfgCtx = createContext<WidgetCfgWriter | null>(null);
+const WidgetCfgCtx = createContext < WidgetCfgWriter | null > (null);
 
 /* --- PRÉHENSION D'UN WIDGET ----------------------------------------------------
    L'EN-TÊTE de chaque carte est saisissable en permanence : c'est la seule façon de
@@ -4845,7 +4979,7 @@ type WidgetGrab = {
   /** Mémorise l'élément réellement pressé, seule cible fiable pour `onDragStart`. */
   onPointerDownCapture: (e: ReactPointerEvent<HTMLElement>) => void;
 };
-const WidgetGrabCtx = createContext<WidgetGrab | null>(null);
+const WidgetGrabCtx = createContext < WidgetGrab | null > (null);
 
 /* --- FERMETURE D'UN PANNEAU FLOTTANT (clic extérieur + Échap) -----------------
    Hook PARTAGÉ par tous les panneaux flottants du bloc (facettes et tri de la barre
@@ -4871,7 +5005,7 @@ function hitsRect(el: Element | null | undefined, x: number, y: number): boolean
 }
 
 function useDismissOnOutside(open: boolean, setOpen: (v: boolean) => void) {
-  const ref = useRef<HTMLDivElement | null>(null);
+  const ref = useRef < HTMLDivElement | null > (null);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -5009,7 +5143,7 @@ const MODAL_BODY: CSSProperties = { overflowY: "auto", minHeight: 0, overscrollB
    rester atteignable quel que soit le nombre de réglages du type. --- */
 function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions; title: string; defaultTitle: string }) {
   const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState<any>(opts.cfg);
+  const [draft, setDraft] = useState < any > (opts.cfg);
   const [draftTitle, setDraftTitle] = useState(opts.title);
   const [draftTint, setDraftTint] = useState(opts.tint);
   /* Confirmation du RETRAIT, en deux temps. Contrairement au reste de cette modale, la
@@ -5305,8 +5439,10 @@ function Widget({
      s'arrêtait au premier mouvement de souris. Le cast couvre les propriétés
      personnalisées, que `CSSProperties` ne décrit pas. */
   const cardStyle: CSSProperties = tint.head
-    ? { ...CARD, backgroundColor: tint.head, border: `1px solid ${tint.pill || T.line}`,
-        ...({ "--slb-row-hover": tint.pill || T.surface2 } as CSSProperties) }
+    ? {
+      ...CARD, backgroundColor: tint.head, border: `1px solid ${tint.pill || T.line}`,
+      ...({ "--slb-row-hover": tint.pill || T.surface2 } as CSSProperties)
+    }
     : CARD;
   /* `position: relative` : c'est l'ancre de la barre de chargement posée en bas de l'en-tête
      (voir plus bas). Sans elle, la barre se placerait par rapport à la page. */
@@ -5394,7 +5530,7 @@ function Widget({
    la navigation doit changer la page parente. Placée sous le héro, elle se
    colle en haut de l'écran au scroll (sticky). --- */
 function PageNavBar({ tabs, activeId, onSelect }: { tabs: NavTab[]; activeId: string; onSelect: (id: string) => void }) {
-  const refs = useRef<(HTMLElement | null)[]>([]);
+  const refs = useRef < (HTMLElement | null)[] > ([]);
   const [ind, setInd] = useState({ left: 0, width: 0 });
   useEffect(() => {
     const idx = tabs.findIndex((t) => t.id === activeId);
@@ -5454,7 +5590,7 @@ const HERO_LOOP = "linear-gradient(90deg, #13A3AC 0%, #3CAE68 16.6667%, #13A3AC 
 const HERO_CYCLE_MS = 60000;
 
 function useHeroPan() {
-  const ref = useRef<HTMLDivElement | null>(null);
+  const ref = useRef < HTMLDivElement | null > (null);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof el.animate !== "function") return;
@@ -5508,8 +5644,8 @@ const SUNBURST_SPIN_MS = 240000;
 const SUNBURST_WAVE_MS = 47000;
 
 function Sunburst({ height, still = false }: { height: string; still?: boolean }) {
-  const hubRef = useRef<SVGGElement | null>(null);
-  const rayRefs = useRef<(SVGLineElement | null)[]>([]);
+  const hubRef = useRef < SVGGElement | null > (null);
+  const rayRefs = useRef < (SVGLineElement | null)[] > ([]);
   useEffect(() => {
     const hub = hubRef.current;
     if (still || !hub || typeof hub.animate !== "function") return;
@@ -5696,7 +5832,7 @@ function embedHeightOf(msg: { origin?: string; data?: unknown }, origine: string
 }
 
 function useEmbedHeight(src: string): number | null {
-  const [h, setH] = useState<number | null>(null);
+  const [h, setH] = useState < number | null > (null);
   useEffect(() => {
     /* Changer d'outil REMET À NULL : garder la hauteur du précédent afficherait le
        nouveau dans un cadre à la mauvaise taille jusqu'à son premier message. */
@@ -5743,7 +5879,7 @@ function EmbedTab({ src, title }: { src: string; title: string }) {
       restera blanc sans erreur. D'où le lien « Nouvel onglet » présent dans l'en-tête
       de CHAQUE outil ouvert — c'est la porte de sortie, pas un ornement. --- */
 function OutilsTab() {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState < string | null > (null);
   // L'outil ouvert doit être embarquable ET avoir une adresse : un `openId` devenu
   // invalide (registre modifié) retombe donc proprement sur « rien d'ouvert ».
   const open = OUTILS_VISIBLES.find((o) => o.id === openId && o.embed) ?? null;
@@ -5876,11 +6012,13 @@ function OutilsTab() {
    `cfg` : quelles informations montrer, combien de lignes, bouton « Détail » ou non.
    Le registre ci-dessous est la seule chose à toucher pour en proposer une de plus. */
 
-type NotifsCfg = { champs: string[]; limite: number; detail: boolean; marquage: boolean; mesDossiers: boolean;
+type NotifsCfg = {
+  champs: string[]; limite: number; detail: boolean; marquage: boolean; mesDossiers: boolean;
   /** PÉRIMÈTRE CLIENTÈLE (2026-08-20) — tous · Pro · Particuliers · Solo · Duo, cf.
    *  `CLIENTELES`. À « tous » par défaut, comme partout : c'est une question ponctuelle
    *  (« les nouveaux dossiers PRO à traiter »), pas le réglage de tous les jours. */
-  clientele: Clientele };
+  clientele: Clientele
+};
 
 /** Clé de regroupement des lignes jumelles : le dossier lié et le texte de
  *  l'événement. Pas la date — les deux jumelles naissent à quelques secondes d'écart,
@@ -5923,8 +6061,8 @@ type NotifTri = {
  *  parce que les deux jumelles d'un événement portent le même dossier, donc le même type
  *  de client : l'ordre n'y change rien, et filtrer d'abord évite de regrouper pour rien. */
 function selectNotifs(rows: Notif[], ident: UserIdent, mesDossiers: boolean, nonLuesSeulement: boolean,
-                      clientele: Clientele = "tous"): NotifTri {
-  const parEvenement = new Map<string, Notif>();
+  clientele: Clientele = "tous"): NotifTri {
+  const parEvenement = new Map < string, Notif> ();
   let sansProprio = 0, autres = 0, horsClientele = 0;
   const filtreActif = mesDossiers && ident.known;
   // Périmètre demandé ET applicable — même arbitrage que `clienteleRows`, ici sur le
@@ -6076,29 +6214,31 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
   // Même geste que dans les widgets génériques (`GenericRow`) : la ligne ouvre la fiche.
   const clicProps = onOpen
     ? {
-        role: "button" as const, tabIndex: 0,
-        "aria-label": `Détail — ${title}`,
-        onClick: onOpen,
-        onKeyDown: (e: ReactKeyboardEvent) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
-        },
-      }
+      role: "button" as const, tabIndex: 0,
+      "aria-label": `Détail — ${title}`,
+      onClick: onOpen,
+      onKeyDown: (e: ReactKeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
+      },
+    }
     : {};
   return (
     <div className="slb-row" {...clicProps}
-      style={{ display: "flex", alignItems: "center", gap: "11px", padding: "11px 16px",
-      cursor: onOpen ? "pointer" : undefined,
-      /* Fond très légèrement teinté pour un dossier non vu — la pastille porte le sens,
-         ceci n'est qu'un repère de balayage (la couleur ne dit jamais seule, charte).
-         ⚠️ 2026-08-18 — IL SUIT LA TEINTE DU WIDGET. C'était `T.brand050` en dur, donc un
-         teal pâle qui restait teal quand la carte passait au rosé ou à la lavande : comme
-         cette liste ne contient QUE des lignes non vues, c'étaient TOUTES les lignes qui
-         ignoraient la couleur choisie. On prend la nuance soutenue de la teinte
-         (`tint.pill`, un cran au-dessus du fond de carte `tint.head`), et le teal d'origine
-         seulement en l'absence de teinte.
-         `backgroundColor` et non `background` : le moteur de survol (§2-bis) mémorise des
-         LONGHANDS, et un raccourci lui ferait effacer ce fond en sortant de la ligne. */
-      backgroundColor: cfg.marquage && nonLu ? (tint.head ? tint.pill || T.brand050 : T.brand050) : undefined }}>
+      style={{
+        display: "flex", alignItems: "center", gap: "11px", padding: "11px 16px",
+        cursor: onOpen ? "pointer" : undefined,
+        /* Fond très légèrement teinté pour un dossier non vu — la pastille porte le sens,
+           ceci n'est qu'un repère de balayage (la couleur ne dit jamais seule, charte).
+           ⚠️ 2026-08-18 — IL SUIT LA TEINTE DU WIDGET. C'était `T.brand050` en dur, donc un
+           teal pâle qui restait teal quand la carte passait au rosé ou à la lavande : comme
+           cette liste ne contient QUE des lignes non vues, c'étaient TOUTES les lignes qui
+           ignoraient la couleur choisie. On prend la nuance soutenue de la teinte
+           (`tint.pill`, un cran au-dessus du fond de carte `tint.head`), et le teal d'origine
+           seulement en l'absence de teinte.
+           `backgroundColor` et non `background` : le moteur de survol (§2-bis) mémorise des
+           LONGHANDS, et un raccourci lui ferait effacer ce fond en sortant de la ligne. */
+        backgroundColor: cfg.marquage && nonLu ? (tint.head ? tint.pill || T.brand050 : T.brand050) : undefined
+      }}>
       <Monogram name={title} size={34} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
@@ -6132,8 +6272,8 @@ function NotifRow({ n, cfg, onVu, onOpen }: { n: Notif; cfg: NotifsCfg; onVu?: (
           <div style={{ marginTop: "5px", fontSize: "11.5px", fontWeight: 500, color: T.ink4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
             title={on("creeLe") ? `Créé le ${fmtDate(n.creeLe)}` : undefined}>
             {[on("creeLe") ? fmtRel(n.creeLe) : "",
-              on("partenaire") && n.partenaire ? `via ${n.partenaire}` : "",
-              on("proprio") && n.proprio ? n.proprio : ""]
+            on("partenaire") && n.partenaire ? `via ${n.partenaire}` : "",
+            on("proprio") && n.proprio ? n.proprio : ""]
               .filter(Boolean).join(" · ")}
           </div>
         )}
@@ -6194,8 +6334,8 @@ function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClie
      l'écriture est réelle ; le masquage ne fait qu'anticiper le rafraîchissement, et il
      est ANNULÉ si l'écriture échoue, avec un message. Ne jamais retirer ce rollback :
      sans lui, un échec réseau ferait disparaître une notification jamais traitée. */
-  const [vus, setVus] = useState<string[]>([]);
-  const [echec, setEchec] = useState<string | null>(null);
+  const [vus, setVus] = useState < string[] > ([]);
+  const [echec, setEchec] = useState < string | null > (null);
   const marquerVu = async (notifId: string) => {
     if (!notifs.write) return;
     setVus((v) => [...v, notifId]);
@@ -6237,10 +6377,10 @@ function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClie
   /* Fiche détaillée de la notification cliquée. Le descripteur `notifC` porte les 9
      alias lus, donc la fiche se construit toute seule (`RecordDialog`) — pas de fiche
      sur-mesure à maintenir ici. */
-  const [fiche, setFiche] = useState<Notif | null>(null);
+  const [fiche, setFiche] = useState < Notif | null > (null);
   return (
     <>
-    {/* Sous-titre : la liste ne contient QUE des notifications à traiter (cf. `cfg.marquage`
+      {/* Sous-titre : la liste ne contient QUE des notifications à traiter (cf. `cfg.marquage`
         et `selectNotifs`), donc « N non lus sur M » n'aurait plus de sens — tout est non lu.
         On annonce ce qui reste à faire, et sur quel périmètre.
         ⚠️ « Chargement… » EN PREMIER, comme sur le journal des tâches : le corps montre un
@@ -6248,26 +6388,26 @@ function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClie
         d'annoncer « Rien à traiter » juste au-dessus — soit la réponse fausse et rassurante
         que ce correctif visait, laissée à l'endroit le plus lisible de la carte. Complété le
         2026-08-20. */}
-    <Widget icon={Bell} title="Nouveaux dossiers abonnés"
-      /* `vide` (2026-08-25) : c'est une FILE À TRAITER, relue à chaque ouverture par choix
-         métier (`fraicheur: "ouverture"`). Quand elle affiche « Rien à traiter », la relecture
-         est justement la seule chose qui peut faire apparaître une ligne — donc c'est là, et
-         seulement là, qu'elle mérite d'être annoncée. */
-      vide={!restantes.length}
-      sub={notifs.loading ? "Chargement…"
-        : !restantes.length ? (filtreActif ? "Rien à votre nom" : "Rien à traiter")
-        : `${restantes.length} à traiter${filtreActif ? " · mes dossiers" : ""}${clienteleActive ? ` · ${clienteleCourt(cfg.clientele)}` : ""}`}>
-      {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en silence
+      <Widget icon={Bell} title="Nouveaux dossiers abonnés"
+        /* `vide` (2026-08-25) : c'est une FILE À TRAITER, relue à chaque ouverture par choix
+           métier (`fraicheur: "ouverture"`). Quand elle affiche « Rien à traiter », la relecture
+           est justement la seule chose qui peut faire apparaître une ligne — donc c'est là, et
+           seulement là, qu'elle mérite d'être annoncée. */
+        vide={!restantes.length}
+        sub={notifs.loading ? "Chargement…"
+          : !restantes.length ? (filtreActif ? "Rien à votre nom" : "Rien à traiter")
+            : `${restantes.length} à traiter${filtreActif ? " · mes dossiers" : ""}${clienteleActive ? ` · ${clienteleCourt(cfg.clientele)}` : ""}`}>
+        {/* ⚠️ FILTRE DEMANDÉ MAIS INAPPLICABLE : on le DIT, au lieu de servir en silence
           la liste de tout le monde sous un titre qui laisserait croire le contraire. */}
-      {cfg.mesDossiers && !ident.known && (
-        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
-          <Badge variant="warn" dot>Filtre inactif</Badge>
-          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
-            Session non identifiée : toutes les notifications sont affichées.
-          </span>
-        </div>
-      )}
-      {/* ⚠️ MÊME BANDEAU pour la clientèle demandée mais NON LUE : le champ « Champs IA
+        {cfg.mesDossiers && !ident.known && (
+          <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+            <Badge variant="warn" dot>Filtre inactif</Badge>
+            <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+              Session non identifiée : toutes les notifications sont affichées.
+            </span>
+          </div>
+        )}
+        {/* ⚠️ MÊME BANDEAU pour la clientèle demandée mais NON LUE : le champ « Champs IA
           Config client (from Liens BDD) » n'est pas coché dans la connexion de la
           datasource `notifC` (onglet Sources du bloc). Sans ce message, le réglage
           paraîtrait ne rien faire et on chercherait le défaut dans le code.
@@ -6278,76 +6418,76 @@ function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClie
           faux, et le plus visible de tous puisqu'il occupe le haut de la carte. Même
           raison de l'exclure en erreur : la source n'a pas répondu, on ne sait rien du
           champ. Ne pas retirer ces gardes en croyant simplifier la condition. */}
-      {cfg.clientele !== "tous" && !clientLu && !notifs.loading && !notifs.error && (
-        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
-          <Badge variant="warn" dot>Filtre inactif</Badge>
-          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
-            Type de client non lu par la source : toutes les notifications sont affichées.
-          </span>
-        </div>
-      )}
-      {/* Un échec d'écriture se DIT. La ligne est déjà revenue dans la liste (rollback de
+        {cfg.clientele !== "tous" && !clientLu && !notifs.loading && !notifs.error && (
+          <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+            <Badge variant="warn" dot>Filtre inactif</Badge>
+            <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+              Type de client non lu par la source : toutes les notifications sont affichées.
+            </span>
+          </div>
+        )}
+        {/* Un échec d'écriture se DIT. La ligne est déjà revenue dans la liste (rollback de
           `marquerVu`) : sans ce message, elle réapparaîtrait sans explication et on
           croirait à un bug d'affichage. */}
-      {echec && (
-        <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
-          <Badge variant="danger" dot>Échec</Badge>
-          <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>{echec}</span>
-        </div>
-      )}
-      {/* ⚠️ LE CHARGEMENT PASSE AVANT LES ÉTATS VIDES (2026-08-19). Cette table est drainée
+        {echec && (
+          <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+            <Badge variant="danger" dot>Échec</Badge>
+            <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>{echec}</span>
+          </div>
+        )}
+        {/* ⚠️ LE CHARGEMENT PASSE AVANT LES ÉTATS VIDES (2026-08-19). Cette table est drainée
           (2 142 lignes) : pendant plusieurs secondes, `items` est vide sans que cela veuille
           dire quoi que ce soit, et le widget annonçait pourtant « Tout est traité » — la
           plus trompeuse des trois réponses possibles, puisqu'elle est rassurante. */}
-      {notifs.loading ? (
-        <ListSkeleton rows={4} />
-      ) : items.length === 0 ? (
-        /* TROIS états vides distincts, parce qu'ils demandent trois gestes différents :
-           « tout est traité » (bonne nouvelle — la file est vide, rien à faire),
-           « rien à mon nom » (le filtre propriétaire a tout écarté → proposer de
-           l'ouvrir), « rien du tout » (la table n'a rien à montrer). Le deuxième NOMME
-           l'identité cherchée : c'est la seule façon de comprendre un rapprochement qui a
-           échoué parce que la base écrit le propriétaire autrement. */
-        /* QUATRIÈME état vide (2026-08-20), placé EN PREMIER : c'est le périmètre clientèle
-           qui a tout écarté. Il passe avant « tout est traité » parce que c'est le réglage
-           qu'on vient de poser, et parce que le message inverse — « tout est traité » sous
-           un widget réglé sur « Pro » — ferait croire la file vide alors qu'elle contient
-           des particuliers. Comme pour « mes dossiers », on propose de ROUVRIR. */
-        clienteleActive && tri.horsClientele > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "26px 16px 30px", textAlign: "center" }}>
-            <EmptyState dense icon={Inbox} title={`Aucun dossier « ${CLIENTELES.find((c) => c.key === cfg.clientele)?.label ?? ""} » à traiter`}
-              hint={`${tri.horsClientele} notification${tri.horsClientele > 1 ? "s" : ""} écartée${tri.horsClientele > 1 ? "s" : ""} par le périmètre de clientèle.`} />
-            {onTousClients && (
-              <button className="slb-btng" onClick={onTousClients}
-                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
-                <Eye aria-hidden style={{ width: 14, height: 14 }} />Voir toutes les clientèles
-              </button>
-            )}
-          </div>
-        ) : tri.lues > 0 ? (
-          <EmptyState dense icon={CheckCircle} title="Tout est traité"
-            hint={`${tri.lues} notification${tri.lues > 1 ? "s" : ""} déjà vue${tri.lues > 1 ? "s" : ""}. Les nouveaux dossiers apparaîtront ici.`} />
-        ) : filtreActif ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "26px 16px 30px", textAlign: "center" }}>
-            <EmptyState dense icon={Inbox} title="Aucune notification à votre nom"
-              hint={`Recherché : « ${nom} » parmi ${tri.autres + tri.sansProprio + tri.items.length} notifications. Si la base écrit votre nom autrement, ouvrez la liste.`} />
-            {onVoirTout && (
-              <button className="slb-btng" onClick={onVoirTout}
-                style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
-                <Eye aria-hidden style={{ width: 14, height: 14 }} />Voir toutes les notifications
-              </button>
-            )}
-          </div>
+        {notifs.loading ? (
+          <ListSkeleton rows={4} />
+        ) : items.length === 0 ? (
+          /* TROIS états vides distincts, parce qu'ils demandent trois gestes différents :
+             « tout est traité » (bonne nouvelle — la file est vide, rien à faire),
+             « rien à mon nom » (le filtre propriétaire a tout écarté → proposer de
+             l'ouvrir), « rien du tout » (la table n'a rien à montrer). Le deuxième NOMME
+             l'identité cherchée : c'est la seule façon de comprendre un rapprochement qui a
+             échoué parce que la base écrit le propriétaire autrement. */
+          /* QUATRIÈME état vide (2026-08-20), placé EN PREMIER : c'est le périmètre clientèle
+             qui a tout écarté. Il passe avant « tout est traité » parce que c'est le réglage
+             qu'on vient de poser, et parce que le message inverse — « tout est traité » sous
+             un widget réglé sur « Pro » — ferait croire la file vide alors qu'elle contient
+             des particuliers. Comme pour « mes dossiers », on propose de ROUVRIR. */
+          clienteleActive && tri.horsClientele > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "26px 16px 30px", textAlign: "center" }}>
+              <EmptyState dense icon={Inbox} title={`Aucun dossier « ${CLIENTELES.find((c) => c.key === cfg.clientele)?.label ?? ""} » à traiter`}
+                hint={`${tri.horsClientele} notification${tri.horsClientele > 1 ? "s" : ""} écartée${tri.horsClientele > 1 ? "s" : ""} par le périmètre de clientèle.`} />
+              {onTousClients && (
+                <button className="slb-btng" onClick={onTousClients}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
+                  <Eye aria-hidden style={{ width: 14, height: 14 }} />Voir toutes les clientèles
+                </button>
+              )}
+            </div>
+          ) : tri.lues > 0 ? (
+            <EmptyState dense icon={CheckCircle} title="Tout est traité"
+              hint={`${tri.lues} notification${tri.lues > 1 ? "s" : ""} déjà vue${tri.lues > 1 ? "s" : ""}. Les nouveaux dossiers apparaîtront ici.`} />
+          ) : filtreActif ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", padding: "26px 16px 30px", textAlign: "center" }}>
+              <EmptyState dense icon={Inbox} title="Aucune notification à votre nom"
+                hint={`Recherché : « ${nom} » parmi ${tri.autres + tri.sansProprio + tri.items.length} notifications. Si la base écrit votre nom autrement, ouvrez la liste.`} />
+              {onVoirTout && (
+                <button className="slb-btng" onClick={onVoirTout}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
+                  <Eye aria-hidden style={{ width: 14, height: 14 }} />Voir toutes les notifications
+                </button>
+              )}
+            </div>
+          ) : (
+            <EmptyState dense icon={Inbox} title="Aucune notification récente" hint="Les dossiers abonnés créés par vos partenaires apparaîtront ici." />
+          )
         ) : (
-          <EmptyState dense icon={Inbox} title="Aucune notification récente" hint="Les dossiers abonnés créés par vos partenaires apparaîtront ici." />
-        )
-      ) : (
-        <ScrollBody>
-          {items.map((n) => (
-            <NotifRow key={n.id} n={n} cfg={cfg} onOpen={() => setFiche(n)}
-              onVu={notifs.write ? () => void marquerVu(n.id) : undefined} />
-          ))}
-          {/* À LA PLACE de l'ancien pied de widget (2026-08-06). Deux choses ont été
+          <ScrollBody>
+            {items.map((n) => (
+              <NotifRow key={n.id} n={n} cfg={cfg} onOpen={() => setFiche(n)}
+                onVu={notifs.write ? () => void marquerVu(n.id) : undefined} />
+            ))}
+            {/* À LA PLACE de l'ancien pied de widget (2026-08-06). Deux choses ont été
               retirées d'ici, et volontairement :
               · le décompte des lignes écartées (« N sans propriétaire · N doublons ») —
                 l'information n'aide pas à travailler, la liste juste suffit ;
@@ -6358,40 +6498,40 @@ function NotifWidget({ tri, cfg, notifs, ident, clientLu, onVoirTout, onTousClie
                 deviendrait silencieusement partielle : c'est `COM_MAX_PAGES` qu'il
                 faudrait relever, pas cet avertissement qu'il faudrait remettre.
               Reste UN seul élément de pied : le déroulement de la suite. */}
-          {/* Le libellé DIT COMBIEN arrive au prochain clic, et combien il reste derrière.
+            {/* Le libellé DIT COMBIEN arrive au prochain clic, et combien il reste derrière.
               « Lire plus » ne disait ni l'un ni l'autre : on ne savait pas si l'on
               s'engageait dans trois lignes ou dans trois cents. Quand le reste tient dans
               un palier, le bouton l'annonce comme le DERNIER — c'est ce qui permet de
               savoir qu'on a fait le tour de sa file. */}
-          {reste > 0 && (
-            <button className="slb-row" onClick={() => setEnPlus((n) => n + palier)}
-              aria-label={`Afficher ${aVenir} notification${aVenir > 1 ? "s" : ""} de plus (${reste} restante${reste > 1 ? "s" : ""})`}
-              style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, color: T.brand700 }}>
-              <ChevronDown aria-hidden style={{ width: 15, height: 15 }} strokeWidth={2} />
-              {aVenir === reste
-                ? `Voir ${reste === 1 ? "la dernière" : `les ${reste} dernières`}`
-                : `Voir ${aVenir} de plus`}
-              {aVenir !== reste && (
-                <span style={{ fontWeight: 500, color: T.ink4 }}>· {reste} restantes</span>
-              )}
-            </button>
-          )}
-        </ScrollBody>
-      )}
-    </Widget>
-    {/* Frère du widget, jamais dans son corps — même raison que pour les widgets
+            {reste > 0 && (
+              <button className="slb-row" onClick={() => setEnPlus((n) => n + palier)}
+                aria-label={`Afficher ${aVenir} notification${aVenir > 1 ? "s" : ""} de plus (${reste} restante${reste > 1 ? "s" : ""})`}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "7px", width: "100%", padding: "11px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, color: T.brand700 }}>
+                <ChevronDown aria-hidden style={{ width: 15, height: 15 }} strokeWidth={2} />
+                {aVenir === reste
+                  ? `Voir ${reste === 1 ? "la dernière" : `les ${reste} dernières`}`
+                  : `Voir ${aVenir} de plus`}
+                {aVenir !== reste && (
+                  <span style={{ fontWeight: 500, color: T.ink4 }}>· {reste} restantes</span>
+                )}
+              </button>
+            )}
+          </ScrollBody>
+        )}
+      </Widget>
+      {/* Frère du widget, jamais dans son corps — même raison que pour les widgets
         génériques : `position: fixed` s'accrocherait à un ancêtre transformé par le
         FLIP. Voir `DataView`.
         ⚠️ `ficheHref` est passé explicitement : le record id d'une ligne de
         « Notification Center » n'est PAS celui de l'abonné — le lien se construit depuis
         `abonneId`, et seulement s'il a bien la forme d'un record id. */}
-    {fiche && (
-      <RecordDialog row={fiche.raw} desc={CATALOG.notifC} map={CATALOG.notifC.defaultMap ?? {}}
-        ficheHref={/^rec[A-Za-z0-9]{14}$/.test(fiche.abonneId)
-          ? pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: fiche.abonneId })
-          : ""}
-        onClose={() => setFiche(null)} />
-    )}
+      {fiche && (
+        <RecordDialog row={fiche.raw} desc={CATALOG.notifC} map={CATALOG.notifC.defaultMap ?? {}}
+          ficheHref={/^rec[A-Za-z0-9]{14}$/.test(fiche.abonneId)
+            ? pageUrl(PAGES.abonne, { [PAGE_RECORD_PARAM]: fiche.abonneId })
+            : ""}
+          onClose={() => setFiche(null)} />
+      )}
     </>
   );
 }
@@ -6435,32 +6575,32 @@ function TaskRow({ t, onFait }: { t: Task; onFait?: () => void }) {
    comme un total ; elle doit en être un. */
 function TasksWidget({ prospects, partenaires, totalProspects, totalPartenaires, partial,
   onFait, faisable, mineAsked, identifiee, loading }: {
-  prospects: Task[]; partenaires: Task[];
-  totalProspects: number; totalPartenaires: number; partial?: boolean;
-  /** Une des deux sources lit encore. ⚠️ SANS CETTE PROP, le widget affichait « Aucune
-   *  tâche prospect en cours » pendant tout le chargement (les deux tables sont DRAINÉES,
-   *  donc plusieurs secondes) : un état vide affirmatif, montré à la place d'un état
-   *  d'attente, se lit comme une réponse — et comme une réponse fausse. C'est exactement
-   *  ce que l'indicateur de chargement doit empêcher. */
-  loading?: boolean;
-  /** Clôt une tâche. `onFait` reçoit l'onglet courant : les deux tables sont
-   *  différentes, donc l'écriture ne part pas au même endroit. */
-  onFait?: (scope: "prospects" | "partenaires", id: string) => Promise<boolean>;
-  /** L'écriture est-elle possible, ONGLET PAR ONGLET (source connectée, session
-   *  présente) ? Le bouton « Fait » n'apparaît que là où il peut vraiment agir. */
-  faisable?: { prospects: boolean; partenaires: boolean };
-  /** Le filtre « mes tâches » est-il demandé, et la session est-elle identifiable ?
-   *  Les deux servent au bandeau : un filtre inapplicable doit se DIRE (cf. §9). */
-  mineAsked: boolean;
-  identifiee: boolean;
-}) {
+    prospects: Task[]; partenaires: Task[];
+    totalProspects: number; totalPartenaires: number; partial?: boolean;
+    /** Une des deux sources lit encore. ⚠️ SANS CETTE PROP, le widget affichait « Aucune
+     *  tâche prospect en cours » pendant tout le chargement (les deux tables sont DRAINÉES,
+     *  donc plusieurs secondes) : un état vide affirmatif, montré à la place d'un état
+     *  d'attente, se lit comme une réponse — et comme une réponse fausse. C'est exactement
+     *  ce que l'indicateur de chargement doit empêcher. */
+    loading?: boolean;
+    /** Clôt une tâche. `onFait` reçoit l'onglet courant : les deux tables sont
+     *  différentes, donc l'écriture ne part pas au même endroit. */
+    onFait?: (scope: "prospects" | "partenaires", id: string) => Promise<boolean>;
+    /** L'écriture est-elle possible, ONGLET PAR ONGLET (source connectée, session
+     *  présente) ? Le bouton « Fait » n'apparaît que là où il peut vraiment agir. */
+    faisable?: { prospects: boolean; partenaires: boolean };
+    /** Le filtre « mes tâches » est-il demandé, et la session est-elle identifiable ?
+     *  Les deux servent au bandeau : un filtre inapplicable doit se DIRE (cf. §9). */
+    mineAsked: boolean;
+    identifiee: boolean;
+  }) {
   const [tab, setTab] = useState("prospects");
   /* Disparition IMMÉDIATE de la ligne cochée, avant que la source ne soit relue, et
      ROLLBACK annoncé si l'écriture échoue. Copié sur le « Vu » des notifications, pour
      la même raison : une tâche qui disparaît sans écriture réelle ferait croire à un
      travail fait. Ne jamais retirer le rollback. */
-  const [faites, setFaites] = useState<string[]>([]);
-  const [echec, setEchec] = useState<string | null>(null);
+  const [faites, setFaites] = useState < string[] > ([]);
+  const [echec, setEchec] = useState < string | null > (null);
   const clore = async (scope: "prospects" | "partenaires", id: string) => {
     if (!onFait) return;
     setFaites((v) => [...v, id]);
@@ -6598,8 +6738,10 @@ type Filter = { field: string; op: FilterOp; value?: string };
 type ViewCfg =
   | { kind: "list"; map: FieldRoleMap }
   | { kind: "table"; columns: string[] }                     // alias de champs, dans l'ordre
-  | { kind: "kpi"; agg: "count" | "sum" | "avg"; field?: string;
-      dateField?: string; compareDays?: number };
+  | {
+    kind: "kpi"; agg: "count" | "sum" | "avg"; field?: string;
+    dateField?: string; compareDays?: number
+  };
 
 type InstanceCfg = {
   title: string;                                  // vide → libellé du descripteur
@@ -6845,11 +6987,11 @@ function coerceCfg(raw: unknown, base: InstanceCfg): InstanceCfg {
      §10) et doit le rester — d'où le test sur la chaîne vide, qui rend une liste vide. */
   const facetsBruts: unknown[] = Array.isArray(o.facets) ? o.facets
     : typeof o.facets === "string" ? [o.facets]
-    : "facet" in o
-      ? (o.facet === "" || o.facet == null ? []
-         : [o.facet, ...(Array.isArray(desc.defaultFacet) ? desc.defaultFacet : [])])
-    : Array.isArray(desc.defaultFacet) ? desc.defaultFacet
-    : [desc.defaultFacet];
+      : "facet" in o
+        ? (o.facet === "" || o.facet == null ? []
+          : [o.facet, ...(Array.isArray(desc.defaultFacet) ? desc.defaultFacet : [])])
+        : Array.isArray(desc.defaultFacet) ? desc.defaultFacet
+          : [desc.defaultFacet];
   const facets = kind === "kpi" ? []
     : [...new Set(facetsBruts.map((a) => known(a)).filter((a): a is string => !!a))].slice(0, FACETS_MAX);
 
@@ -6966,8 +7108,8 @@ const clientKind = (v: unknown): "pro" | "solo" | "duo" | "particulier" | "" => 
  *  AUCUN périmètre : c'est `clientScope` qui décide s'il faut alors filtrer du tout. */
 const clientMatch = (kind: ReturnType<typeof clientKind>, veut: Clientele): boolean =>
   veut === "tous" ? true
-  : veut === "particulier" ? kind !== "" && kind !== "pro"
-  : kind === veut;
+    : veut === "particulier" ? kind !== "" && kind !== "pro"
+      : kind === veut;
 
 /** Périmètre clientèle appliqué à des lignes BRUTES, hors grammaire `InstanceCfg` : c'est
  *  ce que consomment les widgets sur-mesure (commerciaux, notifications), qui portent
@@ -7113,21 +7255,22 @@ const matchFacet = (cell: unknown, coche: Set<string>, multi?: boolean): boolean
  *  barre de recherche puisse trouver une valeur au-delà des 60 AFFICHÉES, et ne coupe qu'à
  *  l'affichage. Chercher un nom dans une liste déjà tronquée n'aurait rien ramené. */
 function facetValues(rows: Row[], alias: string, multi?: boolean, max = 60): { value: string; count: number }[] {
-  const compte = new Map<string, { value: string; count: number }>();
-  for (const r of rows) {
-    const brut = asText(r[alias]).trim();
-    if (!brut) continue;
-    /* Champ multi-valeurs : on compte CHAQUE valeur de la cellule. Conséquence à connaître —
-       la somme des compteurs dépasse alors le nombre de lignes, puisqu'un contact « Commercial,
-       Admin » est compté dans les deux. C'est le comportement attendu d'un filtre à facettes,
-       pas une double comptabilisation à corriger. */
-    for (const v of multi ? brut.split(",").map((x) => x.trim()).filter(Boolean) : [brut]) {
-      const k = foldText(v);
-      const e = compte.get(k);
-      if (e) e.count++; else compte.set(k, { value: v, count: 1 });
-    }
+  const compte = new Map < string, { value: string; count: number
+}> ();
+for (const r of rows) {
+  const brut = asText(r[alias]).trim();
+  if (!brut) continue;
+  /* Champ multi-valeurs : on compte CHAQUE valeur de la cellule. Conséquence à connaître —
+     la somme des compteurs dépasse alors le nombre de lignes, puisqu'un contact « Commercial,
+     Admin » est compté dans les deux. C'est le comportement attendu d'un filtre à facettes,
+     pas une double comptabilisation à corriger. */
+  for (const v of multi ? brut.split(",").map((x) => x.trim()).filter(Boolean) : [brut]) {
+    const k = foldText(v);
+    const e = compte.get(k);
+    if (e) e.count++; else compte.set(k, { value: v, count: 1 });
   }
-  return [...compte.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "fr")).slice(0, max);
+}
+return [...compte.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "fr")).slice(0, max);
 }
 
 /** Agrégat d'un KPI + écart avec la fenêtre précédente (`null` si non calculable).
@@ -7299,7 +7442,7 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
    *  pas décrire ce détour, l'appelant le sait — d'où cette porte de sortie. */
   ficheHref?: string;
 }) {
-  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const closeRef = useRef < HTMLButtonElement | null > (null);
   useModalScrollLock();                             // la fiche est montée = elle est ouverte
   useEffect(() => {
     closeRef.current?.focus();                      // le clavier entre DANS la modale
@@ -7344,7 +7487,7 @@ function RecordDialog({ row, desc, map, onClose, ficheHref }: {
   const lien = fiche || (desc.listPage ? pageUrl(desc.listPage) : "");
   const libelleLien = fiche ? "Ouvrir la fiche complète"
     : desc.pageLabel ? `Ouvrir ${desc.pageLabel}`
-    : "Ouvrir dans le CRM";
+      : "Ouvrir dans le CRM";
 
   const lbl: CSSProperties = { fontSize: "11px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em" };
   const val: CSSProperties = { fontSize: "13px", fontWeight: 500, color: T.ink, minWidth: 0, overflowWrap: "anywhere" };
@@ -7621,7 +7764,7 @@ function FiltreSaisie({ alias, desc, rows, valeur, onChange }: {
           <div style={{ padding: "7px 8px 3px", fontSize: "11.5px", fontWeight: 600, color: trouve === 0 && q ? T.danger : T.ink4 }}>
             {!q ? "Tapez tout ou partie du numéro"
               : trouve === 0 ? "Aucune ligne ne correspond"
-              : `${trouve} ligne${trouve > 1 ? "s" : ""} sur ${rows.length}`}
+                : `${trouve} ligne${trouve > 1 ? "s" : ""} sur ${rows.length}`}
           </div>
           {pistes.length > 0 && (
             <>
@@ -7767,13 +7910,13 @@ function GenericRow({ row, map, desc, actions, api, onOpen }: {
   const clic: CSSProperties | undefined = onOpen ? { cursor: "pointer" } : undefined;
   const clicProps = onOpen
     ? {
-        role: "button" as const, tabIndex: 0,
-        "aria-label": `Détail — ${label}`,
-        onClick: onOpen,
-        onKeyDown: (e: ReactKeyboardEvent) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
-        },
-      }
+      role: "button" as const, tabIndex: 0,
+      "aria-label": `Détail — ${label}`,
+      onClick: onOpen,
+      onKeyDown: (e: ReactKeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
+      },
+    }
     : {};
   return (
     <div className="slb-row" {...clicProps}
@@ -7950,7 +8093,7 @@ function GenericKpi({ rows, cfg, desc, api, ident }: ViewProps) {
   const { value, delta } = kpiCompute(rows, cfg, ident);
   const legend = v?.agg === "sum" ? `Somme · ${desc.fields[v.field ?? ""]?.label ?? ""}`
     : v?.agg === "avg" ? `Moyenne · ${desc.fields[v.field ?? ""]?.label ?? ""}`
-    : `${cfg.unit}${value > 1 ? "s" : ""}`;
+      : `${cfg.unit}${value > 1 ? "s" : ""}`;
   return (
     <div style={{ padding: "14px 16px 18px", display: "flex", alignItems: "baseline", gap: "12px", flexWrap: "wrap" }}>
       {api.error ? (
@@ -8032,12 +8175,12 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
      ⚠️ On garde la LIGNE et pas seulement son id : les lignes viennent d'une lecture
      déjà en mémoire, et rechercher l'id après coup ferait disparaître la fiche dès que
      la ligne sort du filtre (marquer « Fait » la retire de la liste, par exemple). */
-  const [fiche, setFiche] = useState<Row | null>(null);
+  const [fiche, setFiche] = useState < Row | null > (null);
   /* Recherche, cases cochées et tri : ÉTAT LOCAL, jamais persisté (cf. `LocalRefine`).
      Une recherche enregistrée reviendrait au chargement suivant et donnerait un widget
      qui paraît vide sans raison visible — c'est le piège classique des filtres
      « collants ». Ici, recharger la page remet la liste à plat. */
-  const [local, setLocal] = useState<LocalRefine>({});
+  const [local, setLocal] = useState < LocalRefine > ({});
   /* `drain` UNIQUEMENT en vue KPI. Une vue `list` ou `table` applique `applyQuery` puis
      une limite : elle décrit ce qu'elle montre, donc une page suffit. Une vue `kpi`
      compte / somme / moyenne sur TOUTES les lignes lues (cf. `rows` ci-dessous) : sans
@@ -8148,12 +8291,12 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
         const borneLue = !isKpi && !!api.borne ? ` · ${profondeur} derniers` : "";
         const etatLecture = isKpi ? ""
           : api.cached ? ` · données ${snapAge(api.at)}`
-          : api.draining ? " · lecture en cours"
-          : api.partial ? " · lecture tronquée" : "";
+            : api.draining ? " · lecture en cours"
+              : api.partial ? " · lecture tronquée" : "";
         const sub = api.loading ? "Chargement…"
           : isKpi ? (cfg.view.kind === "kpi" && cfg.view.compareDays ? `sur ${cfg.view.compareDays} j` : desc.label)
-          : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}${borneLue}${etatLecture}`
-          : plural(rows.length, cfg.unit) + perimetre + borneLue + etatLecture;
+            : restreint ? `${rows.length} sur ${total} ${cfg.unit}${total > 1 ? "s" : ""}${perimetre}${borneLue}${etatLecture}`
+              : plural(rows.length, cfg.unit) + perimetre + borneLue + etatLecture;
         const V = cfg.view.kind === "table" ? GenericTable : isKpi ? GenericKpi : GenericList;
         /* Le mappage des rôles sert le TITRE et le badge de la fiche. En vue tableau il
            n'y en a pas (les colonnes sont libres) : on prend celui du descripteur. */
@@ -8201,13 +8344,13 @@ function DataView({ cfg }: { cfg: InstanceCfg }) {
                   2026-08-18, corrigé le 2026-08-20. */}
               {!!cfg.clientele && cfg.clientele !== "tous" && !api.loading && !api.error
                 && !clientFilterActive(cfg, api.rows) && (
-                <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
-                  <Badge variant="warn" dot>Filtre inactif</Badge>
-                  <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
-                    Type de client non lu par la source : tous les dossiers sont affichés.
-                  </span>
-                </div>
-              )}
+                  <div style={{ display: "flex", alignItems: "center", gap: "9px", padding: "10px 16px", borderBottom: `1px solid ${T.line}` }}>
+                    <Badge variant="warn" dot>Filtre inactif</Badge>
+                    <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+                      Type de client non lu par la source : tous les dossiers sont affichés.
+                    </span>
+                  </div>
+                )}
               {outils && !api.loading && !api.error && (
                 <ListToolbar rows={api.rows} cfg={cfg} desc={desc} local={local} setLocal={setLocal}
                   triable={cfg.view.kind !== "table"} ident={ident} />
@@ -8267,9 +8410,9 @@ const resolveDefault = (v: unknown, email: string): unknown => (v === "@me.email
    redevient la source de vérité au prochain rafraîchissement. Un échec remonte
    un message court à côté du bouton (pas de toast global depuis une ligne). --- */
 function RowActions({ actions, row, api }: { actions: ActionDesc[]; row: Row; api: SourceApi }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
-  const [failed, setFailed] = useState<string | null>(null);
+  const [busy, setBusy] = useState < string | null > (null);
+  const [confirming, setConfirming] = useState < string | null > (null);
+  const [failed, setFailed] = useState < string | null > (null);
 
   const run = async (a: ActionDesc) => {
     if (a.kind === "set" && a.confirm && confirming !== a.id) { setConfirming(a.id); return; }
@@ -8325,10 +8468,10 @@ function QuickCreate({ desc, api }: { desc: SourceDesc; api: SourceApi }) {
   const user = useCurrentUser();
   const email = asText(user?.email).trim().toLowerCase();
   const [open, setOpen] = useState(false);
-  const [values, setValues] = useState<Record<string, unknown>>({});
+  const [values, setValues] = useState < Record < string, unknown>> ({});
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement | null>(null);
+  const [error, setError] = useState < string | null > (null);
+  const ref = useRef < HTMLDivElement | null > (null);
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -8429,7 +8572,7 @@ function QuickCreate({ desc, api }: { desc: SourceDesc; api: SourceApi }) {
    ⚠️ Ce registre peut être VIDE (widget encore en chargement, source jamais affichée) : le
    formulaire retombe alors sur la saisie libre, jamais sur une liste vide qui empêcherait
    de filtrer. */
-const LIGNES_VUES = new Map<string, Row[]>();
+const LIGNES_VUES = new Map < string, Row[]> ();
 
 /** Les valeurs proposables pour un champ, dans l'ordre de fréquence. `[]` si on n'a rien vu
  *  ou si le champ ne s'y prête pas — une date ou un nombre se SAISISSENT, les proposer
@@ -9096,9 +9239,11 @@ type SavMetric = {
 };
 
 const SAV_METRICS: SavMetric[] = [
-  { key: "ouverts", label: "Dossiers ouverts", kind: "hero", icon: Ticket,
+  {
+    key: "ouverts", label: "Dossiers ouverts", kind: "hero", icon: Ticket,
     value: (k) => `${k.ouverts}`,
-    sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} suivi${k.dossiers > 1 ? "s" : ""}` },
+    sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} suivi${k.dossiers > 1 ? "s" : ""}`
+  },
   /* ⚠️ Plus d'alerte « priorité élevée » — RETIRÉE du registre le 2026-08-04, sur
      demande. Elle ne peut donc plus être cochée, et `coerceSavCfg` écarte sa clé des
      `cfg.show` déjà enregistrées : elle disparaît aussi des widgets qui l'affichaient.
@@ -9117,20 +9262,29 @@ const SAV_METRICS: SavMetric[] = [
      ⚠️ Il n'y a donc PLUS AUCUNE métrique `kind: "alert"` déclarée. Son rendu (§ `picked`)
      est conservé : c'est une famille du registre, pas du code sur-mesure, et la prochaine
      alerte n'aura qu'à se déclarer. */
-  { key: "dossiers", label: "Dossiers au total", kind: "stat", icon: ClipboardList,
+  {
+    key: "dossiers", label: "Dossiers au total", kind: "stat", icon: ClipboardList,
     value: (k) => `${k.dossiers}`,
-    sub: (k) => `${k.ouverts} ouvert${k.ouverts > 1 ? "s" : ""} · ${k.clos} clos ou résolu${k.clos > 1 ? "s" : ""}` },
-  { key: "taux", label: "Taux de résolution", kind: "stat", icon: CheckCircle,
+    sub: (k) => `${k.ouverts} ouvert${k.ouverts > 1 ? "s" : ""} · ${k.clos} clos ou résolu${k.clos > 1 ? "s" : ""}`
+  },
+  {
+    key: "taux", label: "Taux de résolution", kind: "stat", icon: CheckCircle,
     value: (k) => `${Math.round(k.taux * 100)} %`,
     sub: (k) => `${k.resolus} dossier${k.resolus > 1 ? "s" : ""} au statut « Résolu »`,
-    bar: (k) => k.taux },
-  { key: "ancienneteMoy", label: "Ancienneté moyenne des ouverts", kind: "stat", icon: Clock,
+    bar: (k) => k.taux
+  },
+  {
+    key: "ancienneteMoy", label: "Ancienneté moyenne des ouverts", kind: "stat", icon: Clock,
     value: (k) => (k.ouverts ? `${Math.round(k.ancienneteMoy)} j` : DASH),
-    sub: (k) => (k.ouverts ? `le plus ancien : ${Math.round(k.ancienneteMax)} j` : "aucun dossier ouvert") },
-  { key: "interventions", label: "Interventions cumulées", kind: "stat", icon: HardHat,
+    sub: (k) => (k.ouverts ? `le plus ancien : ${Math.round(k.ancienneteMax)} j` : "aucun dossier ouvert")
+  },
+  {
+    key: "interventions", label: "Interventions cumulées", kind: "stat", icon: HardHat,
     value: (k) => `${k.interventions}`,
-    sub: (k) => (k.dossiers ? `${(k.interventions / k.dossiers).toFixed(1).replace(".", ",")} par dossier en moyenne` : "") },
-  { key: "coutTiers", label: "Coût tiers SAV", kind: "stat", icon: Building2,
+    sub: (k) => (k.dossiers ? `${(k.interventions / k.dossiers).toFixed(1).replace(".", ",")} par dossier en moyenne` : "")
+  },
+  {
+    key: "coutTiers", label: "Coût tiers SAV", kind: "stat", icon: Building2,
     value: (k) => fmtEur(k.coutTiers),
     /* Le sous-texte NOMME le trou de saisie quand il existe : un coût cumulé est
        sous-évalué de tout ce qui n'a pas été rapproché, et l'afficher sans le dire
@@ -9138,7 +9292,8 @@ const SAV_METRICS: SavMetric[] = [
     sub: (k) => (k.tiersSansCout
       ? `${k.avecTiers} avec tiers · ${k.tiersSansCout} sans coût rapproché`
       : `${k.avecTiers} dossier${k.avecTiers > 1 ? "s" : ""} avec tiers mandaté`),
-    warnSub: (k) => k.tiersSansCout > 0 },
+    warnSub: (k) => k.tiersSansCout > 0
+  },
   /* Les deux métriques de QUALITÉ DE LA DONNÉE, ajoutées le 2026-08-04 sur le modèle
      du tableau de bord du bloc SAV (« matériel documenté », « dossiers rapprochés »).
      ⚠️ Elles mesurent ce que CE bloc peut voir — le remplissage des champs de la table
@@ -9146,19 +9301,23 @@ const SAV_METRICS: SavMetric[] = [
      SAV, lui, vient du parsing des descriptifs d'installation, hors de portée ici (voir
      la note d'en-tête de SavWidget). Les libellés le disent, pour qu'on ne lise pas un
      chiffre pour un autre. */
-  { key: "fabricantConnu", label: "Fabricant identifié", kind: "stat", icon: Building2,
+  {
+    key: "fabricantConnu", label: "Fabricant identifié", kind: "stat", icon: Building2,
     value: (k) => `${Math.round(k.partFabricant * 100)} %`,
     sub: (k) => {
       const manque = k.dossiers - k.fabricantConnu;
       return manque ? `${manque} dossier${manque > 1 ? "s" : ""} sans fabricant renseigné` : "tous les dossiers renseignés";
     },
     bar: (k) => k.partFabricant,
-    warnSub: (k) => k.fabricantConnu < k.dossiers },
-  { key: "clientConnu", label: "Client rattaché", kind: "stat", icon: Users,
+    warnSub: (k) => k.fabricantConnu < k.dossiers
+  },
+  {
+    key: "clientConnu", label: "Client rattaché", kind: "stat", icon: Users,
     value: (k) => `${k.clientConnu}`,
     sub: (k) => `sur ${k.dossiers} dossier${k.dossiers > 1 ? "s" : ""} — ${Math.round(k.partClient * 100)} % nommés`,
     bar: (k) => k.partClient,
-    warnSub: (k) => k.clientConnu < k.dossiers },
+    warnSub: (k) => k.clientConnu < k.dossiers
+  },
   { key: "causes", label: `Principales causes (${SAV_CAUSES_TOP})`, kind: "block" },
   { key: "qualite", label: "Qualité des données", kind: "block" },
 ];
@@ -10118,23 +10277,33 @@ type ComMetric = {
   bar?: (g: ComGlobal) => number;
 };
 const COM_METRICS: ComMetric[] = [
-  { key: "contrats", label: "Contrats signés", icon: CheckCircle,
+  {
+    key: "contrats", label: "Contrats signés", icon: CheckCircle,
     value: (g) => `${g.contrats}`,
-    sub: () => "" },   // le sous-texte dépend de la période : rempli dans le widget
-  { key: "annules", label: "Annulés", icon: XCircle,
+    sub: () => ""
+  },   // le sous-texte dépend de la période : rempli dans le widget
+  {
+    key: "annules", label: "Annulés", icon: XCircle,
     value: (g) => `${g.annules}`,
     sub: (g) => `Taux d'annulation ${g.tauxAnnulation} %`,
-    warnSub: (g) => g.annules > 0 },
-  { key: "capex", label: "CAPEX signé HT", icon: BarChart3,
+    warnSub: (g) => g.annules > 0
+  },
+  {
+    key: "capex", label: "CAPEX signé HT", icon: BarChart3,
     value: (g) => fmtMEur(g.capex),
-    sub: (g) => `${fmtKwc(g.kwc)} installés` },
-  { key: "installateurs", label: "Installateurs actifs", icon: HardHat,
+    sub: (g) => `${fmtKwc(g.kwc)} installés`
+  },
+  {
+    key: "installateurs", label: "Installateurs actifs", icon: HardHat,
     value: (g) => `${g.installateurs}`,
-    sub: (g) => `${g.commerciaux} commercial${g.commerciaux > 1 ? "aux" : ""} au portefeuille` },
-  { key: "aSigner", label: `À signer (${PIPE_JOURS} j)`, icon: FileSignature,
+    sub: (g) => `${g.commerciaux} commercial${g.commerciaux > 1 ? "aux" : ""} au portefeuille`
+  },
+  {
+    key: "aSigner", label: `À signer (${PIPE_JOURS} j)`, icon: FileSignature,
     value: (g) => `${g.aSigner}`,
     sub: (g) => `${fmtMEur(g.capexASigner)} de CAPEX restant`,
-    warnSub: (g) => g.aSigner > 0 },
+    warnSub: (g) => g.aSigner > 0
+  },
 ];
 const COM_SHOW_DEFAULT = COM_METRICS.map((m) => m.key);
 
@@ -10296,7 +10465,7 @@ function comStats(rows: Row[], periode: PodiumPeriode, now: Date, groupBy: ComGr
   const iCourant = tousMois.indexOf(mCourant);
   const mPrecedent = (iCourant > 0 ? tousMois[iCourant - 1] : tousMois[tousMois.length - 2]) || "";
 
-  const par = new Map<string, Row[]>();
+  const par = new Map < string, Row[]> ();
   portefeuille.forEach((r) => {
     const nom = asText(groupBy === "installateur" ? r.installateur : r.commercial).trim();
     /* ⚠️ La garde « Non assigné » ne vaut que pour un COMMERCIAL : c'est le libellé que
@@ -10965,44 +11134,60 @@ type ExcMetric = {
   bar?: (k: ExcKpis) => number | undefined;
 };
 const EXC_METRICS: ExcMetric[] = [
-  { key: "total", label: "Exceptions", icon: ClipboardList, groupe: "volume",
+  {
+    key: "total", label: "Exceptions", icon: ClipboardList, groupe: "volume",
     value: (k) => `${k.total}`,
-    sub: (k) => `${k.abonne} abonné · ${k.partenaire} partenaire` },
-  { key: "recentes", label: `${EXC_FENETRE_J} derniers jours`, icon: CalendarClock, groupe: "volume",
+    sub: (k) => `${k.abonne} abonné · ${k.partenaire} partenaire`
+  },
+  {
+    key: "recentes", label: `${EXC_FENETRE_J} derniers jours`, icon: CalendarClock, groupe: "volume",
     value: (k) => `${k.recentes}`,
     /* La comparaison NOMME la période précédente au lieu d'afficher un pourcentage :
        passer de 0 à 21 ne fait pas « +2 100 % », ça fait « aucune avant ». */
     sub: (k) => (k.precedentes
       ? `${k.precedentes} sur les ${EXC_FENETRE_J} j précédents`
-      : `aucune sur les ${EXC_FENETRE_J} j précédents`) },
-  { key: "validees", label: "Validées (partenaire)", icon: CheckCircle, groupe: "volume",
+      : `aucune sur les ${EXC_FENETRE_J} j précédents`)
+  },
+  {
+    key: "validees", label: "Validées (partenaire)", icon: CheckCircle, groupe: "volume",
     value: (k) => `${k.validees}`,
     sub: (k) => `${fmtPct(k.partValidees)} du périmètre partenaire`,
-    bar: (k) => k.partValidees },
-  { key: "sansJustif", label: "Sans justificatif", icon: FileSignature, groupe: "volume",
+    bar: (k) => k.partValidees
+  },
+  {
+    key: "sansJustif", label: "Sans justificatif", icon: FileSignature, groupe: "volume",
     value: (k) => `${k.sansJustif}`,
     sub: (k) => `${fmtPct(k.partSansJustif)} des exceptions`,
-    warnSub: (k) => k.sansJustif > 0 },
-  { key: "dossiers", label: "Dossiers avec exceptions", icon: Users, groupe: "couverture",
+    warnSub: (k) => k.sansJustif > 0
+  },
+  {
+    key: "dossiers", label: "Dossiers avec exceptions", icon: Users, groupe: "couverture",
     value: (k) => `${k.dossiers}`,
     /* Sans dénominateur SÛR, on dit le compte lu et on TAIT le pourcentage : un taux sur
        un parc partiel serait surévalué sans que rien ne le signale. */
     sub: (k) => (k.partDossiers != null
       ? `${fmtPct(k.partDossiers)} du parc (${k.parcDossiers} dossiers)`
       : "parc non lu : pas de taux"),
-    bar: (k) => k.partDossiers ?? undefined },
-  { key: "parDossier", label: "Exceptions / dossier", icon: BarChart3, groupe: "couverture",
+    bar: (k) => k.partDossiers ?? undefined
+  },
+  {
+    key: "parDossier", label: "Exceptions / dossier", icon: BarChart3, groupe: "couverture",
     value: (k) => fmtDec(k.parDossier),
-    sub: (k) => (k.dossiers ? `moyenne sur les ${k.dossiers} dossiers concernés` : "aucun dossier concerné") },
-  { key: "partenaires", label: "Installateurs avec exceptions", icon: HardHat, groupe: "couverture",
+    sub: (k) => (k.dossiers ? `moyenne sur les ${k.dossiers} dossiers concernés` : "aucun dossier concerné")
+  },
+  {
+    key: "partenaires", label: "Installateurs avec exceptions", icon: HardHat, groupe: "couverture",
     value: (k) => `${k.partenaires}`,
     sub: (k) => (k.partPartenaires != null
       ? `${fmtPct(k.partPartenaires)} du parc (${k.parcPartenaires} partenaires)`
       : "parc non lu : pas de taux"),
-    bar: (k) => k.partPartenaires ?? undefined },
-  { key: "parPartenaire", label: "Exceptions / installateur", icon: BarChart3, groupe: "couverture",
+    bar: (k) => k.partPartenaires ?? undefined
+  },
+  {
+    key: "parPartenaire", label: "Exceptions / installateur", icon: BarChart3, groupe: "couverture",
     value: (k) => fmtDec(k.parPartenaire),
-    sub: (k) => (k.partenaires ? `moyenne sur les ${k.partenaires} installateurs concernés` : "aucun installateur concerné") },
+    sub: (k) => (k.partenaires ? `moyenne sur les ${k.partenaires} installateurs concernés` : "aucun installateur concerné")
+  },
 ];
 const EXC_SHOW_DEFAULT = EXC_METRICS.map((m) => m.key);
 
@@ -11096,14 +11281,16 @@ function ExcIndicsWidget({ cfg, abo, part, parcA, parcP }: {
           {/* DEUX sources ici (les deux périmètres d'exception) : la note porte sur la plus
               en retard des deux — un total est incomplet dès qu'UNE de ses sources l'est. */}
           <AggregateNote style={{ padding: "0 16px 14px" }}
-            api={{ rows: [], loading: false, error: false,
+            api={{
+              rows: [], loading: false, error: false,
               draining: !!abo.draining || !!part.draining,
               partial: !!abo.partial || !!part.partial,
               /* Même règle pour l'instantané que pour les deux autres états : le total est
                  daté dès qu'UNE de ses sources l'est, et à la date de la PLUS ANCIENNE —
                  dater un total de son composant le plus frais serait le flatter. */
               stale: !!abo.stale || !!part.stale,
-              at: [abo.at, part.at].filter((d): d is number => !!d).sort((a, b) => a - b)[0] }} />
+              at: [abo.at, part.at].filter((d): d is number => !!d).sort((a, b) => a - b)[0]
+            }} />
         </div>
       )}
     </Widget>
@@ -11881,22 +12068,22 @@ function RichText({
 }) {
   const [foc, setFoc] = useState(false);
   /** Attributs mis en évidence sur la barre d'outils (état de la sélection). */
-  const [actifs, setActifs] = useState<MemoAttrs>({});
-  const edRef = useRef<HTMLDivElement | null>(null);
+  const [actifs, setActifs] = useState < MemoAttrs > ({});
+  const edRef = useRef < HTMLDivElement | null > (null);
   /** Le texte que le DOM représente ACTUELLEMENT. Égal à `value` ⇒ rien à rebâtir, donc
    *  curseur intact : c'est toute l'astuce de la frappe fluide. `null` force la
    *  reconstruction (montage, mise en forme, collage). */
-  const domRef = useRef<string | null>(null);
+  const domRef = useRef < string | null > (null);
   /** Sélection à replacer APRÈS reconstruction. */
-  const posRef = useRef<{ a: number; b: number } | null>(null);
+  const posRef = useRef < { a: number; b: number } | null > (null);
   /** Dernière sélection connue — sert à distinguer un vrai déplacement du curseur de
    *  notre propre repositionnement, et à survivre au clic sur la barre d'outils. */
-  const selRef = useRef<{ a: number; b: number } | null>(null);
+  const selRef = useRef < { a: number; b: number } | null > (null);
   /** Mise en forme EN ATTENTE : cliquer « Gras » sans rien sélectionner ne peut pas
    *  transformer du texte, alors on retient l'intention et on l'applique aux caractères
    *  de la frappe suivante. Sans ça, le geste le plus naturel (« je clique gras, puis
    *  j'écris ») ne produirait rien de visible. */
-  const pendRef = useRef<MemoAttrs | null>(null);
+  const pendRef = useRef < MemoAttrs | null > (null);
 
   /* Réconciliation modèle → DOM. En `useLayoutEffect` : le curseur est reposé avant que
      l'écran ne soit peint, donc aucun saut visible. */
@@ -12142,8 +12329,10 @@ function RichText({
               {MEMO_COLORS.map((c) => (
                 <button key={c.key} onClick={() => bascule("c", c.key)} aria-label={`Couleur ${c.label}`} title={c.label} aria-pressed={actifs.c === c.key}
                   style={{ ...tool(actifs.c === c.key), width: 22, height: 22 }}>
-                  <span aria-hidden style={{ width: 11, height: 11, borderRadius: 999, background: c.color,
-                    boxShadow: actifs.c === c.key ? `0 0 0 1.5px ${T.surface}, 0 0 0 3px ${c.color}` : undefined }} />
+                  <span aria-hidden style={{
+                    width: 11, height: 11, borderRadius: 999, background: c.color,
+                    boxShadow: actifs.c === c.key ? `0 0 0 1.5px ${T.surface}, 0 0 0 3px ${c.color}` : undefined
+                  }} />
                 </button>
               ))}
             </>
@@ -12164,13 +12353,17 @@ function RichText({
           onKeyDown={onKeyDown}
           onFocus={() => setFoc(true)}
           onBlur={() => { setFoc(false); onBlur?.(); }}
-          style={{ boxSizing: "border-box", minHeight, maxHeight, overflowY: maxHeight ? "auto" : undefined,
+          style={{
+            boxSizing: "border-box", minHeight, maxHeight, overflowY: maxHeight ? "auto" : undefined,
             padding: multiligne ? "10px 11px" : "7px 10px", borderRadius: T.rSm, border: `1px solid ${foc ? T.brand100 : T.line}`,
-            background: T.surface, outline: "none", cursor: "text", whiteSpace: "pre-wrap", ...MEMO_TEXTE }}
+            background: T.surface, outline: "none", cursor: "text", whiteSpace: "pre-wrap", ...MEMO_TEXTE
+          }}
         />
         {!value && placeholder && (
-          <div aria-hidden style={{ position: "absolute", top: multiligne ? 11 : 8, left: 12, right: 12, pointerEvents: "none",
-            ...MEMO_TEXTE, color: T.ink4, whiteSpace: "pre-wrap" }}>
+          <div aria-hidden style={{
+            position: "absolute", top: multiligne ? 11 : 8, left: 12, right: 12, pointerEvents: "none",
+            ...MEMO_TEXTE, color: T.ink4, whiteSpace: "pre-wrap"
+          }}>
             {placeholder}
           </div>
         )}
@@ -12294,7 +12487,7 @@ const CHECK_ISO = /^\d{4}-\d{2}-\d{2}$/;
 const coerceChecklistCfg = (raw: unknown): ChecklistCfg => {
   const o = asObj(raw);
   const list = Array.isArray(o.items) ? (o.items as unknown[]) : [];
-  const seen = new Set<string>();
+  const seen = new Set < string > ();
   const items: CheckItem[] = [];
   for (const it of list) {
     if (items.length >= CHECK_MAX) break;
@@ -12358,10 +12551,12 @@ function CheckDue({ due, jour, demain, fait }: { due: string; jour: string; dema
 function CheckTexte({ texte, fait }: { texte: string; fait: boolean }) {
   const l = memoParse(texte)[0] ?? { puce: false, spans: [] };
   return (
-    <span style={{ flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: T.ink2, overflowWrap: "anywhere",
+    <span style={{
+      flex: 1, minWidth: 0, fontSize: "12.5px", fontWeight: 500, color: T.ink2, overflowWrap: "anywhere",
       /* Le texte barré ne suffit pas à porter le sens (charte) : la case cochée le dit
          déjà, l'atténuation n'est qu'un renfort — et l'opacité préserve les couleurs. */
-      textDecoration: fait ? "line-through" : undefined, opacity: fait ? 0.5 : 1 }}>
+      textDecoration: fait ? "line-through" : undefined, opacity: fait ? 0.5 : 1
+    }}>
       {l.spans.map((sp, i) => <span key={i} style={memoStyle(sp)}>{sp.t}</span>)}
     </span>
   );
@@ -12373,8 +12568,10 @@ function CheckDatePick({ value, onChange }: { value: string; onChange: (v: strin
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", flex: "none" }}>
       <input type="date" value={value} onChange={(e) => onChange(e.target.value)} aria-label="Échéance"
-        style={{ boxSizing: "border-box", padding: "5px 7px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
-          background: T.surface, color: value ? T.ink : T.ink4, fontFamily: "inherit", fontSize: "12px", fontWeight: 500 }} />
+        style={{
+          boxSizing: "border-box", padding: "5px 7px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
+          background: T.surface, color: value ? T.ink : T.ink4, fontFamily: "inherit", fontSize: "12px", fontWeight: 500
+        }} />
       {value && (
         <button className="slb-nbtn" style={{ ...NBTN_SM, width: 22, height: 22 }} onClick={() => onChange("")}
           aria-label="Retirer l'échéance" title="Retirer l'échéance">
@@ -12394,7 +12591,7 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
   const [saisieDue, setSaisieDue] = useState("");
   /** Ligne en cours de modification, et son brouillon — l'original n'est touché qu'à la
    *  validation, pour qu'Échap puisse tout rendre. */
-  const [editId, setEditId] = useState<string | null>(null);
+  const [editId, setEditId] = useState < string | null > (null);
   const [brTexte, setBrTexte] = useState("");
   const [brDue, setBrDue] = useState("");
 
@@ -12437,7 +12634,7 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
   const retards = cfg.items.filter((i) => !i.fait && i.due && i.due < jour).length;
   const sub = !cfg.items.length ? "Vos rappels personnels"
     : retards ? `${retards} en retard · ${restants} à faire`
-    : `${restants} sur ${cfg.items.length} à faire`;
+      : `${restants} sur ${cfg.items.length} à faire`;
   const plein = cfg.items.length >= CHECK_MAX;
 
   return (
@@ -12466,8 +12663,10 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
               />
             </div>
             <button className="slb-btng" onClick={ajouter} aria-label="Ajouter" title="Ajouter" disabled={plein || !saisie.trim()}
-              style={{ flex: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
-                background: T.surface, color: plein || !saisie.trim() ? T.ink4 : T.ink2, cursor: plein || !saisie.trim() ? "default" : "pointer" }}>
+              style={{
+                flex: "none", display: "inline-flex", alignItems: "center", padding: "7px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`,
+                background: T.surface, color: plein || !saisie.trim() ? T.ink4 : T.ink2, cursor: plein || !saisie.trim() ? "default" : "pointer"
+              }}>
               <Plus aria-hidden style={{ width: 15, height: 15 }} />
             </button>
           </div>
@@ -12508,9 +12707,11 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
                     Annuler
                   </button>
                   <button className="slb-btnp" onClick={validerEdition} disabled={!brTexte.trim()}
-                    style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 11px", borderRadius: T.rSm, border: "none",
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 11px", borderRadius: T.rSm, border: "none",
                       background: brTexte.trim() ? T.brand : T.neutral050, color: brTexte.trim() ? "#fff" : T.ink4,
-                      fontFamily: "inherit", fontSize: "12px", fontWeight: 600, cursor: brTexte.trim() ? "pointer" : "default" }}>
+                      fontFamily: "inherit", fontSize: "12px", fontWeight: 600, cursor: brTexte.trim() ? "pointer" : "default"
+                    }}>
                     <Check aria-hidden style={{ width: 13, height: 13 }} />Valider
                   </button>
                 </div>
@@ -12639,9 +12840,11 @@ const fileType = (title: string, icon: LucideIcon, base: InstanceCfg): WidgetTyp
   Render: ({ cfg }) => <DataView cfg={cfg} />,
   coerce: (raw) => {
     const t = fileTriOf(raw);
-    return { ...base, tri: t.key, clientele: clienteleOf(raw),
-             facets: fileFacetsOf(raw, base.facets ?? []),
-             query: { ...base.query, sort: { by: t.by, dir: t.dir } } };
+    return {
+      ...base, tri: t.key, clientele: clienteleOf(raw),
+      facets: fileFacetsOf(raw, base.facets ?? []),
+      query: { ...base.query, sort: { by: t.by, dir: t.dir } }
+    };
   },
   Options: FileOptions,
 });
@@ -12705,8 +12908,10 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   /* ⚠️ La CLÉ reste `notifs` : c'est un contrat de persistance (les layouts déjà
      enregistrés la portent). Seul le titre change — « Nouveaux dossiers abonnés »
      depuis la refonte du 2026-08-06 (§9). */
-  notifs: { title: "Nouveaux dossiers abonnés", icon: Bell, Render: NotifsCard,
-            defaults: () => coerceNotifsCfg({}), coerce: coerceNotifsCfg, Options: NotifsOptions },
+  notifs: {
+    title: "Nouveaux dossiers abonnés", icon: Bell, Render: NotifsCard,
+    defaults: () => coerceNotifsCfg({}), coerce: coerceNotifsCfg, Options: NotifsOptions
+  },
   taches: { title: "Journal des tâches", icon: CalendarClock, Render: TachesCard },
   notesInstallateurs: dataType("Dernières notes — Installateurs", HardHat, NOTES_INS_CFG),
   notesProspects: dataType("Dernières notes — Prospects", Target, NOTES_PRO_CFG),
@@ -12721,30 +12926,50 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
   /* Configurable depuis la rév. 2.1 : `Options` = les valeurs à afficher (registre
      SAV_METRICS). `coerce` tolère une cfg vide — les instances posées avant sont
      donc inchangées, sans migration. */
-  sav: { title: "Pilotage SAV — synthèse", icon: Ticket, Render: SavCard,
-         defaults: () => coerceSavCfg({}), coerce: coerceSavCfg, Options: SavOptions },
+  sav: {
+    title: "Pilotage SAV — synthèse", icon: Ticket, Render: SavCard,
+    defaults: () => coerceSavCfg({}), coerce: coerceSavCfg, Options: SavOptions
+  },
   /* Podium (§9-septies) — vient du tableau de bord KPI, mêmes critères et même dessin. */
-  podium: { title: "Podium CAPEX HT", icon: Trophy, Render: PodiumCard,
-            defaults: () => coercePodiumCfg({}), coerce: coercePodiumCfg, Options: PodiumOptions },
-  classementCom: { title: "Classement des commerciaux", icon: Users, Render: ClassementCard,
-                   defaults: () => coerceClassementCfg({}), coerce: coerceClassementCfg, Options: ClassementOptions },
-  classementInst: { title: "Tous les installateurs", icon: HardHat, Render: InstCard,
-                    defaults: () => coerceInstCfg({}), coerce: coerceInstCfg, Options: InstOptions },
-  comIndics: { title: "Indicateurs commerciaux", icon: BarChart3, Render: ComIndicsCard,
-               defaults: () => coerceComIndicsCfg({}), coerce: coerceComIndicsCfg, Options: ComIndicsOptions },
+  podium: {
+    title: "Podium CAPEX HT", icon: Trophy, Render: PodiumCard,
+    defaults: () => coercePodiumCfg({}), coerce: coercePodiumCfg, Options: PodiumOptions
+  },
+  classementCom: {
+    title: "Classement des commerciaux", icon: Users, Render: ClassementCard,
+    defaults: () => coerceClassementCfg({}), coerce: coerceClassementCfg, Options: ClassementOptions
+  },
+  classementInst: {
+    title: "Tous les installateurs", icon: HardHat, Render: InstCard,
+    defaults: () => coerceInstCfg({}), coerce: coerceInstCfg, Options: InstOptions
+  },
+  comIndics: {
+    title: "Indicateurs commerciaux", icon: BarChart3, Render: ComIndicsCard,
+    defaults: () => coerceComIndicsCfg({}), coerce: coerceComIndicsCfg, Options: ComIndicsOptions
+  },
   /* Exceptions (§9-octies). */
-  excIndics: { title: "Exceptions", icon: ClipboardList, Render: ExcIndicsCard,
-               defaults: () => coerceExcIndicsCfg({}), coerce: coerceExcIndicsCfg, Options: ExcIndicsOptions },
-  excRegistre: { title: "Registre des exceptions", icon: ClipboardList, Render: ExcRegistreCard,
-                 defaults: () => coerceExcRegistreCfg({}), coerce: coerceExcRegistreCfg, Options: ExcRegistreOptions },
+  excIndics: {
+    title: "Exceptions", icon: ClipboardList, Render: ExcIndicsCard,
+    defaults: () => coerceExcIndicsCfg({}), coerce: coerceExcIndicsCfg, Options: ExcIndicsOptions
+  },
+  excRegistre: {
+    title: "Registre des exceptions", icon: ClipboardList, Render: ExcRegistreCard,
+    defaults: () => coerceExcRegistreCfg({}), coerce: coerceExcRegistreCfg, Options: ExcRegistreOptions
+  },
   /* Utilitaires (§9-sexies). `memo` et `checklist` n'ont PAS d'`Options` : leur seul
      réglage serait leur contenu, et il s'édite dans le widget — pas derrière un ⋮. */
-  horloge: { title: "Heure", icon: Clock, Render: HorlogeCard,
-             defaults: () => coerceHorlogeCfg({}), coerce: coerceHorlogeCfg, Options: HorlogeOptions },
-  memo: { title: "Pense-bête", icon: FileSignature, Render: MemoCard,
-          defaults: () => coerceMemoCfg({}), coerce: coerceMemoCfg },
-  checklist: { title: "Liste à cocher", icon: ClipboardList, Render: ChecklistCard,
-               defaults: () => coerceChecklistCfg({}), coerce: coerceChecklistCfg },
+  horloge: {
+    title: "Heure", icon: Clock, Render: HorlogeCard,
+    defaults: () => coerceHorlogeCfg({}), coerce: coerceHorlogeCfg, Options: HorlogeOptions
+  },
+  memo: {
+    title: "Pense-bête", icon: FileSignature, Render: MemoCard,
+    defaults: () => coerceMemoCfg({}), coerce: coerceMemoCfg
+  },
+  checklist: {
+    title: "Liste à cocher", icon: ClipboardList, Render: ChecklistCard,
+    defaults: () => coerceChecklistCfg({}), coerce: coerceChecklistCfg
+  },
   data: dataType("Widget de données", LayoutGrid, DATA_CFG),
   /* --- Clés DÉPRÉCIÉES, conservées par contrat de persistance : elles ont été
      livrées, donc des instances peuvent exister chez des utilisateurs. Elles
@@ -13143,7 +13368,7 @@ function WidgetGallery({ posed, onAdd, onClose }: {
 }) {
   const [q, setQ] = useState("");
   const [groupe, setGroupe] = useState("");     // "" = tous
-  const champRef = useRef<HTMLInputElement | null>(null);
+  const champRef = useRef < HTMLInputElement | null > (null);
   useModalScrollLock();                         // la galerie est montée = elle est ouverte
 
   /* Le champ prend le focus à l'ouverture : la galerie s'utilise au clavier, on tape
@@ -13565,7 +13790,7 @@ const idxOf = (list: Instance[], id: string): number => list.findIndex((i) => i.
  *  CONSERVÉ, pas mort — il reste la seule façon de pousser un widget chez tout le
  *  monde (une annonce, un widget de campagne) sans le réimposer à qui l'a retiré. */
 function seed(l: Layout): Layout {
-  const known = new Set<string>([
+  const known = new Set < string > ([
     ...l.items.map((i) => i.id), ...l.parked.map((i) => i.id), ...l.seeded,
   ]);
   const missing = DEFAULT_INSTANCES.filter((d) => !known.has(d.id));
@@ -13629,8 +13854,8 @@ function normalizeLayout(saved: unknown, knownTypes: readonly string[] = TYPE_KE
   if (obj.v === 1) return migrateV1(obj, knownTypes);
   if (obj.v !== 2) return cloneDefault();
 
-  const valid = new Set<string>(knownTypes);
-  const seen = new Set<string>();
+  const valid = new Set < string > (knownTypes);
+  const seen = new Set < string > ();
   const items: Instance[] = [], parked: Instance[] = [];
   const take = (list: unknown, dest: Instance[], forceHalf = false) => {
     if (!Array.isArray(list)) return;
@@ -13665,8 +13890,8 @@ function normalizeLayout(saved: unknown, knownTypes: readonly string[] = TYPE_KE
  * normalize v1. Écrit en base seulement au prochain « Enregistrer ».
  */
 function migrateV1(v1: any, knownTypes: readonly string[] = TYPE_KEYS): Layout {
-  const valid = new Set<string>(knownTypes);
-  const seen = new Set<string>();
+  const valid = new Set < string > (knownTypes);
+  const seen = new Set < string > ();
   const items: Instance[] = [], parked: Instance[] = [];
   const conv = (list: unknown, dest: Instance[], forceHalf = false) => {
     if (!Array.isArray(list)) return;
@@ -13871,8 +14096,8 @@ function writeLocalLayout(email: string, layout: Layout): void {
 // Message lisible d'une erreur inconnue (Error / string / objet).
 const msgOf = (e: unknown): string =>
   e instanceof Error ? e.message
-  : typeof e === "string" ? e
-  : (() => { try { return JSON.stringify(e); } catch { return String(e); } })();
+    : typeof e === "string" ? e
+      : (() => { try { return JSON.stringify(e); } catch { return String(e); } })();
 
 function usePersistentLayout() {
   const user = useCurrentUser();
@@ -13902,9 +14127,9 @@ function usePersistentLayout() {
     return () => window.clearTimeout(t);
   }, [attentePrefsExpiree]);
 
-  const [layout, setLayout] = useState<Layout | null>(() => readLocalLayout(email));
-  const [status, setStatus] = useState<"loading" | "ready">(() => (readLocalLayout(email) ? "ready" : "loading"));
-  const recordId = useRef<string | null>(null);
+  const [layout, setLayout] = useState < Layout | null > (() => readLocalLayout(email));
+  const [status, setStatus] = useState < "loading" | "ready" > (() => (readLocalLayout(email) ? "ready" : "loading"));
+  const recordId = useRef < string | null > (null);
 
   const bddRec = PREFS_ENABLED ? flatten(bddRes)[0] ?? null : null;
   const bddId = bddRec?.id ?? null;
@@ -13986,7 +14211,7 @@ function usePersistentLayout() {
    élément positionné en `absolute` déclencherait un recalcul de mise en page à chaque
    image. */
 function FlecheVersBouton() {
-  const ref = useRef<SVGGElement | null>(null);
+  const ref = useRef < SVGGElement | null > (null);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof el.animate !== "function") return;
@@ -14077,7 +14302,7 @@ function Dashboard() {
   // bloc vit dans une iframe étroite alors que la fenêtre est large). Mesuré en JS
   // plutôt qu'en container query : le style inline qui en découle fonctionne même
   // si la feuille injectée n'est pas appliquée dans Softr.
-  const gridRef = useRef<HTMLDivElement | null>(null);
+  const gridRef = useRef < HTMLDivElement | null > (null);
   const [twoCols, setTwoCols] = useState(true);
   useEffect(() => {
     const el = gridRef.current;
@@ -14112,7 +14337,7 @@ function Dashboard() {
      `scale()` sur les wrappers pendant ses animations, et un rect inclut les
      transforms des ancêtres — les hauteurs mesurées seraient fausses à chaque
      réordonnancement. `offsetHeight` ignore les transforms. */
-  const [spans, setSpans] = useState<Record<string, number>>({});
+  const [spans, setSpans] = useState < Record < string, number>> ({});
   const spanOf = (h: WidgetHeight, hasFooter = true): number =>
     // Repli avant la première mesure (et si ResizeObserver manque) : en-tête ~52 px,
     // pied ~49 px. Évite un saut de mise en page au premier rendu.
@@ -14124,9 +14349,9 @@ function Dashboard() {
      pas, ce qui est le bon défaut. */
   const [embedsAdmin, setEmbedsAdmin] = useState(false);
   const embeds = useContext(EmbedsCtx);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [overIndex, setOverIndex] = useState<number | null>(null);
-  const [toast, setToast] = useState<{ ok: boolean; layout?: Layout; error?: string } | null>(null);
+  const [dragIndex, setDragIndex] = useState < number | null > (null);
+  const [overIndex, setOverIndex] = useState < number | null > (null);
+  const [toast, setToast] = useState < { ok: boolean; layout?: Layout; error?: string } | null > (null);
 
   const loading = status === "loading" && !applied;   // squelettes tant que rien à afficher
   const current = applied ?? cloneDefault();
@@ -14135,7 +14360,7 @@ function Dashboard() {
      ⚠️ On n'écrit PAS en base à chaque cran : un glissement franchit plusieurs seuils, ce
      qui ferait autant d'écritures concurrentes sur le même document. L'écriture a lieu une
      seule fois, au relâchement (cf. `onResizeUp` / `onSizeUp`). */
-  const [livePreview, setLivePreview] = useState<Layout | null>(null);
+  const [livePreview, setLivePreview] = useState < Layout | null > (null);
   const shown = livePreview ?? current;
   const resetDrag = () => { setDragIndex(null); setOverIndex(null); };
 
@@ -14152,16 +14377,16 @@ function Dashboard() {
   // (prev toujours frais), animation seulement si la disposition a changé.
   // Contenu contre-scalé (innerRefs) → pas de distorsion. Respecte reduced-motion.
   // Clés = ids d'INSTANCE (une même clé de type peut être posée plusieurs fois).
-  const wrapRefs = useRef(new Map<string, HTMLElement>());
-  const innerRefs = useRef(new Map<string, HTMLElement>());
-  const flipPrev = useRef(new Map<string, DOMRect>());
+  const wrapRefs = useRef(new Map < string, HTMLElement > ());
+  const innerRefs = useRef(new Map < string, HTMLElement > ());
+  const flipPrev = useRef(new Map < string, DOMRect > ());
   const flipSig = useRef("");
   useLayoutEffect(() => {
     const sig = `${shown.items.map((it) => `${it.id}:${it.w}:${it.h}`).join(",")}|${loading}`;
     const changed = sig !== flipSig.current;
     flipSig.current = sig;
     const prev = flipPrev.current;
-    const next = new Map<string, DOMRect>();
+    const next = new Map < string, DOMRect> ();
     wrapRefs.current.forEach((el, id) => next.set(id, el.getBoundingClientRect()));
     const reduce = typeof window !== "undefined" && !!window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     /* ⚠️ JAMAIS D'ANIMATION PENDANT UN REDIMENSIONNEMENT ACTIF. Le FLIP est fait pour
@@ -14288,7 +14513,7 @@ function Dashboard() {
      cette mémoire remplie au `pointerdown` en capture — cf. la note de `WidgetGrab`.
      Une seule ref pour toute la grille suffit : le dernier appui est forcément celui du
      widget qu'on est en train de glisser. */
-  const grabFromRef = useRef<Element | null>(null);
+  const grabFromRef = useRef < Element | null > (null);
 
   /** Ce qui INTERDIT de glisser : les éléments interactifs de l'en-tête (le ⋮, dont le
    *  clic serait annulé par `dragstart` — bug du 2026-08-03) et tout panneau flottant qui
@@ -14324,7 +14549,7 @@ function Dashboard() {
      le curseur pendant qu'on réglait. On fige donc la hauteur du conteneur au début
      du geste : la page ne peut plus RACCOURCIR pendant le réglage. Elle peut encore
      s'allonger, sinon on ne verrait pas un widget grandir. Relâché au pointerup. --- */
-  const [lockH, setLockH] = useState<number | null>(null);
+  const [lockH, setLockH] = useState < number | null > (null);
   const freezeHeight = () => setLockH(gridRef.current?.offsetHeight ?? null);
 
   /* Redimensionnement en largeur (poignées de bord) — événements POINTER (souris
@@ -14334,7 +14559,7 @@ function Dashboard() {
      qu'il faut refaire tout le seuil pour rebasculer. Sans ça, une main qui tremble
      autour du seuil faisait osciller le widget entre les deux largeurs. */
   const RESIZE_STEP = 56;
-  const resizeRef = useRef<{ id: string; startX: number; side: 1 | -1 } | null>(null);
+  const resizeRef = useRef < { id: string; startX: number; side: 1 | -1 } | null > (null);
   const onResizeDown = (id: string, side: 1 | -1) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -14358,7 +14583,7 @@ function Dashboard() {
      La ref porte donc la valeur COURANTE, lisible et écrivable hors de tout updater ;
      `setLivePreview` ne fait plus que déclencher le rendu. Ne jamais revenir en arrière :
      tout ce qui écrit ou persiste doit rester DEHORS des updaters. */
-  const liveRef = useRef<Layout | null>(null);
+  const liveRef = useRef < Layout | null > (null);
   const applyLive = (fn: (l: Layout) => Layout) => {
     const next = fn(liveRef.current ?? current);
     liveRef.current = next;
@@ -14413,7 +14638,7 @@ function Dashboard() {
      ⚠️ Le pas visible reste `DASH_ROW` (4 px) : c'est `coerceHeight` qui arrondit, dans
      `setWidgetHeight`. En dessous, on paierait un rendu par pixel parcouru pour un changement
      invisible. */
-  const sizeRef = useRef<{ id: string; startY: number; startH: number } | null>(null);
+  const sizeRef = useRef < { id: string; startY: number; startH: number } | null > (null);
   const onSizeDown = (id: string) => (e: ReactPointerEvent<HTMLElement>) => {
     e.stopPropagation(); e.preventDefault();
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -14577,13 +14802,15 @@ function Dashboard() {
                    poignées de redimensionnement sont en `absolute` et existent aussi hors
                    édition — sans repère de position sur le wrapper, elles se placeraient
                    par rapport au premier ancêtre positionné, donc n'importe où. */
-                style={{ ["--slb-wh" as any]: `${size}px`, position: "relative", gridColumn: wide ? "1 / -1" : undefined,
+                style={{
+                  ["--slb-wh" as any]: `${size}px`, position: "relative", gridColumn: wide ? "1 / -1" : undefined,
                   /* TASSEMENT : le widget occupe autant de lignes fines que sa hauteur
                      mesurée l'exige (repli `spanOf` avant la première mesure), et son
                      espacement bas est DANS le span — cf. la note sur DASH_GAP. */
                   gridRow: `span ${spans[id] ?? spanOf(size)}`,
                   paddingBottom: DASH_GAP,
-                  borderRadius: T.rXl, opacity: isSource ? 0.5 : 1 }}>
+                  borderRadius: T.rXl, opacity: isSource ? 0.5 : 1
+                }}>
                 {/* ⚠️ LE LISERÉ DE CIBLE EST POSÉ ICI, sur la carte, et NON sur le wrapper.
                     Il y était avant le tassement, quand le wrapper épousait la carte ; depuis
                     que le wrapper porte `paddingBottom: DASH_GAP`, l'encadrer revenait à
@@ -14594,20 +14821,24 @@ function Dashboard() {
                     recouvrait par le bas. `position: relative` est nécessaire pour que
                     `zIndex` s'applique. */}
                 <div ref={(el) => { if (el) innerRefs.current.set(id, el); else innerRefs.current.delete(id); }}
-                  style={{ borderRadius: T.rXl,
+                  style={{
+                    borderRadius: T.rXl,
                     outline: isTarget ? `2px dashed ${T.brand}` : "2px dashed transparent", outlineOffset: 3,
                     boxShadow: isTarget ? `0 0 0 5px ${T.brand050}` : undefined,
-                    position: isTarget ? "relative" : undefined, zIndex: isTarget ? 4 : undefined }}>
+                    position: isTarget ? "relative" : undefined, zIndex: isTarget ? 4 : undefined
+                  }}>
                   {/* Options — pour TOUS les types : même sans formulaire propre, un
                       widget est renommable, déplaçable, redimensionnable et retirable
                       (`Form` est alors `undefined` et le panneau n'affiche que
                       « Apparence »). */}
                   <WidgetOptionsCtx.Provider
-                    value={{ cfg, Form: def.Options, title: titreFigeDe(inst.type) ? "" : (inst.title ?? ""),
+                    value={{
+                      cfg, Form: def.Options, title: titreFigeDe(inst.type) ? "" : (inst.title ?? ""),
                       titreFige: titreFigeDe(inst.type), tint: inst.tint ?? "",
                       wide,
                       onSave: ({ title, tint, cfg: c, wide: w }) => persistOptions(id, title, tint, c, w),
-                      onRemove: () => persistRemove(id) }}>
+                      onRemove: () => persistRemove(id)
+                    }}>
                     {/* Écriture de son propre contenu (pense-bête, liste à cocher) :
                         toujours ouverte — il n'y a plus qu'un seul écrivain. */}
                     <WidgetCfgCtx.Provider value={{ save: (c) => persistCfg(id, c) }}>
@@ -14650,9 +14881,11 @@ function Dashboard() {
                        contenu. Un décalage plus faible la faisait mordre sur les derniers
                        pixels du corps — donc sur la BARRE DE DÉFILEMENT (6 px, à droite) et
                        sur le bord des lignes cliquables. */
-                    style={{ position: "absolute", top: 46, bottom: 10 + DASH_GAP,
+                    style={{
+                      position: "absolute", top: 46, bottom: 10 + DASH_GAP,
                       [side === 1 ? "right" : "left"]: -13, width: 13,
-                      display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5 }}>
+                      display: "grid", placeItems: "center", cursor: "ew-resize", touchAction: "none", zIndex: 5
+                    }}>
                     <span style={{ width: 4, height: 34, borderRadius: 999, background: T.line2, opacity: 0 }} />
                   </span>
                 ))}
@@ -14729,13 +14962,13 @@ function Dashboard() {
 export default function Block() {
   const user = useCurrentUser(); // iframe Softr — jamais window.logged_in_user
   const firstName = USE_MOCK ? MOCK_USER.firstName : firstNameOf(user);
-  const [tab, setTab] = useState<string>("accueil");
+  const [tab, setTab] = useState < string > ("accueil");
   const active = NAV_TABS.find((t) => t.id === tab) ?? NAV_TABS[0];
 
   /* Survol et focus rendus EN JS sur ce conteneur (§2-bis). On passe par un ref et
      non par `#slb` : dans le bloc Softr, rien ne garantit que l'attribut id survive
      (c'est la même raison qui a fait sortir la mise en page de la feuille de style). */
-  const rootRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef < HTMLDivElement > (null);
   useHoverFX(rootRef);
   /* Animations d'attente (§2-ter) : même conteneur, même raison — la feuille peut manquer. */
   useMotionFX(rootRef);
