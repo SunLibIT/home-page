@@ -1281,7 +1281,15 @@ menu ⋮ (`titreFigeDe`) : un titre personnel l'emporterait sur celui de la comm
 même annonce porterait autant de noms que de pages. Un renommage enregistré avant cette règle
 n'est pas effacé, il est ignoré.
 
-**Qui le voit** : les membres du groupe Softr **Admins** (assigné à la main), autorisé sur l'action.
+**Les trois espaces (2026-10-13).** Même feuille que /sun-accueil du CRM 3 : trois onglets,
+**« Équipe Sunlib »**, **« Installateurs »** et **« Apporteurs d'affaires »**. Les deux derniers écrivent
+dans « Embeds Accueil Partenaire » (`tblSoeXSGmep7uYY3`, branchée ici sous le nom `embedsPartenaire`) :
+clés nues pour les installateurs, clés `af_*` pour les apporteurs (qui reprennent celles des
+installateurs tant qu'ils n'ont pas les leurs). ⚠️ Les tables sont les MÊMES que celles du CRM 3 :
+une annonce changée ici l'est aussi là-bas.
+
+**Qui le voit** : les groupes Softr **Admins** et **Direction**, autorisés sur les actions d'écriture de
+`embeds` et de `embedsPartenaire` (équivalents CRM 2 de SUN_MARKETING + SUN_DIRECTION du CRM 3).
 Le bloc ne lit pas les groupes — Softr ne les lui expose pas — il lit le `enabled` du hook de
 mutation, qui reflète la permission de l'action. ⚠️ Pas de repli ici, contrairement à l'espace
 partenaire : sans `enabled`, le bouton n'apparaît pas. Tout le monde étant SunLib dans le CRM,

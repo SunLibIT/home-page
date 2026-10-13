@@ -1286,6 +1286,13 @@ const DS = datasource.define({
      à inventer une colonne « espace » pour les redistinguer aussitôt. Même choix que
      « Home Preferences » / « Home Preferences Partenaire ». */
   embeds: "embeds",
+  /* Connectée le 2026-10-13 — « Embeds Accueil Partenaire » (appHZaD5BkDsWxR65 ·
+     tblSoeXSGmep7uYY3), LA JUMELLE ci-dessus : c'est elle que lisent /inst-accueil ET
+     /af-accueil du CRM 3. Ce bloc ne s'en sert QUE pour l'écrire, depuis la feuille
+     « Modifier les widgets » (§9-quinquies, onglets « Installateurs » et « Apporteurs ») :
+     même comportement que /sun-accueil du CRM 3, qui écrit dans les MÊMES tables. Aucune
+     carte de cette page ne l'affiche. */
+  embedsPartenaire: "embedsPartenaire",
 });
 
 /* Le registre est COMPLET depuis le 2026-08-05 : les 9 sources du catalogue qui
@@ -9866,7 +9873,14 @@ function ElfsightWidget({ widgetId, height, title = "Contenu SunLib", hideLabel 
    quel connecté peut réécrire l'annonce vue par tous, sans un bruit.
 
    ⚠️ CE DISPOSITIF EST LE JUMEAU DE CELUI DE L'ESPACE PARTENAIRE (même mécanique, même
-   feuille, table distincte). Une correction ici en vaut presque toujours une là-bas. --- */
+   feuille, table distincte). Une correction ici en vaut presque toujours une là-bas.
+
+   DEUX ESPACES DANS LA FEUILLE (2026-10-13, demandé) : l'équipe (`DS.embeds`) et les
+   partenaires (`DS.embedsPartenaire`, la table lue par /inst-accueil ET /af-accueil). Le
+   marketing ne voit pas les accueils partenaires : c'est ICI qu'il en change les annonces.
+   Groupes autorisés sur les actions des DEUX sources (CRM 2) : « Admins » + « Direction ».
+   ⚠️ Les tables sont les MÊMES que celles de /sun-accueil du CRM 3 : une annonce changée
+   ici l'est là-bas, et inversement. --- */
 
 type EmbedCle = "alaune" | "annonces" | "linkedin";
 
@@ -9918,8 +9932,19 @@ const EMBEDS_ICON: Record<EmbedCle, LucideIcon> = {
   linkedin: Newspaper,
 };
 
+/** Le repli de l'espace PARTENAIRE — copie de `EMBEDS_REPLI` d'INST_ACCUEIL / AF_ACCUEIL.
+ *  Il ne sert ici qu'à l'aperçu « en place » de la feuille quand la table partenaire ne dit
+ *  rien pour un emplacement : on montre alors ce que les partenaires voient vraiment, pas
+ *  l'annonce de l'équipe. ⚠️ Si le repli change là-bas, il change ici. */
+const EMBEDS_REPLI_PART: Record<EmbedCle, string> = {
+  alaune: "52c57290-18ca-4bae-bd00-86c940bc2bbc",
+  annonces: "52c57290-18ca-4bae-bd00-86c940bc2bbc",
+  linkedin: "2df6db63-fd6e-498a-8a61-a97803d9d96f",
+};
+
 /** Même garde que `PREFS_ENABLED` (§11) : un littéral « TODO » n'est jamais lu. */
 const EMBEDS_ENABLED = !DS.embeds.startsWith("TODO");
+const EMBEDS_PART_ENABLED = !DS.embedsPartenaire.startsWith("TODO");
 
 const UUID_ELF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -9945,12 +9970,20 @@ type EmbedsApi = {
   /** Le titre voulu pour tout le monde, ou "" — à l'appelant de retomber sur le sien. */
   titreDe: (cle: EmbedCle) => string;
   ligneDe: (cle: EmbedCle) => EmbedLigne | null;
+  /** Vrai si l'emplacement n'a pas d'annonce PROPRE et montre celle dont il hérite (espace
+   *  « Apporteurs d'affaires » → celle des installateurs). Toujours faux sans héritage. */
+  herite: (cle: EmbedCle) => boolean;
   /** Vrai si l'écriture est possible — voir la nuance dans `useEmbedsSource`. */
   peutEcrire: boolean;
   enregistrer: (cle: EmbedCle, widgetId: string, snippet: string, titre: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
 const EmbedsCtx = createContext<EmbedsApi | null>(null);
+/** Les aiguillages des espaces PARTENAIRES (installateurs, apporteurs d'affaires). Lus par la
+ *  seule feuille d'administration : aucune carte de cette page ne s'y abonne (`useEmbedId` /
+ *  `useEmbedTitre` lisent `EmbedsCtx`). */
+const EmbedsPartCtx = createContext<EmbedsApi | null>(null);
+const EmbedsAfCtx = createContext<EmbedsApi | null>(null);
 
 /** L'identifiant d'un emplacement, repli compris. Utilisable HORS du fournisseur : une
  *  carte rendue ailleurs montre alors le repli, jamais du vide. */
@@ -9970,15 +10003,51 @@ function useEmbedTitre(cle: EmbedCle, defaut: string): string {
 }
 
 /** LA lecture de la table, montée une seule fois par `Block` et partagée par contexte :
- *  trois cartes qui liraient chacune la sienne feraient trois requêtes pour trois lignes. */
+ *  trois cartes qui liraient chacune la sienne feraient trois requêtes pour trois lignes.
+ *  DEUX tables, donc deux montages — l'équipe (`DS.embeds`) et les partenaires
+ *  (`DS.embedsPartenaire`) —, parce que `from` doit être `DS.membre` EN DIRECT, jamais un
+ *  paramètre. Les deux ne font que monter leurs hooks ; tout le reste est `useEmbedsApi`. */
 function useEmbedsSource(): EmbedsApi {
-  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
-
   /* Hooks TOUJOURS appelés, jamais conditionnels (Rules of Hooks) — même patron que
      `usePersistentLayout` : on monte, puis on neutralise en aval. */
   const res = useRecords({ from: DS.embeds, select: SELECT_EMBEDS, count: 20 });
   const updateM = useRecordUpdate({ from: DS.embeds, fields: SELECT_EMBEDS });
   const createM = useRecordCreate({ from: DS.embeds, fields: SELECT_EMBEDS });
+  return useEmbedsApi(EMBEDS_ENABLED, EMBEDS_REPLI, res, updateM, createM, "", false);
+}
+
+/** La table partenaire porte DEUX espaces (2026-10-13) : les installateurs sous les clés
+ *  nues (`alaune`…), les apporteurs d'affaires sous les clés préfixées (`af_alaune`…). Pas
+ *  de table de plus — on n'en crée pas pour le bloc —, et c'est la convention que relit
+ *  AF_ACCUEIL. Un emplacement AF sans ligne propre HÉRITE de celle des installateurs : c'est
+ *  ce que la page AF affichait avant, elle ne change donc pas tant qu'on n'y touche pas.
+ *  Une seule lecture, deux vues. */
+function useEmbedsSourcePartenaire(): { inst: EmbedsApi; af: EmbedsApi } {
+  const res = useRecords({ from: DS.embedsPartenaire, select: SELECT_EMBEDS, count: 20 });
+  const updateM = useRecordUpdate({ from: DS.embedsPartenaire, fields: SELECT_EMBEDS });
+  const createM = useRecordCreate({ from: DS.embedsPartenaire, fields: SELECT_EMBEDS });
+  const inst = useEmbedsApi(EMBEDS_PART_ENABLED, EMBEDS_REPLI_PART, res, updateM, createM, "", false);
+  const af = useEmbedsApi(EMBEDS_PART_ENABLED, EMBEDS_REPLI_PART, res, updateM, createM, EMBEDS_PREFIXE_AF, true);
+  return { inst, af };
+}
+
+/** Le préfixe des clés de l'espace « Apporteurs d'affaires » dans la table partenaire.
+ *  ⚠️ CONTRAT avec AF_ACCUEIL, qui le relit : le changer ici, c'est le changer là-bas. */
+const EMBEDS_PREFIXE_AF = "af_";
+
+/** `prefixe` : les clés de CET espace dans la table (`""` = clés nues).
+ *  `heritage` : un emplacement sans ligne propre (ou sans identifiant valide) montre la ligne
+ *  de la clé NUE — jamais écrite d'ici : toute écriture va sur la clé préfixée. */
+function useEmbedsApi(
+  actif: boolean,
+  repli: Record<EmbedCle, string>,
+  res: ReturnType<typeof useRecords>,
+  updateM: ReturnType<typeof useRecordUpdate>,
+  createM: ReturnType<typeof useRecordCreate>,
+  prefixe: string,
+  heritage: boolean,
+): EmbedsApi {
+  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
 
   /* ÉCRITURE OPTIMISTE, même principe que la persistance du layout (§11) : ce qu'on vient
      d'enregistrer s'affiche SANS attendre la relecture. Sans cela, tout dépendrait du
@@ -9990,14 +10059,17 @@ function useEmbedsSource(): EmbedsApi {
   const [optimiste, setOptimiste] = useState<Partial<Record<EmbedCle, EmbedLigne>>>({});
 
   const lignes: Partial<Record<EmbedCle, EmbedLigne>> = {};
-  if (EMBEDS_ENABLED) {
+  const heritees: Partial<Record<EmbedCle, EmbedLigne>> = {};
+  if (actif) {
+    const parCle: Record<string, EmbedLigne> = {};
     for (const r of flattenRows(res)) {
-      const cle = asText(r.cle).trim().toLowerCase() as EmbedCle;
-      /* Clé inconnue ou doublon : ignorés sans bruit. La PREMIÈRE ligne trouvée fait foi,
-         comme la lecture des préférences (§11) — deux lignes pour une même clé sont une
-         faute de saisie, pas une intention, et on ne devine pas laquelle l'emporte. */
-      if (!EMBED_CLES.includes(cle) || lignes[cle]) continue;
-      lignes[cle] = {
+      const brute = asText(r.cle).trim().toLowerCase();
+      /* Doublon : ignoré sans bruit. La PREMIÈRE ligne trouvée fait foi, comme la lecture
+         des préférences (§11) — deux lignes pour une même clé sont une faute de saisie, pas
+         une intention, et on ne devine pas laquelle l'emporte. Les clés inconnues tombent
+         d'elles-mêmes : seules celles de `EMBED_CLES` sont relues ci-dessous. */
+      if (!brute || parCle[brute]) continue;
+      parCle[brute] = {
         recordId: asText(r.id),
         widgetId: asText(r.widgetId).trim().toLowerCase(),
         snippet: asText(r.snippet),
@@ -10005,6 +10077,10 @@ function useEmbedsSource(): EmbedsApi {
         updatedAt: asText(r.updatedAt),
         updatedBy: asText(r.updatedBy),
       };
+    }
+    for (const cle of EMBED_CLES) {
+      if (parCle[prefixe + cle]) lignes[cle] = parCle[prefixe + cle];
+      if (heritage && parCle[cle]) heritees[cle] = parCle[cle];
     }
   }
 
@@ -10018,10 +10094,10 @@ function useEmbedsSource(): EmbedsApi {
      change alors depuis Airtable, comme avant — qu'un bouton offert à cinquante personnes
      dont l'enregistrement échouera pour quarante-neuf. */
   const brutEnabled = (updateM as { enabled?: unknown }).enabled;
-  const peutEcrire = EMBEDS_ENABLED && typeof brutEnabled === "boolean" && brutEnabled;
+  const peutEcrire = actif && typeof brutEnabled === "boolean" && brutEnabled;
 
   const enregistrer = async (cle: EmbedCle, widgetId: string, snippet: string, titre: string) => {
-    if (!EMBEDS_ENABLED) return { ok: false, error: "Source des embeds non branchée." };
+    if (!actif) return { ok: false, error: "Source des embeds non branchée." };
     /* Même garde que la persistance du layout : sans session, Softr refuse l'insert et
        l'échec serait incompréhensible. On le dit avant de tenter. */
     if (!email) return { ok: false, error: "Aperçu non connecté : l'enregistrement demande une session (à tester sur la page publiée)." };
@@ -10037,7 +10113,7 @@ function useEmbedsSource(): EmbedsApi {
            réelle, elle est documentée en §11 et ce n'est pas une coquille.
            On RETIENT l'id rendu : sans lui, un second enregistrement de suite recréerait
            une ligne au lieu de corriger la première, et la clé se retrouverait en double. */
-        const cree = await createM.mutateAsync({ cle, widgetId, snippet, titre, updatedAt: stamp, updatedBy: email }) as { id?: string } | undefined;
+        const cree = await createM.mutateAsync({ cle: prefixe + cle, widgetId, snippet, titre, updatedAt: stamp, updatedBy: email }) as { id?: string } | undefined;
         recordId = asText(cree?.id);
       }
       setOptimiste((o) => ({ ...o, [cle]: { recordId, widgetId, snippet, titre, updatedAt: stamp, updatedBy: email } }));
@@ -10059,13 +10135,22 @@ function useEmbedsSource(): EmbedsApi {
     return lu && lu.widgetId === opt.widgetId ? lu : opt;
   };
 
+  /* La ligne qui S'AFFICHE : la propre si elle porte un identifiant valide, sinon l'héritée.
+     Même règle qu'AF_ACCUEIL, qui doit montrer exactement ce que la feuille annonce. */
+  const effective = (cle: EmbedCle): EmbedLigne | null => {
+    const propre = vue(cle);
+    if (propre && UUID_ELF.test(propre.widgetId)) return propre;
+    return heritees[cle] ?? propre;
+  };
+
   return {
     idDe: (cle) => {
-      const w = vue(cle)?.widgetId ?? "";
-      return UUID_ELF.test(w) ? w : EMBEDS_REPLI[cle];
+      const w = effective(cle)?.widgetId ?? "";
+      return UUID_ELF.test(w) ? w : repli[cle];
     },
-    titreDe: (cle) => asText(vue(cle)?.titre).trim(),
-    ligneDe: (cle) => vue(cle),
+    titreDe: (cle) => asText(effective(cle)?.titre).trim(),
+    ligneDe: (cle) => effective(cle),
+    herite: (cle) => { const e = effective(cle); return !!e && e === heritees[cle]; },
     peutEcrire,
     enregistrer,
   };
@@ -13525,6 +13610,15 @@ function ApercuEmbed({ widgetId, hauteur = 200, etiquette }: { widgetId: string;
   );
 }
 
+/** Les espaces que règle la feuille, dans l'ordre des onglets. `aide` : la ligne sous les
+ *  onglets — vide pour l'équipe, dont c'est la page. */
+type EspaceEmbeds = "sun" | "inst" | "af";
+const ESPACES_EMBEDS: readonly { id: EspaceEmbeds; label: string; icon: LucideIcon; aide: string }[] = [
+  { id: "sun", label: "Équipe Sunlib", icon: Building2, aide: "" },
+  { id: "inst", label: "Installateurs", icon: HardHat, aide: "Affichées sur l'accueil des installateurs." },
+  { id: "af", label: "Apporteurs d'affaires", icon: Handshake, aide: "Affichées sur l'accueil des apporteurs d'affaires. Un widget sans annonce propre reprend celle des installateurs." },
+];
+
 /* --- « MODIFIER LES WIDGETS » : la feuille qui change d'annonce sans le code -------
    Deux temps, comme « Ajouter un widget » : la grille des emplacements, puis celui qu'on a
    choisi. Le geste attendu est celui qu'on a déjà — coller le snippet reçu de la
@@ -13535,7 +13629,21 @@ function ApercuEmbed({ widgetId, hauteur = 200, etiquette }: { widgetId: string;
    explications sont ici, en commentaire, là où elles servent à qui reprend le code — pas
    devant qui veut publier une annonce. --- */
 function EmbedsAdmin({ onClose }: { onClose: () => void }) {
-  const api = useContext(EmbedsCtx);
+  /* TROIS ESPACES (2026-10-13) : l'équipe (cette page), les installateurs (/inst-accueil) et
+     les apporteurs d'affaires (/af-accueil). Le marketing ne voit pas les accueils
+     partenaires, c'est donc ICI qu'il en change les annonces. Chaque espace n'est proposé
+     que si son écriture est permise (`peutEcrire`, la permission de l'action côté Softr) ;
+     le sélecteur n'apparaît que s'il y en a plusieurs. */
+  const apis: Record<EspaceEmbeds, EmbedsApi | null> = {
+    sun: useContext(EmbedsCtx),
+    inst: useContext(EmbedsPartCtx),
+    af: useContext(EmbedsAfCtx),
+  };
+  const espaces = ESPACES_EMBEDS.filter((e) => apis[e.id]?.peutEcrire);
+  const [espace, setEspace] = useState<EspaceEmbeds>(espaces[0]?.id ?? "sun");
+  const api = apis[espace];
+  const repli = espace === "sun" ? EMBEDS_REPLI : EMBEDS_REPLI_PART;
+  const espaceDef = ESPACES_EMBEDS.find((e) => e.id === espace) ?? ESPACES_EMBEDS[0];
   /* L'emplacement ouvert, ou `null` pour la grille. */
   const [choisi, setChoisi] = useState<EmbedCle | null>(null);
   const [saisies, setSaisies] = useState<Partial<Record<EmbedCle, string>>>({});
@@ -13544,6 +13652,17 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
   const [erreur, setErreur] = useState<Partial<Record<EmbedCle, string>>>({});
   const [fait, setFait] = useState<Partial<Record<EmbedCle, boolean>>>({});
   useModalScrollLock();
+
+  /* Changer d'espace REPART DE ZÉRO : les saisies sont indexées par emplacement, pas par
+     espace, et un collage fait pour l'équipe ne doit pas se retrouver prêt à partir chez
+     les partenaires. Bloqué pendant une écriture, pour la même raison. */
+  const changerEspace = (e: string) => {
+    const cible = ESPACES_EMBEDS.find((x) => x.id === e);
+    if (busy || !cible || cible.id === espace) return;
+    setEspace(cible.id);
+    setChoisi(null);
+    setSaisies({}); setTitres({}); setErreur({}); setFait({});
+  };
 
   /* Échap RECULE avant de fermer : depuis le détail il revient à la grille, et ne ferme
      qu'ensuite. Fermer tout sur la première touche ferait perdre un collage en cours à qui
@@ -13575,14 +13694,14 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
   const titreDe = (cle: EmbedCle) => titres[cle] ?? asText(api?.titreDe(cle));
 
   const appliquer = async (cle: EmbedCle) => {
-    const id = elfsightIdDe(saisieDe(cle, api?.idDe(cle) ?? EMBEDS_REPLI[cle]));
+    const id = elfsightIdDe(saisieDe(cle, api?.idDe(cle) ?? repli[cle]));
     if (!id) {
       setErreur((e) => ({ ...e, [cle]: "Snippet non reconnu." }));
       return;
     }
     setBusy(cle);
     setErreur((e) => ({ ...e, [cle]: "" }));
-    const res = await api!.enregistrer(cle, id, saisieDe(cle, api?.idDe(cle) ?? EMBEDS_REPLI[cle]).trim(), titreDe(cle).trim());
+    const res = await api!.enregistrer(cle, id, saisieDe(cle, api?.idDe(cle) ?? repli[cle]).trim(), titreDe(cle).trim());
     setBusy(null);
     if (res.ok) {
       /* ⚠️ ON NE VIDE PAS LE CHAMP : le vider faisait disparaître avec lui la trace de ce
@@ -13596,8 +13715,10 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
 
   /* --- LE DÉTAIL : l'annonce en place, ce qu'on colle, et rien d'autre. --- */
   const detail = (cle: EmbedCle) => {
-    const actuel = api?.idDe(cle) ?? EMBEDS_REPLI[cle];
-    const ligne = api?.ligneDe(cle) ?? null;
+    const actuel = api?.idDe(cle) ?? repli[cle];
+    /* La traçabilité ne parle que d'une ligne PROPRE : « qui a changé ça » ne doit pas
+       nommer l'auteur d'une annonce d'installateurs reprise telle quelle. */
+    const ligne = api?.herite(cle) ? null : api?.ligneDe(cle) ?? null;
     const saisie = saisieDe(cle, actuel);
     const extrait = elfsightIdDe(saisie);
     const err = erreur[cle];
@@ -13609,7 +13730,7 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
        le TITRE compte aussi : le changer seul doit pouvoir s'enregistrer. */
     const inerte = !saisie || busy === cle;
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "14px", maxWidth: 760, margin: "0 auto", width: "100%" }}>
         {/* Pas d'étiquette sur celui-ci : il est en tête, sous le nom du widget, et c'est
             déjà ce qui le désigne. Seul le second en porte une — « Nouveau » —, parce que
             lui seul dit quelque chose qui ne se déduit pas de sa place. */}
@@ -13694,7 +13815,9 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
       }}>
       <div role="dialog" aria-modal="true" aria-label="Modifier les widgets"
         style={{
-          width: "min(720px, 100%)", maxHeight: "86%", display: "flex", flexDirection: "column",
+          /* 1080 : la grille tient ses TROIS emplacements sur une ligne (3 × 300 + gouttières),
+             là où 720 en rejetait un seul en dessous. Le détail, lui, reste à 760 (`detail`). */
+          width: "min(1080px, 100%)", maxHeight: "90%", display: "flex", flexDirection: "column",
           background: T.surface, borderRadius: T.rXl, boxShadow: T.shMd, border: `1px solid ${T.line}`,
           overflow: "hidden", animation: "slb-fade .18s ease both",
         }}>
@@ -13711,6 +13834,9 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
           )}
           <div style={{ flex: 1, minWidth: 0, fontSize: "15px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {choisi ? EMBEDS_LABEL[choisi] : "Modifier les widgets"}
+            {/* L'espace se rappelle dans le détail : les libellés sont les mêmes des deux
+                côtés, et c'est ce qui dit à qui l'annonce sera montrée. */}
+            {choisi && espace !== "sun" ? <span style={{ fontWeight: 600, color: T.ink4 }}> · {espaceDef.label}</span> : null}
           </div>
           <button className="slb-nbtn" style={NBTN_SM} onClick={onClose} aria-label="Fermer" title="Fermer">
             <X aria-hidden style={{ width: 16, height: 16 }} />
@@ -13720,6 +13846,17 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
         {/* Corps : seule zone qui défile. `maxHeight: none` ANNULE le plafond de
             `.slb-scrolly`, fait pour le corps d'un widget et non pour une feuille. */}
         <div className="slb-scrolly" style={{ ...MODAL_BODY, maxHeight: "none", padding: "16px 18px 20px", background: T.surface2 }}>
+          {!choisi && espaces.length > 1 ? (
+            <div style={{ marginBottom: "12px" }}>
+              <TabBar dense activeTab={espace} onSelect={changerEspace}
+                tabs={espaces.map(({ id, label, icon }) => ({ id, label, icon }))} />
+            </div>
+          ) : null}
+          {!choisi && espaceDef.aide ? (
+            <div style={{ margin: "0 0 12px", fontSize: "12px", fontWeight: 500, color: T.ink3 }}>
+              {espaceDef.aide}
+            </div>
+          ) : null}
           {choisi ? detail(choisi) : (
             /* LA GRILLE. Même forme que « Ajouter un widget », à une différence près : la
                vignette schématique cède la place à l'ANNONCE ELLE-MÊME.
@@ -13730,17 +13867,20 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
               {EMBED_CLES.map((cle) => {
                 const Icon = EMBEDS_ICON[cle];
                 const ligne = api?.ligneDe(cle) ?? null;
+                const herite = !!api?.herite(cle);
                 const surRepli = !ligne || !UUID_ELF.test(ligne.widgetId);
                 return (
                   <div key={cle}
                     style={{ display: "flex", flexDirection: "column", gap: "9px", padding: "12px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
-                    <ApercuEmbed key={`g-${cle}-${api?.idDe(cle)}`} widgetId={api?.idDe(cle) ?? EMBEDS_REPLI[cle]} hauteur={140} />
+                    <ApercuEmbed key={`g-${cle}-${api?.idDe(cle)}`} widgetId={api?.idDe(cle) ?? repli[cle]} hauteur={170} />
                     <div style={{ display: "flex", alignItems: "center", gap: "7px", minWidth: 0 }}>
                       <Icon aria-hidden style={{ width: 14, height: 14, color: T.ink4, flex: "none" }} strokeWidth={1.7} />
                       <span style={{ minWidth: 0, fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{EMBEDS_LABEL[cle]}</span>
                       {/* RIEN quand tout va bien. Ne reste que l'anomalie — aucune ligne ne
                           répond pour cet emplacement, donc c'est le code qui parle. */}
-                      {surRepli ? (
+                      {herite ? (
+                        <span style={{ marginLeft: "auto", flex: "none", fontSize: "10.5px", fontWeight: 600, color: T.ink4 }}>comme installateurs</span>
+                      ) : surRepli ? (
                         <span style={{ marginLeft: "auto", flex: "none", fontSize: "10.5px", fontWeight: 600, color: T.warnInk }}>par défaut</span>
                       ) : null}
                     </div>
@@ -14349,6 +14489,11 @@ function Dashboard() {
      pas, ce qui est le bon défaut. */
   const [embedsAdmin, setEmbedsAdmin] = useState(false);
   const embeds = useContext(EmbedsCtx);
+  /* Le bouton s'ouvre dès qu'UN des espaces est modifiable : le marketing règle aussi les
+     annonces des accueils partenaires, qu'il ne voit pas. */
+  const embedsPart = useContext(EmbedsPartCtx);
+  const embedsAf = useContext(EmbedsAfCtx);
+  const peutModifierEmbeds = !!(embeds?.peutEcrire || embedsPart?.peutEcrire || embedsAf?.peutEcrire);
   const [dragIndex, setDragIndex] = useState < number | null > (null);
   const [overIndex, setOverIndex] = useState < number | null > (null);
   const [toast, setToast] = useState < { ok: boolean; layout?: Layout; error?: string } | null > (null);
@@ -14718,7 +14863,7 @@ function Dashboard() {
             disparaît quand l'écriture est impossible, plutôt que d'échouer sous les doigts.
             ⚠️ Ce masquage est de l'UX, pas une sécurité : la barrière est la permission de
             l'action côté Softr (§9-quinquies). */}
-        {loading || !embeds?.peutEcrire ? null : (
+        {loading || !peutModifierEmbeds ? null : (
           <button className="slb-nbtn" style={btn} onClick={() => setEmbedsAdmin(true)}
             title="Changer les annonces affichées sur l'accueil">
             <Megaphone aria-hidden style={{ width: 16, height: 16 }} />Modifier les widgets
@@ -14924,7 +15069,7 @@ function Dashboard() {
       {/* LA FEUILLE « MODIFIER LES WIDGETS » — l'aiguillage des embeds (§9-quinquies).
           Montée seulement si le droit tient encore : `peutEcrire` est relu à chaque rendu,
           si bien qu'une permission retirée ferme la porte sans attendre un rechargement. */}
-      {embedsAdmin && embeds?.peutEcrire && <EmbedsAdmin onClose={() => setEmbedsAdmin(false)} />}
+      {embedsAdmin && peutModifierEmbeds && <EmbedsAdmin onClose={() => setEmbedsAdmin(false)} />}
 
       {/* Toast discret : succès (disparition auto) / échec + Réessayer.
           En cas d'échec, le layout reste appliqué localement (spec §Persistance). */}
@@ -14992,9 +15137,12 @@ export default function Block() {
   /* L'aiguillage des embeds (§9-quinquies), monté ICI et nulle part ailleurs : c'est la
      racine, donc une seule lecture de la table pour les trois cartes et pour le bouton. */
   const embeds = useEmbedsSource();
+  const embedsPart = useEmbedsSourcePartenaire();
 
   return (
     <EmbedsCtx.Provider value={embeds}>
+    <EmbedsPartCtx.Provider value={embedsPart.inst}>
+    <EmbedsAfCtx.Provider value={embedsPart.af}>
     <div id="slb" ref={rootRef} style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
       {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
@@ -15024,6 +15172,8 @@ export default function Block() {
 
       </div>
     </div>
+    </EmbedsAfCtx.Provider>
+    </EmbedsPartCtx.Provider>
     </EmbedsCtx.Provider>
   );
 }
