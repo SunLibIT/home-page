@@ -122,6 +122,7 @@ Réf. plateforme : <https://docs.softr.io/vibe-coding-developer-guide.md>
 | 9 | Composants **présentiels** des widgets sur-mesure : `NotifsOptions`/`NotifRow`/`NotifWidget` (+ `matchNotifC`/`linkIds`, la jointure d'état de lecture), `TaskRow`/`TasksWidget` |
 | **9-septies** | **Performance commerciale** : `comStats` et `comGlobal` (pures, les deux calculs partagés), `fmtMEur`/`fmtKwc`, `Sparkline`, les **indicateurs** (`ComIndicsWidget`, registre `COM_METRICS`), le **podium** (`PodiumWidget`) et le **classement** (`ClassementWidget`, 10 colonnes triables) — repris de l'onglet Commercial du bloc `dashboard-KPI` |
 | **—** | **`KpiTiles`** + type `Tile` : le rendu des tuiles d'indicateurs, partagé par la synthèse SAV et les indicateurs commerciaux |
+| **9-nonies** | **Absences du service client** (2026-10-15) : `jourParis`/`plusJours` (jours civils de Paris), `absenceDe`/`membresDe`, `useServiceClientSource` + **`ServiceClientCtx`** + `typePermis` (qui voit le widget), `useAbsencesSource` (lecture, création, annulation), `AbsencesCard`/`AbsencesWidget` — cf. §5 |
 | **9-sexies** | **Widgets UTILITAIRES sans source** : `HorlogeCard`/`HorlogeOptions`, `MemoCard` (+ `memoInline`/`MemoRead`, le texte balisé), `ChecklistCard` — leur contenu EST leur cfg |
 | **9-quinquies** | **Synthèse SAV** : helpers purs (`savNum`/`savTime`/`savDays`/`savTotal`/`savKpis`), **registre `SAV_METRICS`** (les valeurs cochables), `coerceSavCfg`, `SavOptions`, `SavWidget`, `SavCard` |
 | **9-bis** | **Widget GÉNÉRIQUE `data`** : grammaire `InstanceCfg` (`query`/`view`), `coerceCfg` + `fromLegacyCfg` (compat rév. 1), `matchFilter`/`compareRows`/`applyQuery`/`kpiCompute` (purs), présentiels `GenericRow`/`GenericList`/**`GenericTable`**/`GenericKpi`, `FieldValue`, **`DataView`** |
@@ -1301,6 +1302,8 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 | `parcPart` | « BDD Installateur » (`tblQLEpjqyUn54XTb`) — dénominateur | ⏳ **non connecté** | nom `Nom de l'entreprise` |
 | `parcAbo` | « Abonnés » **relue en 1 champ**, paginée — dénominateur | ✅ **connecté** (même `8fc957d0-…`) | ref `Contrat abonné` |
 | `comKpi` | « Abonnés » **relue** (même datasource que `abonnes`) | ✅ **connecté**, lecture seule **paginée** | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` |
+| `absencesSC` | « Absences Service Client » (SunLib CRM — Préférences, `tblFTDH8iRykjn9nw`) — id **`absencesSC`** | ✅ **connecté** *(2026-10-15)*, lue **et écrite** — création et modification réservées au groupe Softr « Service client » | nom `staff_nom` · email `staff_email` *(minuscules — la clé lue par n8n)* · debut `date_debut` · fin `date_fin` · motif `motif` *(Congés / Maladie / Formation / Autre)* · reassigner `reassigner_taches` · annulee `annulee` · creePar `cree_par` · creeLe `cree_le` — **écrits par le bloc** (`SELECT_ABS_W`) ; reassigneLe `reassignation_le` · resultat `reassignation_resultat` — **écrits par n8n, lecture seule** |
+| `utilisateursSC` | « Utilisateurs » (BDD UTILISATEURS, `tblE6J8wB1KlXadVv`) — id **`utilisateursSC`** | ✅ **connecté** *(2026-10-15)*, **lecture seule**, filtrée côté serveur | nomComplet `Nom complet` *(formule)* · email `Email` · service `Service` *(multipleSelects)* · acces `Accès plateforme sunlib` *(singleSelect)* |
 
 > **Deux entrées de catalogue pour une même table** (`abonnes` et `comKpi`) : une source
 > n'est pas une datasource, c'est une **lecture**. `abonnes` lit large sur les 12 derniers
@@ -1314,6 +1317,47 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 > **sans** espace (alias `installateur` de `SELECT_COM`). Les deux noms ont été vérifiés sur
 > Airtable le 2026-08-04. `Propio SOFTR` est un **singleSelect** : Softr peut le rendre en
 > objet `{ id, name }`, d'où le passage systématique par `asText`.
+
+### Absences du service client — §9-nonies (2026-10-15)
+
+**Ce que c'est.** Le service client déclare ici les absences de ses membres. Ces lignes pilotent
+l'assignation automatique des tâches Sellsy, **côté n8n** (en production, hors de ce repo) : une
+personne absente aujourd'hui ne reçoit plus de nouvelles tâches, et si `reassigner_taches` est
+coché, n8n répartit au hasard entre les présents ses tâches ouvertes à échéance avant son retour
+(toutes les 15 min, à partir du premier jour), puis écrit `reassignation_le` et
+`reassignation_resultat`. **Le widget ne fait que lire et écrire Airtable** : aucun appel vers n8n
+ni Sellsy, la table est l'interface.
+
+**Type dédié** (`absencesSC`, cas rare du §8.4) : bandeau « Aujourd'hui », calendrier mensuel
+(semaine du lundi, initiales colorées par `monogramOf`, plage choisie en deux clics), formulaire
+**inline**, liste « En cours et à venir » + repli « Passées (30 j) » avec le statut de
+réassignation. Création **directe**, annulation **enveloppée** (`annulee: true`) — **on ne supprime
+jamais une ligne**, et les dates ne s'éditent pas : on annule puis on recrée. Toutes les dates sont
+des jours civils `YYYY-MM-DD` comparés comme des chaînes, « aujourd'hui » étant celui de **Paris**
+(`jourParis`), comme pour n8n.
+
+**Qui le voit.** Les membres **actifs du service client** d'après « Utilisateurs » : `Service`
+contient « Service client » **et** `Accès plateforme sunlib` vaut « Actif ». Pas de liste
+d'administrateurs. Lecture **unique à la racine** (`useServiceClientSource` → `ServiceClientCtx`),
+partagée par la grille, la galerie, la pose d'office et le formulaire. Elle est **filtrée côté
+serveur** sur `Service` (`q.array(…).isOneOf`) parce que la table compte plus de 2 300 lignes ;
+`membresDe` refait le filtre sur les deux champs, et c'est lui qui fait foi. Pour les autres :
+`typePermis` retire le modèle de la galerie, et la grille ne donne **aucune case** à une instance
+déjà posée.
+
+**Posé d'office** pour les membres, une seule fois (`ABS_SEED` + `seedOne`). La pose attend la
+disposition **relue en base** (`synced` de `usePersistentLayout`) : partir du seul cache local
+risquerait d'écraser une disposition plus récente faite ailleurs.
+
+⚠️⚠️ **La barrière réelle est la permission de l'ACTION Softr** sur `absencesSC` (création et
+modification réservées au service client). Le masquage du widget n'est que de l'UX. **Un recompile
+réinitialise la visibilité des actions : à réappliquer après CHAQUE collage**, comme pour les embeds.
+Le widget lit `enabled` sur ses deux mutations ; s'il manque ou vaut faux, le formulaire et
+« Annuler » se ferment et un bandeau dit pourquoi.
+
+⚠️ **Point non prouvé en ligne** : la forme que Softr attend pour `isOneOf` sur un multipleSelects
+(le libellé, d'après sa doc). Si personne ne voit le widget alors que la source est connectée, la
+console le dit (`[SunLib] Absences SC : aucun membre actif…`) — c'est là qu'il faut regarder.
 
 ### Pro / particulier, et les deux files d'attente (2026-08-18)
 

@@ -44,6 +44,9 @@ export const DS_IDS = {
   // Préférences · « Embeds Accueil CRM » — l'aiguillage des trois cartes de communication.
   // Son id de datasource est un mot, pas un UUID : il a été posé à la main à la connexion.
   embeds: "embeds",
+  // Absences du service client (§9-nonies) — ids en mots, à poser tels quels à la connexion.
+  absencesSC: "absencesSC",           // Préférences · « Absences Service Client »
+  utilisateursSC: "utilisateursSC",   // BDD UTILISATEURS · « Utilisateurs » (lecture seule)
 } as const;
 
 /* ============================ Types ============================ */
@@ -64,6 +67,8 @@ const store: Record<string, Rec[]> = {
   [DS_IDS.parcPart]: [],
   [DS_IDS.notifC]: [],
   [DS_IDS.contactsIns]: [],
+  [DS_IDS.absencesSC]: [],
+  [DS_IDS.utilisateursSC]: [],
 };
 
 let version = 0;
@@ -127,6 +132,10 @@ export const q = {
   text: (alias: string) => makeCmp(alias),
   number: (alias: string) => makeCmp(alias),
   date: (alias: string) => makeCmp(alias),
+  /** Champs à valeurs MULTIPLES (multipleSelects…). `isOneOf` = au moins une des valeurs. */
+  array: (alias: string) => ({
+    isOneOf: (value: any[]): Filter => ({ alias, op: "isOneOf", value }),
+  }),
   asc: (alias: string): Sort => ({ alias, dir: "asc" }),
   desc: (alias: string): Sort => ({ alias, dir: "desc" }),
 };
@@ -147,6 +156,10 @@ function isEmptyVal(v: any): boolean {
 }
 function matchFilter(rec: Rec, f: Filter): boolean {
   const v = rec.fields[f.alias];
+  if (f.op === "isOneOf") {
+    const has = (Array.isArray(v) ? v : [v]).map((x) => valToText(x).toLowerCase());
+    return (f.value as any[]).some((w) => has.includes(valToText(w).toLowerCase()));
+  }
   const text = valToText(v).toLowerCase();
   const target = valToText(f.value).toLowerCase();
   switch (f.op) {

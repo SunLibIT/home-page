@@ -69,6 +69,19 @@
                                   ⚠️ Une fois coché mais pas encore rempli, rien ne casse :
                                   un filtre trouvant moins de deux valeurs ne s'affiche pas,
                                   et il apparaîtra tout seul quand la colonne sera saisie.
+     G) 🚨 À FAIRE DANS SOFTR AVANT DE COLLER CETTE VERSION (2026-10-15) → les ABSENCES DU
+                                  SERVICE CLIENT (§9-nonies). Onglet Sources du bloc, deux
+                                  connexions, SOUS CES IDS EXACTS (des mots, comme `embeds`) :
+                                    · `absencesSC`     → « Absences Service Client »
+                                      (SunLib CRM — Préférences) — cocher les 11 champs de
+                                      SELECT_ABS ;
+                                    · `utilisateursSC` → « Utilisateurs » (BDD UTILISATEURS)
+                                      — cocher les 4 champs de SELECT_UTIL_SC.
+                                  ⚠️ TANT QU'ELLES MANQUENT, LE BLOC ENTIER ÉCHOUE au collage.
+                                  ⚠️⚠️ PUIS, APRÈS CHAQUE COLLAGE : onglet Actions → restreindre
+                                  la création ET la modification sur `absencesSC` au service
+                                  client. Un recompile remet la visibilité par défaut — sans ce
+                                  geste, tout connecté peut écrire dans la table que lit n8n.
    ⚠️ USE_MOCK est passé à FALSE le 2026-08-04 : le bloc lit Airtable en direct.
    ============================================================================ */
 
@@ -104,6 +117,8 @@ import {
   // ⚠️ `Map` est renommée : le nom `Map` est celui du constructeur natif JS, utilisé
   //    ailleurs dans le fichier. L'importer tel quel le masquerait dans tout le module.
   Map as MapIcon, Boxes,
+  // Absences du service client (§9-nonies) : navigation du calendrier et icône du widget.
+  ChevronLeft, CalendarDays, AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -583,6 +598,8 @@ const HOVER_RULES: HoverRule[] = [
   },
   { sel: ".slb-btnp:not(:disabled)", trans: "background-color .15s ease", self: { "background-color": T.brand600 } },
   { sel: ".slb-menu-item:not(:disabled)", trans: "background-color .12s ease", self: { "background-color": T.surface2 } },
+  // Une case du calendrier des absences (§9-nonies) : son bord prend la couleur de marque.
+  { sel: ".slb-calday:not(:disabled)", trans: "border-color .12s ease", self: { "border-color": T.brand } },
   /* Poignées de redimensionnement — RÉVÉLÉES PAR LEUR PROPRE BORD, et par lui seul.
      Le trait apparaît, s'allonge et prend la couleur de marque quand la souris entre dans
      SA bande ; les deux autres poignées de la même carte restent invisibles.
@@ -1293,6 +1310,16 @@ const DS = datasource.define({
      même comportement que /sun-accueil du CRM 3, qui écrit dans les MÊMES tables. Aucune
      carte de cette page ne l'affiche. */
   embedsPartenaire: "embedsPartenaire",
+  /* 🚨 2026-10-15 — LES ABSENCES DU SERVICE CLIENT (§9-nonies). Deux connexions à poser
+     dans l'onglet Sources du bloc AVANT de coller cette version, SOUS CES IDS EXACTS (des
+     mots, comme `embeds`) : tant qu'elles manquent, Softr refuse le bloc ENTIER au collage.
+     · « Absences Service Client » (appHZaD5BkDsWxR65 · tblFTDH8iRykjn9nw) — lue ET écrite
+       (création, annulation). Les 11 champs de `SELECT_ABS` doivent être cochés.
+     · « Utilisateurs » (BDD UTILISATEURS, app8yu8VaJ3GUDt1c · tblE6J8wB1KlXadVv) — LECTURE
+       SEULE : elle dit qui est au service client, donc qui voit le widget. Les 4 champs de
+       `SELECT_UTIL_SC` doivent être cochés. */
+  absencesSC: "absencesSC",
+  utilisateursSC: "utilisateursSC",
 });
 
 /* Le registre est COMPLET depuis le 2026-08-05 : les 9 sources du catalogue qui
@@ -1732,6 +1759,46 @@ const SELECT_EMBEDS = q.select({
   titre: "titre",          // le titre de la carte, pour tout le monde — vide = celui du code
   updatedAt: "updated_at", // DATETIME (chaîne ISO)
   updatedBy: "updated_by", // EMAIL — qui a changé
+});
+
+/* Absences du service client ← « Absences Service Client » (§9-nonies). Noms vérifiés
+   contre Airtable le 2026-10-15. Une ligne = une absence d'une personne, du `debut` au
+   `fin` INCLUS. Le bloc écrit les neuf premiers champs ; n8n, toutes les 15 min, lit
+   `email` + les dates + `reassigner`, puis écrit les deux derniers.
+   ⚠️ `email` EST LA CLÉ lue par n8n : toujours écrite en MINUSCULES. Le nom n'est là que
+   pour qu'un humain lise la table. */
+const SELECT_ABS = q.select({
+  nom: "staff_nom",                   // texte, champ primaire
+  email: "staff_email",               // email — LA clé de rapprochement côté n8n et Sellsy
+  debut: "date_debut",                // date « YYYY-MM-DD »
+  fin: "date_fin",                    // date « YYYY-MM-DD », jour de fin INCLUS
+  motif: "motif",                     // singleSelect : Congés / Maladie / Formation / Autre
+  reassigner: "reassigner_taches",    // checkbox
+  annulee: "annulee",                 // checkbox — on n'efface JAMAIS une ligne, on l'annule
+  creePar: "cree_par",                // email de la session qui a déclaré
+  creeLe: "cree_le",                  // dateTime ISO
+  reassigneLe: "reassignation_le",    // dateTime — ⚠️ ÉCRIT PAR n8n, jamais par le bloc
+  resultat: "reassignation_resultat", // texte long — ⚠️ ÉCRIT PAR n8n, jamais par le bloc
+});
+/* Whitelist d'ÉCRITURE : les neuf premiers seulement. Les deux champs de n8n n'y sont pas,
+   et c'est voulu — le bloc ne doit pas pouvoir effacer le compte rendu d'une réassignation. */
+const SELECT_ABS_W = q.select({
+  nom: "staff_nom", email: "staff_email", debut: "date_debut", fin: "date_fin",
+  motif: "motif", reassigner: "reassigner_taches", annulee: "annulee",
+  creePar: "cree_par", creeLe: "cree_le",
+});
+
+/* Qui est au service client ← « Utilisateurs » (BDD UTILISATEURS), LECTURE SEULE, aucun
+   SELECT_*_W. Noms vérifiés contre Airtable le 2026-10-15.
+   ⚠️ « Nom complet » est une FORMULE (prénom & nom) : sans danger ici, la règle des champs
+   calculés (§1) ne frappe que l'ÉCRITURE et cette source n'est jamais écrite.
+   ⚠️ `service` (multipleSelects) et `acces` (singleSelect) peuvent arriver en objets
+   `{ id, name }` : on les lit par `asText` / `labelOf`, jamais tels quels. */
+const SELECT_UTIL_SC = q.select({
+  nomComplet: "Nom complet",          // formule — lecture seule
+  email: "Email",
+  service: "Service",                 // multipleSelects — on garde « Service client »
+  acces: "Accès plateforme sunlib",   // singleSelect — on garde « Actif »
 });
 
 // Modèles de vue — mêmes formes pour le mock et le mapping Airtable.
@@ -3247,6 +3314,8 @@ const ICONS: Record<string, LucideIcon> = {
   // Contacts partenaires (2026-08-19) : clé du descripteur `contactsIns` ET du groupe de
   // galerie « Partenaires ». Déjà importée pour le raccourci du même nom (§7).
   BookUser,
+  // Groupe de galerie « Service client » (§9-nonies, 2026-10-15).
+  CalendarDays,
 };
 const iconOf = (key: string): LucideIcon => ICONS[key] ?? LayoutGrid;
 
@@ -12840,6 +12909,652 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
   );
 }
 
+/* ============================================================================
+   9-nonies. ABSENCES DU SERVICE CLIENT — qui est absent, et quand (2026-10-15)
+   ----------------------------------------------------------------------------
+   Le service client déclare ici les jours où l'un des siens est absent. Ces lignes
+   PILOTENT l'assignation automatique des tâches Sellsy, côté n8n (déjà en production,
+   hors de ce repo) :
+     · une personne absente AUJOURD'HUI ne reçoit plus de nouvelles tâches ;
+     · si « reassigner_taches » est coché, n8n — toutes les 15 min, à partir du premier
+       jour d'absence — répartit au hasard entre les présents ses tâches ouvertes dont
+       l'échéance tombe avant son retour, puis écrit `reassignation_le` et
+       `reassignation_resultat` sur la ligne.
+   ⚠️ LE WIDGET NE FAIT QUE LIRE ET ÉCRIRE AIRTABLE. Aucun appel vers n8n ni vers Sellsy :
+   la table EST l'interface entre les deux. Une ligne écrite ici est lue par n8n au plus
+   tard un quart d'heure après.
+
+   ⚠️ QUI LE VOIT : les membres ACTIFS du service client, d'après « Utilisateurs »
+   (BDD UTILISATEURS) — `Service` contient « Service client » ET `Accès plateforme
+   sunlib` vaut « Actif ». Pas de liste d'administrateurs en dur. Softr n'exposant pas
+   ses groupes au code, le rapprochement se fait par E-MAIL de session. Ce n'est que de
+   l'UX : la vraie barrière est la permission de l'ACTION Softr sur `absencesSC` —
+   ⚠️⚠️ À RÉAPPLIQUER APRÈS CHAQUE COLLAGE, comme celle des embeds (§9-quinquies).
+   Pour les autres : absent de la galerie, et une instance déjà posée ne rend RIEN (ni
+   carte vide ni erreur — cf. `typePermis`, appliqué par la grille).
+
+   ⚠️ POSÉ D'OFFICE pour les membres (`ABS_SEED` + `seedOne`, §10-bis) et pour eux seuls,
+   une fois : le retirer est définitif, comme tout widget semé ; il se repose depuis la
+   galerie.
+   ============================================================================ */
+
+type MembreSC = { nom: string; email: string };
+type Absence = {
+  id: string; nom: string; email: string; debut: string; fin: string; motif: string;
+  reassigner: boolean; annulee: boolean; creePar: string; creeLe: string;
+  reassigneLe: string; resultat: string;
+};
+
+const ABS_MOTIFS = ["Congés", "Maladie", "Formation", "Autre"] as const;
+/** Les types RÉSERVÉS au service client. Une liste et non un booléen sur le type : la
+ *  grille et la galerie la lisent toutes deux, et un deuxième outil du service y entrera
+ *  sans toucher à l'une ni à l'autre. */
+const TYPES_SERVICE_CLIENT: readonly string[] = ["absencesSC"];
+
+/* --- Les dates -----------------------------------------------------------------
+   ⚠️ TOUT EST EN JOURS CIVILS « YYYY-MM-DD », comparés comme des chaînes (l'ordre
+   lexicographique EST l'ordre chronologique sur ce format). Aucun `Date` local dans les
+   comparaisons : à 0 h 30 à Paris, `new Date()` d'un poste réglé ailleurs dirait encore
+   « hier », et le bandeau montrerait les absents de la veille.
+   « Aujourd'hui » est celui de PARIS, comme le calcul de n8n. L'arithmétique se fait en
+   UTC (`plusJours`), qui n'a pas de changement d'heure — un jour y dure toujours 24 h. */
+function jourParis(d: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Paris", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(d);
+    const v = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+    if (v("year") && v("month") && v("day")) return `${v("year")}-${v("month")}-${v("day")}`;
+  } catch { /* fuseau inconnu du navigateur : repli sur le jour du poste */ }
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+}
+/** Jour civil d'une valeur de champ date, ou "" — Softr rend « 2026-10-15 », mais une
+ *  date ISO complète passe aussi (on n'en garde que le jour). */
+const jourIso = (v: unknown): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(asText(v).trim());
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : "";
+};
+const jourUTC = (iso: string): Date => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+};
+const plusJours = (iso: string, n: number): string => {
+  const d = jourUTC(iso);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+/** 0 = lundi … 6 = dimanche : la semaine du calendrier commence le lundi. */
+const jourSemaine = (iso: string): number => (jourUTC(iso).getUTCDay() + 6) % 7;
+const jjmm = (iso: string): string => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : DASH);
+/** Un horodatage (`reassignation_le`) lu à l'heure de Paris : « 15/10 à 08:15 ». */
+function horoParis(v: string): string {
+  const d = new Date(v);
+  if (!v || isNaN(d.getTime())) return "";
+  const j = d.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit" });
+  const h = d.toLocaleTimeString("fr-FR", { timeZone: "Europe/Paris", hour: "2-digit", minute: "2-digit" });
+  return `${j} à ${h}`;
+}
+
+const coche = (v: unknown): boolean => v === true || v === 1 || v === "true";
+
+/** Une ligne lue → une absence, ou `null` si ses dates sont illisibles : une ligne sans
+ *  début ni fin ne peut être placée nulle part, l'afficher « quelque part » mentirait. */
+function absenceDe(r: Row): Absence | null {
+  const debut = jourIso(r.debut), fin = jourIso(r.fin);
+  if (!debut || !fin) return null;
+  return {
+    id: r.id,
+    nom: asText(r.nom).trim() || asText(r.email).trim(),
+    email: asText(r.email).trim().toLowerCase(),
+    debut, fin,
+    motif: asText(r.motif).trim() || "Autre",
+    reassigner: coche(r.reassigner),
+    annulee: coche(r.annulee),
+    creePar: asText(r.creePar),
+    creeLe: asText(r.creeLe),
+    reassigneLe: asText(r.reassigneLe).trim(),
+    resultat: asText(r.resultat).trim(),
+  };
+}
+
+/** Les membres actifs du service client, triés par nom, un par e-mail.
+ *  ⚠️ LE FILTRE EST REFAIT ICI même si la lecture est déjà filtrée côté serveur : la
+ *  requête ne porte que sur « Service » (cf. `useServiceClientSource`), et c'est ce
+ *  filtre-ci, sur les DEUX champs, qui fait foi. */
+function membresDe(rows: Row[]): MembreSC[] {
+  const vus = new Set<string>();
+  const out: MembreSC[] = [];
+  for (const r of rows) {
+    const services = (Array.isArray(r.service) ? r.service.map(labelOf) : asText(r.service).split(","))
+      .map((s) => s.trim().toLowerCase());
+    if (!services.includes("service client")) continue;
+    if (asText(r.acces).trim().toLowerCase() !== "actif") continue;
+    const email = asText(r.email).trim().toLowerCase();
+    if (!email || vus.has(email)) continue;
+    vus.add(email);
+    out.push({ nom: asText(r.nomComplet).trim() || email, email });
+  }
+  return out.sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+}
+
+/* --- Les MOCKS (USE_MOCK = true) — à la forme des ALIAS, comme `MOCK_ROWS`. Les dates
+   sont RELATIVES au jour, sinon l'aperçu se viderait en une semaine. Quatre cas, un par
+   état que le widget sait afficher : absente aujourd'hui et déjà réassignée, à venir avec
+   réassignation prévue, passée sans réassignation, et annulée (qui ne doit apparaître
+   NULLE PART). --- */
+const MOCK_UTIL_SC: Row[] = [
+  { id: "u1", nomComplet: "Carole SADRAIN", email: "carole@sunlib.fr", service: [{ name: "Service client" }], acces: { name: "Actif" } },
+  { id: "u2", nomComplet: "Falène AMARA", email: "falene@sunlib.fr", service: [{ name: "Service client" }], acces: { name: "Actif" } },
+  { id: "u3", nomComplet: "Guillaume OZANIC", email: "guillaume@sunlib.fr", service: [{ name: "Service client" }, { name: "Manager" }], acces: { name: "Actif" } },
+  { id: "u4", nomComplet: "Lola HERNANDEZ", email: "lola@sunlib.fr", service: [{ name: "Service client" }], acces: { name: "Actif" } },
+  { id: "u5", nomComplet: "Marie BONAMY", email: "marie@sunlib.fr", service: [{ name: "Service client" }, { name: "Direction" }], acces: { name: "Actif" } },
+  { id: "u6", nomComplet: "Melissa CADENEL", email: "melissa@sunlib.fr", service: [{ name: "Service client" }], acces: { name: "Actif" } },
+  { id: "u7", nomComplet: "Roland THUNIN", email: "roland@sunlib.fr", service: [{ name: "Service client" }], acces: { name: "Actif" } },
+  { id: "u8", nomComplet: "Romain FLORI", email: "romain@sunlib.fr", service: [{ name: "Direction" }, { name: "Service client" }], acces: { name: "Actif" } },
+];
+const mockAbsences = (): Row[] => {
+  const auj = jourParis();
+  return [
+    { id: "abs1", nom: "Lola HERNANDEZ", email: "lola@sunlib.fr", debut: plusJours(auj, -2), fin: plusJours(auj, 3), motif: "Congés",
+      reassigner: true, annulee: false, creePar: "lola@sunlib.fr", creeLe: `${plusJours(auj, -9)}T09:12:00.000Z`,
+      reassigneLe: `${plusJours(auj, -2)}T06:15:00.000Z`, resultat: "4 tâches réassignées : 2 à Carole SADRAIN, 2 à Roland THUNIN." },
+    { id: "abs2", nom: "Melissa CADENEL", email: "melissa@sunlib.fr", debut: plusJours(auj, 6), fin: plusJours(auj, 7), motif: "Formation",
+      reassigner: true, annulee: false, creePar: "guillaume@sunlib.fr", creeLe: `${plusJours(auj, -1)}T14:40:00.000Z`, reassigneLe: "", resultat: "" },
+    { id: "abs3", nom: "Carole SADRAIN", email: "carole@sunlib.fr", debut: plusJours(auj, -12), fin: plusJours(auj, -10), motif: "Maladie",
+      reassigner: false, annulee: false, creePar: "carole@sunlib.fr", creeLe: `${plusJours(auj, -12)}T07:30:00.000Z`, reassigneLe: "", resultat: "" },
+    { id: "abs4", nom: "Roland THUNIN", email: "roland@sunlib.fr", debut: plusJours(auj, 1), fin: plusJours(auj, 4), motif: "Congés",
+      reassigner: true, annulee: true, creePar: "roland@sunlib.fr", creeLe: `${plusJours(auj, -5)}T10:00:00.000Z`, reassigneLe: "", resultat: "" },
+  ];
+};
+
+/* --- QUI EST AU SERVICE CLIENT — lu UNE fois, à la racine (`Block`), et partagé par
+   contexte : la grille (rendre ou non une instance), la galerie (proposer ou non le
+   modèle), la pose d'office et le formulaire (la liste des personnes) en ont tous besoin.
+   Quatre lectures de la même table pour une même réponse seraient absurdes. --- */
+type ServiceClientApi = {
+  /** Faux tant que la lecture n'a pas répondu : on ne décide RIEN avant (ni montrer, ni
+   *  semer) — un « non » provisoire ferait clignoter le widget, un semis provisoire
+   *  serait définitif. */
+  pret: boolean;
+  membres: MembreSC[];
+  estMembre: boolean;
+};
+const ServiceClientCtx = createContext<ServiceClientApi | null>(null);
+
+function useServiceClientSource(): ServiceClientApi {
+  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
+  /* ⚠️ FILTRÉE CÔTÉ SERVEUR, et ce n'est pas une optimisation : la table compte plus de
+     2 300 lignes (installateurs et abonnés compris) pour huit personnes utiles. Drainer le
+     tout à chaque ouverture de l'accueil coûterait 24 pages pour en garder une.
+     Le filtre ne porte que sur `service` ; `acces` est vérifié par `membresDe`.
+     ⚠️ SI LE WIDGET N'APPARAÎT POUR PERSONNE alors que la source est connectée, c'est ICI
+     qu'il faut regarder en premier : le seul point non prouvé est la forme que Softr attend
+     pour `isOneOf` sur un multipleSelects (le libellé, d'après sa doc). Le diagnostic
+     ci-dessous le dit dans la console. */
+  const res = useRecords({ from: DS.utilisateursSC, select: SELECT_UTIL_SC,
+    where: q.array("service").isOneOf(["Service client"]), count: 100 });
+  useDrainPages(res, 5, true, "utilisateursSC");
+  const brut = USE_MOCK ? MOCK_UTIL_SC : flattenRows(res);
+  const membres = membresDe(brut);
+  const pret = USE_MOCK || (!res.isLoading && !res.hasNextPage);
+  const dit = useRef(false);
+  useEffect(() => {
+    if (!pret || dit.current || USE_MOCK) return;
+    dit.current = true;
+    if (!membres.length) console.warn(`[SunLib] Absences SC : aucun membre actif du service client lu dans « Utilisateurs » (${brut.length} ligne(s) reçue(s)${res.error ? `, erreur : ${msgOf(res.error)}` : ""}) — le widget reste invisible pour tous.`);
+  }, [pret]);
+  return { pret, membres, estMembre: !!email && membres.some((m) => m.email === email) };
+}
+
+/** Une instance de ce type peut-elle être montrée à la session courante ? PURE.
+ *  Faux pour un type réservé tant que la réponse n'est pas là (`pret`). */
+const typePermis = (type: string, sc: ServiceClientApi | null): boolean =>
+  !TYPES_SERVICE_CLIENT.includes(type) || (!!sc?.pret && sc.estMembre);
+
+/* --- LA SOURCE DES ABSENCES — lecture complète (la table est petite : quelques dizaines
+   de lignes par an), création et annulation. Même patron que `useEmbedsSource` : hooks
+   toujours appelés, écriture OPTIMISTE, refus explicite quand le droit manque. --- */
+type AbsencesApi = {
+  absences: Absence[];
+  chargement: boolean;
+  erreur: boolean;
+  /** `null` si l'écriture est possible, sinon la phrase qui dit pourquoi elle ne l'est pas. */
+  blocage: string | null;
+  creer: (a: { nom: string; email: string; debut: string; fin: string; motif: string; reassigner: boolean }) => Promise<{ ok: boolean; error?: string }>;
+  annuler: (id: string) => Promise<{ ok: boolean; error?: string }>;
+};
+
+function useAbsencesSource(): AbsencesApi {
+  const email = asText(useCurrentUser()?.email).trim().toLowerCase();
+  const res = useRecords({ from: DS.absencesSC, select: SELECT_ABS, orderBy: q.desc("debut"), count: 100 });
+  useDrainPages(res, 10, true, "absencesSC");
+  const createM = useRecordCreate({ from: DS.absencesSC, fields: SELECT_ABS_W });
+  const updateM = useRecordUpdate({ from: DS.absencesSC, fields: SELECT_ABS_W });
+
+  /* En USE_MOCK, l'écriture est SIMULÉE dans un état local : l'aperçu se manipule sans
+     toucher à rien. En live, deux états optimistes comblent l'intervalle avant la
+     relecture — une ligne créée, une ligne annulée —, et la valeur relue reprend la main
+     dès qu'elle arrive. */
+  const [mock, setMock] = useState<Row[]>(mockAbsences);
+  const [ajouts, setAjouts] = useState<Absence[]>([]);
+  const [annulees, setAnnulees] = useState<string[]>([]);
+
+  const lues = (USE_MOCK ? mock : flattenRows(res)).map(absenceDe).filter((a): a is Absence => !!a);
+  const ids = new Set(lues.map((a) => a.id));
+  const absences = [...lues, ...ajouts.filter((a) => !ids.has(a.id))]
+    .map((a) => (annulees.includes(a.id) ? { ...a, annulee: true } : a));
+
+  /* LE DROIT D'ÉCRIRE — `enabled` reflète la permission de l'action Softr. ⚠️ S'il
+     manque, on REFUSE (même choix que les embeds) : mieux vaut un formulaire qui dit
+     pourquoi il est fermé qu'un enregistrement qui échoue sous les doigts. */
+  const permis = (m: unknown) => { const e = (m as { enabled?: unknown }).enabled; return typeof e === "boolean" && e; };
+  const blocage = USE_MOCK ? null
+    : !email ? "Aperçu non connecté : déclarer ou annuler une absence demande une session (à tester sur la page publiée)."
+    : !permis(createM) || !permis(updateM) ? "Votre compte n'a pas le droit d'écrire dans « Absences Service Client » (permission de l'action, côté Softr)."
+    : null;
+
+  const creer: AbsencesApi["creer"] = async (a) => {
+    if (blocage) return { ok: false, error: blocage };
+    const champs = { nom: a.nom, email: a.email.toLowerCase(), debut: a.debut, fin: a.fin, motif: a.motif,
+      reassigner: a.reassigner, annulee: false, creePar: email, creeLe: new Date().toISOString() };
+    if (USE_MOCK) {
+      setMock((m) => [...m, { id: `abs_mock_${Date.now()}`, ...champs, reassigneLe: "", resultat: "" }]);
+      return { ok: true };
+    }
+    try {
+      /* CREATE : l'objet de champs EN DIRECT, sans enveloppe (§1). */
+      const cree = await createM.mutateAsync(champs) as { id?: string } | undefined;
+      const id = asText(cree?.id);
+      if (id) setAjouts((l) => [...l, { id, ...champs, reassigneLe: "", resultat: "" }]);
+      await res.refetch?.();
+      return { ok: true };
+    } catch (e) {
+      console.error("[SunLib] Échec de création d'une absence :", e);
+      return { ok: false, error: msgOf(e) };
+    }
+  };
+
+  const annuler: AbsencesApi["annuler"] = async (id) => {
+    if (blocage) return { ok: false, error: blocage };
+    if (USE_MOCK) {
+      setMock((m) => m.map((r) => (r.id === id ? { ...r, annulee: true } : r)));
+      return { ok: true };
+    }
+    try {
+      /* UPDATE : ENVELOPPÉ { recordId, fields }. On n'efface JAMAIS une ligne : n8n a pu
+         s'en servir, et la trace de ce qui a été réassigné doit rester lisible. */
+      await updateM.mutateAsync({ recordId: id, fields: { annulee: true } });
+      setAnnulees((l) => [...l, id]);
+      await res.refetch?.();
+      return { ok: true };
+    } catch (e) {
+      console.error("[SunLib] Échec d'annulation d'une absence :", e);
+      return { ok: false, error: msgOf(e) };
+    }
+  };
+
+  return { absences, chargement: !USE_MOCK && !!res.isLoading, erreur: !USE_MOCK && !!res.error, blocage, creer, annuler };
+}
+
+/** Le jour où n8n répartira les tâches : le premier jour d'absence, ou aujourd'hui si
+ *  l'absence a déjà commencé (n8n ne remonte pas le temps). */
+const jourReassignation = (debut: string, auj: string): string => (debut > auj ? debut : auj);
+
+/** Le statut de réassignation d'une ligne, tel que la liste l'écrit. */
+function AbsenceStatut({ a, auj }: { a: Absence; auj: string }) {
+  const [ouvert, setOuvert] = useState(false);
+  if (!a.reassigner) return <Badge variant="neutral">Pas de réassignation</Badge>;
+  if (!a.reassigneLe) {
+    return a.fin < auj
+      ? <Badge variant="neutral">Réassignation non effectuée</Badge>
+      : <Badge variant="info" icon={Clock}>Réassignation prévue le {jjmm(jourReassignation(a.debut, auj))}</Badge>;
+  }
+  return (
+    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start", gap: "5px", minWidth: 0 }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+        <Badge variant="ok" icon={Check}>Réassignée le {horoParis(a.reassigneLe) || jjmm(jourIso(a.reassigneLe))}</Badge>
+        {a.resultat && (
+          <button type="button" className="slb-btng" onClick={() => setOuvert((o) => !o)} aria-expanded={ouvert}
+            style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "3px 8px", borderRadius: 999, border: `1px solid ${T.line}`, background: T.surface, color: T.ink3, fontFamily: "inherit", fontSize: "11.5px", fontWeight: 600, cursor: "pointer" }}>
+            {ouvert ? "Masquer" : "Détail"}
+            {ouvert ? <ChevronUp aria-hidden style={{ width: 12, height: 12 }} /> : <ChevronDown aria-hidden style={{ width: 12, height: 12 }} />}
+          </button>
+        )}
+      </span>
+      {ouvert && a.resultat && (
+        <span style={{ fontSize: "12px", fontWeight: 500, color: T.ink2, whiteSpace: "pre-wrap", wordBreak: "break-word", padding: "7px 9px", borderRadius: T.rSm, background: T.surface2, border: `1px solid ${T.line}` }}>
+          {a.resultat}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** La carte. Réservée : rend `null` hors du service client — la grille ne la monte de
+ *  toute façon pas (`typePermis`), cette garde-ci couvre un rendu hors grille. */
+function AbsencesCard() {
+  const sc = useContext(ServiceClientCtx);
+  if (!sc?.pret || !sc.estMembre) return null;
+  return <AbsencesWidget membres={sc.membres} />;
+}
+
+type AbsForm = { email: string; debut: string; fin: string; motif: string; reassigner: boolean };
+
+function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
+  const api = useAbsencesSource();
+  const moi = asText(useCurrentUser()?.email).trim().toLowerCase();
+  const auj = jourParis();
+  const [mois, setMois] = useState(() => auj.slice(0, 7));       // « YYYY-MM » affiché
+  const [ancre, setAncre] = useState<string | null>(null);        // 1er clic d'une plage
+  const [form, setForm] = useState<AbsForm | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const [erreurForm, setErreurForm] = useState("");
+  const [aConfirmer, setAConfirmer] = useState<string | null>(null);
+  const [erreurLigne, setErreurLigne] = useState<{ id: string; msg: string } | null>(null);
+  const [passeesOuvert, setPasseesOuvert] = useState(false);
+
+  const actives = api.absences.filter((a) => !a.annulee);
+  /* Absents du jour, une fois chacun : deux lignes qui se chevauchent pour une même
+     personne (c'est permis, avec un avertissement) ne doivent pas la montrer deux fois. */
+  const absentsJour: Absence[] = [];
+  for (const a of actives) {
+    if (a.debut <= auj && auj <= a.fin && !absentsJour.some((x) => x.email === a.email)) absentsJour.push(a);
+  }
+  const aVenir = actives.filter((a) => a.fin >= auj).sort((a, b) => a.debut.localeCompare(b.debut) || a.nom.localeCompare(b.nom, "fr"));
+  const limitePassees = plusJours(auj, -30);
+  const passees = actives.filter((a) => a.fin < auj && a.fin >= limitePassees).sort((a, b) => b.fin.localeCompare(a.fin));
+
+  const ouvrirForm = (debut: string, fin: string) => {
+    const defaut = membres.some((m) => m.email === moi) ? moi : membres[0]?.email ?? "";
+    setForm((f) => ({ email: f?.email || defaut, debut, fin, motif: f?.motif || "Congés", reassigner: f?.reassigner ?? true }));
+    setErreurForm("");
+  };
+  const cliqueJour = (d: string) => {
+    if (!ancre) { setAncre(d); return; }
+    const [a, b] = ancre <= d ? [ancre, d] : [d, ancre];
+    setAncre(null);
+    ouvrirForm(a, b);
+  };
+
+  /* --- Le calendrier du mois affiché : des semaines entières, du lundi au dimanche. --- */
+  const [an, mo] = mois.split("-").map(Number);
+  const premier = `${mois}-01`;
+  const nbJours = new Date(Date.UTC(an, mo, 0)).getUTCDate();
+  const decalage = jourSemaine(premier);
+  const cases = Array.from({ length: Math.ceil((decalage + nbJours) / 7) * 7 }, (_, i) => plusJours(premier, i - decalage));
+  const libelleMois = jourUTC(premier).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
+  const decalerMois = (n: number) => {
+    const d = jourUTC(premier);
+    d.setUTCMonth(d.getUTCMonth() + n);
+    setMois(d.toISOString().slice(0, 7));
+  };
+
+  const ecritureFermee = !!api.blocage;
+  const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "0 0 5px" };
+  const field: CSSProperties = { width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 500 };
+  const btnG: CSSProperties = { display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 11px", borderRadius: T.rSm, border: `1px solid ${T.line}`, background: T.surface, color: T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" };
+  const btnP: CSSProperties = { ...btnG, border: "none", background: T.brand, color: "#fff" };
+  const section: CSSProperties = { padding: "12px 16px", borderBottom: `1px solid ${T.line}` };
+  const titreSection: CSSProperties = { ...LIST_K, marginBottom: "8px" };
+
+  /* --- Validation du formulaire : des phrases, pas des codes. --- */
+  const personne = form ? membres.find((m) => m.email === form.email) : undefined;
+  const invalide = !form ? "" : !personne ? "Choisissez la personne absente."
+    : !form.debut || !form.fin ? "Indiquez le premier et le dernier jour."
+    : form.fin < form.debut ? "Le dernier jour ne peut pas précéder le premier."
+    : form.fin < auj ? "Une absence entièrement passée n'a plus d'effet : le dernier jour doit être aujourd'hui ou après."
+    : "";
+  const chevauche = form && personne && !invalide
+    ? actives.filter((a) => a.email === form.email && a.debut <= form.fin && a.fin >= form.debut) : [];
+
+  const enregistrer = async () => {
+    if (!form || !personne || invalide || envoi) return;
+    setEnvoi(true);
+    setErreurForm("");
+    const r = await api.creer({ nom: personne.nom, email: personne.email, debut: form.debut, fin: form.fin, motif: form.motif, reassigner: form.reassigner });
+    setEnvoi(false);
+    if (r.ok) { setForm(null); setMois(form.debut.slice(0, 7)); }
+    else setErreurForm(r.error || "L'enregistrement a échoué.");
+  };
+  const confirmerAnnulation = async (id: string) => {
+    setErreurLigne(null);
+    const r = await api.annuler(id);
+    if (r.ok) setAConfirmer(null);
+    else setErreurLigne({ id, msg: r.error || "L'annulation a échoué." });
+  };
+
+  const ligne = (a: Absence) => (
+    <div key={a.id} className="slb-row" style={{ display: "flex", alignItems: "flex-start", gap: "11px", padding: "10px 16px", borderTop: `1px solid ${T.line}` }}>
+      <Monogram name={a.nom} size={30} />
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "5px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>{a.nom}</span>
+          <span style={{ fontSize: "12px", fontWeight: 600, color: T.ink3 }}>
+            {a.debut === a.fin ? jjmm(a.debut) : `${jjmm(a.debut)} → ${jjmm(a.fin)}`} · {a.motif}
+          </span>
+        </div>
+        <AbsenceStatut a={a} auj={auj} />
+        {aConfirmer === a.id && (
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "8px 10px", borderRadius: T.rSm, background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
+            <span style={{ flex: "1 1 160px" }}>Annuler l'absence de {a.nom} ? Elle reste dans la table, marquée annulée.</span>
+            <button type="button" className="slb-btnp" style={{ ...btnP, padding: "5px 10px" }} onClick={() => void confirmerAnnulation(a.id)}>Oui, annuler</button>
+            <button type="button" className="slb-btng" style={{ ...btnG, padding: "5px 10px" }} onClick={() => { setAConfirmer(null); setErreurLigne(null); }}>Garder</button>
+          </div>
+        )}
+        {erreurLigne?.id === a.id && (
+          <span style={{ fontSize: "12px", fontWeight: 600, color: T.dangerInk }}>{erreurLigne.msg}</span>
+        )}
+      </div>
+      {a.fin >= auj && aConfirmer !== a.id && (
+        <button type="button" className="slb-btng" disabled={ecritureFermee}
+          title={api.blocage ?? "Annuler cette absence"}
+          onClick={() => { setAConfirmer(a.id); setErreurLigne(null); }}
+          style={{ ...btnG, padding: "4px 9px", fontSize: "12px", flex: "none", opacity: ecritureFermee ? 0.5 : 1, cursor: ecritureFermee ? "not-allowed" : "pointer" }}>
+          Annuler
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <Widget icon={CalendarDays} title="Absences service client"
+      sub={api.chargement ? undefined : absentsJour.length ? `${absentsJour.length} absent${absentsJour.length > 1 ? "s" : ""} aujourd'hui` : "Toute l'équipe est là"}>
+      {api.chargement ? <ListSkeleton rows={4} /> : api.erreur ? <ViewError /> : (
+        <ScrollBody>
+          {/* 1. AUJOURD'HUI */}
+          <div style={section}>
+            <div style={titreSection}>Aujourd'hui</div>
+            {absentsJour.length === 0 ? (
+              <div style={{ fontSize: "13px", fontWeight: 600, color: T.okInk }}>Toute l'équipe est là.</div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {absentsJour.map((a) => (
+                  <span key={a.email} title={`${a.nom} — ${a.motif}, jusqu'au ${jjmm(a.fin)} inclus`}
+                    style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "3px 10px 3px 3px", borderRadius: 999, border: `1px solid ${T.line}`, background: T.surface2, fontSize: "12.5px", fontWeight: 600, color: T.ink2, maxWidth: "100%" }}>
+                    <Monogram name={a.nom} size={22} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nom}</span>
+                    <span style={{ color: T.ink4, fontWeight: 500, whiteSpace: "nowrap" }}>→ {jjmm(a.fin)}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* LE DROIT D'ÉCRIRE, dit une fois en tête plutôt que sur chaque bouton grisé. */}
+          {api.blocage && (
+            <div style={{ ...section, display: "flex", gap: "8px", alignItems: "flex-start", background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
+              <AlertTriangle aria-hidden style={{ width: 15, height: 15, flex: "none", marginTop: 1 }} />
+              <span>{api.blocage}</span>
+            </div>
+          )}
+
+          {/* 2. LE FORMULAIRE — inline, ouvert par le bouton ou par une plage du calendrier. */}
+          {form ? (
+            <div style={{ ...section, background: T.surface2, display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ ...titreSection, marginBottom: 0, flex: 1 }}>Déclarer une absence</span>
+                <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Fermer le formulaire" title="Fermer"
+                  onClick={() => { setForm(null); setErreurForm(""); }}>
+                  <X aria-hidden style={{ width: 15, height: 15 }} />
+                </button>
+              </div>
+              <div>
+                <label style={lbl} htmlFor="slb-abs-personne">Personne</label>
+                <select id="slb-abs-personne" style={field} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}>
+                  {!personne && <option value="">— Choisir —</option>}
+                  {membres.map((m) => <option key={m.email} value={m.email}>{m.nom}</option>)}
+                </select>
+                <p style={{ margin: "5px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+                  Une personne sans compte Sellsy à la même adresse e-mail n'a pas de tâches à réassigner :
+                  n8n l'indique alors dans le résultat de la réassignation.
+                </p>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px" }}>
+                <div>
+                  <label style={lbl} htmlFor="slb-abs-du">Du</label>
+                  <input id="slb-abs-du" type="date" style={field} value={form.debut}
+                    onChange={(e) => setForm({ ...form, debut: e.target.value })} />
+                </div>
+                <div>
+                  <label style={lbl} htmlFor="slb-abs-au">Au (inclus)</label>
+                  <input id="slb-abs-au" type="date" style={field} value={form.fin}
+                    min={form.debut && form.debut > auj ? form.debut : auj}
+                    onChange={(e) => setForm({ ...form, fin: e.target.value })} />
+                </div>
+                <div>
+                  <label style={lbl} htmlFor="slb-abs-motif">Motif</label>
+                  <select id="slb-abs-motif" style={field} value={form.motif} onChange={(e) => setForm({ ...form, motif: e.target.value })}>
+                    {ABS_MOTIFS.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+              <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "12.5px", fontWeight: 600, color: T.ink2, cursor: "pointer" }}>
+                <input type="checkbox" checked={form.reassigner} style={{ marginTop: 2 }}
+                  onChange={(e) => setForm({ ...form, reassigner: e.target.checked })} />
+                <span>
+                  Réassigner ses tâches Sellsy ouvertes
+                  <span style={{ display: "block", marginTop: "3px", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+                    Ses tâches ouvertes à échéance avant son retour seront réparties au hasard entre les présents
+                    le {jjmm(form.debut ? jourReassignation(form.debut, auj) : auj)}
+                    {form.debut && form.debut <= auj ? " (dans le quart d'heure, l'absence commençant aujourd'hui)" : ""}.
+                    {" "}Ses clients lui reviennent à son retour.
+                  </span>
+                </span>
+              </label>
+              {chevauche && chevauche.length > 0 && (
+                <div style={{ display: "flex", gap: "8px", alignItems: "flex-start", padding: "8px 10px", borderRadius: T.rSm, background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
+                  <AlertTriangle aria-hidden style={{ width: 14, height: 14, flex: "none", marginTop: 1 }} />
+                  <span>
+                    {personne?.nom} a déjà une absence sur cette période
+                    ({chevauche.map((a) => `${jjmm(a.debut)} → ${jjmm(a.fin)}`).join(", ")}). L'enregistrement reste possible.
+                  </span>
+                </div>
+              )}
+              {(invalide || erreurForm) && (
+                <span style={{ fontSize: "12px", fontWeight: 600, color: erreurForm ? T.dangerInk : T.ink3 }}>{erreurForm || invalide}</span>
+              )}
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button type="button" className="slb-btng" style={btnG} onClick={() => { setForm(null); setErreurForm(""); }}>Fermer</button>
+                <button type="button" className="slb-btnp" disabled={!!invalide || envoi || ecritureFermee} onClick={() => void enregistrer()}
+                  title={api.blocage ?? undefined}
+                  style={{ ...btnP, opacity: invalide || envoi || ecritureFermee ? 0.55 : 1, cursor: invalide || envoi || ecritureFermee ? "not-allowed" : "pointer" }}>
+                  <Check aria-hidden style={{ width: 14, height: 14 }} />{envoi ? "Enregistrement…" : "Enregistrer l'absence"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...section, display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <button type="button" className="slb-btnp" disabled={ecritureFermee} title={api.blocage ?? undefined}
+                onClick={() => ouvrirForm(auj, auj)}
+                style={{ ...btnP, opacity: ecritureFermee ? 0.55 : 1, cursor: ecritureFermee ? "not-allowed" : "pointer" }}>
+                <Plus aria-hidden style={{ width: 14, height: 14 }} />Déclarer une absence
+              </button>
+              <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+                {ancre ? `Du ${jjmm(ancre)} : cliquez le dernier jour.` : "Ou cliquez le premier puis le dernier jour dans le calendrier."}
+              </span>
+            </div>
+          )}
+
+          {/* 3. LE CALENDRIER DU MOIS */}
+          <div style={section}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
+              <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Mois précédent" title="Mois précédent" onClick={() => decalerMois(-1)}>
+                <ChevronLeft aria-hidden style={{ width: 16, height: 16 }} />
+              </button>
+              <span style={{ flex: 1, textAlign: "center", fontSize: "13px", fontWeight: 700, color: T.ink, textTransform: "capitalize" }}>{libelleMois}</span>
+              {mois !== auj.slice(0, 7) && (
+                <button type="button" className="slb-btng" style={{ ...btnG, padding: "3px 8px", fontSize: "11.5px" }} onClick={() => setMois(auj.slice(0, 7))}>Aujourd'hui</button>
+              )}
+              <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Mois suivant" title="Mois suivant" onClick={() => decalerMois(1)}>
+                <ChevronRight aria-hidden style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "4px" }}>
+              {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((j) => (
+                <span key={j} style={{ textAlign: "center", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em", paddingBottom: 2 }}>{j}</span>
+              ))}
+              {cases.map((d) => {
+                const horsMois = d.slice(0, 7) !== mois;
+                const weekend = jourSemaine(d) >= 5;
+                const absents = actives.filter((a) => a.debut <= d && d <= a.fin)
+                  .filter((a, i, l) => l.findIndex((x) => x.email === a.email) === i);
+                const estAncre = ancre === d;
+                const estAuj = d === auj;
+                const titre = `${jjmm(d)}${absents.length ? ` — absent${absents.length > 1 ? "s" : ""} : ${absents.map((a) => a.nom).join(", ")}` : ""}`;
+                return (
+                  <button key={d} type="button" className="slb-calday" disabled={ecritureFermee}
+                    onClick={() => cliqueJour(d)} title={titre} aria-label={titre} aria-pressed={estAncre}
+                    style={{
+                      minHeight: 50, padding: "4px", boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "stretch", gap: "3px",
+                      borderRadius: T.rSm, fontFamily: "inherit", textAlign: "left",
+                      border: `1px solid ${estAncre ? T.brand : estAuj ? T.brand100 : T.line}`,
+                      background: estAncre ? T.brand050 : weekend ? T.surface2 : T.surface,
+                      opacity: horsMois ? 0.45 : 1, cursor: ecritureFermee ? "default" : "pointer",
+                    }}>
+                    <span style={{ fontSize: "11px", fontWeight: estAuj ? 800 : 600, color: estAuj ? T.brand700 : weekend ? T.ink4 : T.ink2 }}>
+                      {Number(d.slice(8, 10))}
+                    </span>
+                    <span style={{ display: "flex", flexWrap: "wrap", gap: "2px" }}>
+                      {absents.slice(0, 3).map((a) => {
+                        const c = monogramOf(a.nom);
+                        return (
+                          <span key={a.email} aria-hidden style={{ padding: "1px 3px", borderRadius: 4, background: c.bg, color: c.ink, fontSize: "9.5px", fontWeight: 700, lineHeight: 1.2 }}>
+                            {initials(a.nom)}
+                          </span>
+                        );
+                      })}
+                      {absents.length > 3 && (
+                        <span aria-hidden style={{ fontSize: "9.5px", fontWeight: 700, color: T.ink3, lineHeight: 1.4 }}>+{absents.length - 3}</span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 4. EN COURS ET À VENIR, puis les passées des 30 derniers jours (repliées). */}
+          <div style={{ padding: "12px 16px 6px" }}>
+            <div style={{ ...titreSection, marginBottom: 0 }}>En cours et à venir</div>
+          </div>
+          {aVenir.length === 0
+            ? <EmptyState dense icon={CalendarDays} title="Aucune absence prévue" hint="Les absences déclarées apparaîtront ici." />
+            : aVenir.map(ligne)}
+          {passees.length > 0 && (
+            <>
+              <button type="button" className="slb-btng" onClick={() => setPasseesOuvert((o) => !o)} aria-expanded={passeesOuvert}
+                style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%", padding: "10px 16px", border: "none", borderTop: `1px solid ${T.line}`, background: "transparent", color: T.ink3, fontFamily: "inherit", fontSize: "12px", fontWeight: 700, cursor: "pointer", textAlign: "left" }}>
+                {passeesOuvert ? <ChevronUp aria-hidden style={{ width: 14, height: 14 }} /> : <ChevronDown aria-hidden style={{ width: 14, height: 14 }} />}
+                Passées (30 j) · {passees.length}
+              </button>
+              {passeesOuvert && passees.map(ligne)}
+            </>
+          )}
+        </ScrollBody>
+      )}
+    </Widget>
+  );
+}
+
 /* --- Registre des TYPES de widget. Les CLÉS SONT UN CONTRAT DE PERSISTANCE :
       une fois livrées, ne JAMAIS les renommer (les layouts sauvegardés y font
       référence). `title` = libellé porté par la galerie (le titre affiché
@@ -12875,6 +13590,9 @@ type WidgetTypeKey =
      source, ni leur filtre, ni leur tri. Un widget dont la raison d'être tient en une
      phrase ne doit pas offrir dix réglages qui la contredisent. */
   | "attSolva" | "demInfos"
+  /* ← Absences du service client (§9-nonies, 2026-10-15) — RÉSERVÉ au service client
+     (`TYPES_SERVICE_CLIENT`) : ni proposé ni rendu pour les autres. */
+  | "absencesSC"
   /* ← Utilitaires SANS source (§9-sexies) : leur contenu est leur cfg. */
   | "horloge" | "memo" | "checklist"
   | "data"     // ← LE type générique piloté par cfg : liste / tableau / KPI (§9-bis)
@@ -13004,6 +13722,8 @@ const WIDGET_REGISTRY: Record<WidgetTypeKey, WidgetTypeDef> = {
      contenu (§10). Voir `ATT_SOLVA_CFG` / `DEM_INFOS_CFG` pour ce qu'elles montrent. */
   attSolva: fileType("En attente de solvabilité", Clock, ATT_SOLVA_CFG),
   demInfos: fileType("Demandes d'infos", Inbox, DEM_INFOS_CFG),
+  /* Pas d'`Options` : rien à régler, la table est la même pour tout le service. */
+  absencesSC: { title: "Absences service client", icon: CalendarDays, Render: AbsencesCard },
   // Titres modifiables librement (les CLÉS, elles, sont figées : contrat de persistance).
   linkedin: { title: "SunLib sur LinkedIn", icon: Newspaper, Render: LinkedinCard },
   linkedinBanner: { title: "À la une SunLib", icon: Megaphone, Render: LinkedinBannerCard },
@@ -13181,6 +13901,13 @@ const LAYOUT_VERSION = 2;
    { id: "sav", type: "sav", cfg: {}, w: "half", h: 560 },                              */
 const DEFAULT_INSTANCES: Instance[] = [];
 
+/* La pose d'office des ABSENCES DU SERVICE CLIENT (§9-nonies, 2026-10-15). Elle n'entre
+   PAS dans `DEFAULT_INSTANCES`, qui vaut pour tout le monde : elle ne concerne que les
+   membres du service, et on ne le sait qu'après avoir lu « Utilisateurs ». C'est donc
+   `Dashboard` qui la sème, une fois la disposition relue en base (`seedOne`).
+   L'id est la clé de type, comme les anciens widgets par défaut (cf. `newInstanceId`). */
+const ABS_SEED: Instance = { id: "absencesSC", type: "absencesSC", cfg: {}, w: "half", h: 760 };
+
 /* --- GALERIE « Ajouter un widget » : les modèles qu'on peut poser sur la grille.
    Entièrement GÉNÉRÉE, de deux origines :
      · les types SUR-MESURE (pour ré-ajouter un widget supprimé) ;
@@ -13203,7 +13930,7 @@ type Preset = { key: string; label: string; hint?: string; icon: LucideIcon; typ
        Performance. Une galerie ne doit rien coûter.
    Les maquettes sont donc de simples `div` : zéro requête, zéro dépendance, et elles
    disent ce qui compte — la FORME du widget qu'on s'apprête à poser. --- */
-type ShapeKind = "list" | "table" | "kpi" | "tiles" | "podium" | "text" | "check" | "clock" | "embed";
+type ShapeKind = "list" | "table" | "kpi" | "tiles" | "podium" | "text" | "check" | "clock" | "embed" | "calendar";
 
 function PresetShape({ kind }: { kind: ShapeKind }) {
   const bar = (w: string, c = T.line2): CSSProperties => ({ height: 6, width: w, borderRadius: 3, background: c });
@@ -13277,6 +14004,14 @@ function PresetShape({ kind }: { kind: ShapeKind }) {
           </span>
         </div>
       );
+    case "calendar":
+      return (
+        <div style={{ ...box, display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "3px" }}>
+          {Array.from({ length: 21 }, (_, i) => (
+            <span key={i} style={{ borderRadius: 3, background: [3, 4, 9, 10, 11, 16].includes(i) ? T.brand100 : i % 7 >= 5 ? T.neutral050 : T.surface2, border: `1px solid ${T.line}` }} />
+          ))}
+        </div>
+      );
     case "embed":
       return (
         <div style={{ ...box, alignItems: "center", justifyContent: "center", background: T.surface2 }}>
@@ -13309,6 +14044,9 @@ const GALLERY_GROUPS: { key: string; label: string; icon: string }[] = [
      mentionne. Déplacer cette ligne suffit à déplacer le groupe. */
   { key: "partenaires", label: "Partenaires", icon: "BookUser" },
   { key: "sav", label: "Dossiers SAV", icon: "Ticket" },
+  /* Ajouté le 2026-10-15 avec les absences. N'apparaît QUE pour le service client : ses
+     seuls modèles sont réservés, et un groupe sans modèle visible n'est pas affiché. */
+  { key: "serviceClient", label: "Service client", icon: "CalendarDays" },
   { key: "comm", label: "Communication", icon: "Newspaper" },
   { key: "perf", label: "Performance", icon: "Trophy" },
   { key: "exceptions", label: "Exceptions", icon: "ClipboardList" },
@@ -13339,6 +14077,8 @@ const CUSTOM_TYPES: { type: WidgetTypeKey; h?: WidgetHeight; group: string; shap
   { type: "attSolva", group: "abonnes", shape: "list", desc: "Tous les dossiers au statut « En attente de solvabilité », le plus ancien en tête. Rien à régler." },
   { type: "demInfos", group: "abonnes", shape: "list", desc: "Tous les dossiers en « Demande d'infos » (technique, solvabilité ou les deux), le plus ancien en tête. Rien à régler." },
   { type: "taches", group: "taches", shape: "list", desc: "Vos tâches prospects et partenaires, avec leur échéance et la case « Fait »." },
+  // Réservé au service client (`TYPES_SERVICE_CLIENT`) : la galerie ne le montre qu'à lui.
+  { type: "absencesSC", h: 760, group: "serviceClient", shape: "calendar", desc: "Qui est absent aujourd'hui, le calendrier du mois, et la déclaration d'une absence avec réassignation des tâches Sellsy." },
   /* Hauteurs de pose accordées au contenu réel de chaque embed : il ne défile pas, donc
      ce qui dépasse est perdu jusqu'à ce qu'on agrandisse la carte à la main. */
   { type: "linkedin", h: 860, group: "comm", shape: "embed", desc: "Le fil des publications LinkedIn de SunLib." },
@@ -13470,7 +14210,11 @@ function WidgetGallery({ posed, onAdd, onClose }: {
      accents — personne ne tape « à signer » avec l'accent dans un champ de recherche. */
   const norm = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const terme = norm(q.trim());
+  /* Les modèles RÉSERVÉS (§9-nonies) ne sont proposés qu'à qui peut les voir : sans ce
+     filtre, on poserait une carte qui ne s'affiche pas. */
+  const sc = useContext(ServiceClientCtx);
   const visibles = PRESETS.filter((p) => {
+    if (!typePermis(p.type, sc)) return false;
     if (groupe && (GROUP_KEYS.has(p.group) ? p.group : "autres") !== groupe) return false;
     if (!terme) return true;
     return norm(`${p.label} ${p.desc}`).includes(terme);
@@ -13479,7 +14223,9 @@ function WidgetGallery({ posed, onAdd, onClose }: {
   /* Les pastilles ne listent que les groupes RÉELLEMENT peuplés : un onglet vide serait
      un cul-de-sac. Le compte de résultats est affiché — sans lui, une recherche sans
      réponse ressemble à un écran cassé. */
-  const pills = [{ key: "", label: "Tous" }, ...PRESET_GROUPS.map((g) => ({ key: g.key, label: g.label }))];
+  const pills = [{ key: "", label: "Tous" }, ...PRESET_GROUPS
+    .filter((g) => g.items.some((p) => typePermis(p.type, sc)))
+    .map((g) => ({ key: g.key, label: g.label }))];
   const pill = (actif: boolean): CSSProperties => ({
     padding: "6px 13px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
     fontSize: "12.5px", fontWeight: 600, whiteSpace: "nowrap",
@@ -14132,6 +14878,17 @@ function addInstance(layout: Layout, type: string, cfg: unknown, h: WidgetHeight
   return { ...layout, items: [...layout.items, inst] };
 }
 
+/** Sème UNE instance, une seule fois dans la vie du document — le `seed()` d'un widget
+ *  qu'on ne pose qu'à certains (§9-nonies). PURE. Rend `l` tel quel si l'id est déjà
+ *  connu (posé, garé ou semé puis retiré : le retrait reste définitif). Si le même MODÈLE
+ *  est déjà sur la grille (posé à la main depuis la galerie), on ne double pas la carte :
+ *  on note seulement l'id comme semé. */
+function seedOne(l: Layout, inst: Instance): Layout {
+  if (takenIds(l).has(inst.id)) return l;
+  if (usedPresets(l).has(presetKeyOf(inst))) return { ...l, seeded: [...l.seeded, inst.id] };
+  return { ...l, items: [...l.items, cloneInstance(inst)], seeded: [...l.seeded, inst.id] };
+}
+
 /* `duplicateInstance` a été SUPPRIMÉE (2026-08-03), comme le masquage avant elle :
    poser deux fois la même famille de widget passe par la galerie, puis par les
    Options de chacun. Le multi-instances reste entier — c'est seulement le raccourci
@@ -14267,9 +15024,14 @@ function usePersistentLayout() {
     return () => window.clearTimeout(t);
   }, [attentePrefsExpiree]);
 
-  const [layout, setLayout] = useState < Layout | null > (() => readLocalLayout(email));
-  const [status, setStatus] = useState < "loading" | "ready" > (() => (readLocalLayout(email) ? "ready" : "loading"));
-  const recordId = useRef < string | null > (null);
+  const [layout, setLayout] = useState<Layout | null>(() => readLocalLayout(email));
+  const [status, setStatus] = useState<"loading" | "ready">(() => (readLocalLayout(email) ? "ready" : "loading"));
+  /* VRAI une fois la disposition RELUE EN BASE (ou la base non branchée) — pas seulement
+     affichée depuis le cache local. ⚠️ Toute écriture SPONTANÉE (la pose d'office, §9-nonies)
+     doit l'attendre : partir du cache, c'est risquer d'écraser en base une disposition plus
+     récente, modifiée depuis un autre poste. Un geste de l'utilisateur, lui, n'attend pas. */
+  const [synced, setSynced] = useState(false);
+  const recordId = useRef<string | null>(null);
 
   const bddRec = PREFS_ENABLED ? flatten(bddRes)[0] ?? null : null;
   const bddId = bddRec?.id ?? null;
@@ -14280,9 +15042,11 @@ function usePersistentLayout() {
       recordId.current = null;
       setLayout((cur) => cur ?? cloneDefault());
       setStatus("ready");
+      setSynced(true);
       return;
     }
     if (bddRes.isLoading && !attentePrefsExpiree) return;   // squelettes tant que la BDD répond — ou que le plafond tient
+    setSynced(!bddRes.isLoading);   // plafond expiré sans réponse : affiché, mais PAS relu
     recordId.current = bddId;
     if (bddId) {                          // BDD = SOURCE DE VÉRITÉ → écrase le cache
       const next = normalizeLayout(bddLayoutStr);   // v1 → migré en mémoire (écrit au prochain « Enregistrer »)
@@ -14322,7 +15086,7 @@ function usePersistentLayout() {
     }
   };
 
-  return { layout, status, persist };
+  return { layout, status, synced, persist };
 }
 
 /* --- Squelette de carte : affiché pendant le chargement des préférences
@@ -14437,7 +15201,9 @@ function SkeletonCard() {
    Grille responsive via la classe .slb-dash ; un widget « pleine largeur » occupe
    gridColumn 1/-1. --- */
 function Dashboard() {
-  const { layout: applied, status, persist } = usePersistentLayout();
+  const { layout: applied, status, synced, persist } = usePersistentLayout();
+  /* Le service client (§9-nonies) : décide quelles instances réservées la grille rend. */
+  const sc = useContext(ServiceClientCtx);
   // Nombre de colonnes selon la largeur RÉELLE DU BLOC (et non de la fenêtre : le
   // bloc vit dans une iframe étroite alors que la fenêtre est large). Mesuré en JS
   // plutôt qu'en container query : le style inline qui en découle fonctionne même
@@ -14640,6 +15406,19 @@ function Dashboard() {
      cas d'échec (`runSave`) — poser un widget est un geste courant, il n'a pas à
      s'annoncer. */
   const onAdd = (p: Preset) => void runSave(addInstance(current, p.type, p.cfg(), p.h ?? H_DEFAULT, p.key), true);
+
+  /* POSE D'OFFICE DES ABSENCES (§9-nonies) — pour un membre du service client, une fois.
+     Trois conditions, toutes nécessaires : la disposition RELUE EN BASE (`synced`, cf.
+     `usePersistentLayout`), la réponse d'« Utilisateurs » (`pret`), et l'appartenance.
+     `seedOne` est idempotent ; la ref évite seulement de retenter à chaque rendu si
+     l'écriture a échoué (l'échec s'annonce par le toast, avec « Réessayer »). */
+  const semeAbs = useRef(false);
+  useEffect(() => {
+    if (semeAbs.current || !synced || !applied || !sc?.pret || !sc.estMembre) return;
+    semeAbs.current = true;
+    const next = seedOne(applied, ABS_SEED);
+    if (next !== applied) void runSave(next, true);
+  }, [synced, applied, sc?.pret, sc?.estMembre]);
   // Modèles déjà sur la grille — la galerie les grise (un seul exemplaire par modèle).
   const posed = usedPresets(shown);
 
@@ -14922,6 +15701,10 @@ function Dashboard() {
             // les met dans `parked`) — garde-fou pour ne jamais casser le rendu.
             const def = typeDefOf(inst.type);
             if (!def) return null;
+            /* Type RÉSERVÉ et session hors du service client (§9-nonies) : l'instance reste
+               dans le document, mais la grille ne lui donne AUCUNE case — ni carte vide, ni
+               trou dans le tassement. */
+            if (!typePermis(inst.type, sc)) return null;
             const Render = def.Render;
             // cfg interprétée AU RENDU (le stockage reste brut, cf. §10-bis).
             const cfg = cfgOf(def, inst.cfg);
@@ -15138,11 +15921,15 @@ export default function Block() {
      racine, donc une seule lecture de la table pour les trois cartes et pour le bouton. */
   const embeds = useEmbedsSource();
   const embedsPart = useEmbedsSourcePartenaire();
+  /* Qui est au service client (§9-nonies) — même raison : une lecture pour la grille, la
+     galerie, la pose d'office et le formulaire des absences. */
+  const serviceClient = useServiceClientSource();
 
   return (
     <EmbedsCtx.Provider value={embeds}>
     <EmbedsPartCtx.Provider value={embedsPart.inst}>
     <EmbedsAfCtx.Provider value={embedsPart.af}>
+    <ServiceClientCtx.Provider value={serviceClient}>
     <div id="slb" ref={rootRef} style={{ backgroundColor: T.canvas, minHeight: "100vh", fontFamily: T.font, color: T.ink }}>
       <StyleInjector />
       {/* Conteneur unique de la page : c'est LUI qui décide la largeur utile et donc
@@ -15172,6 +15959,7 @@ export default function Block() {
 
       </div>
     </div>
+    </ServiceClientCtx.Provider>
     </EmbedsAfCtx.Provider>
     </EmbedsPartCtx.Provider>
     </EmbedsCtx.Provider>

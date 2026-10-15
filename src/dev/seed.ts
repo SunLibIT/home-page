@@ -117,7 +117,51 @@ const embeds: Rec[] = [
   { id: "e2", fields: { cle: "annonces", widgetId: "8f372b94-937a-4aa2-8762-0e56f6515ac7", snippet: SNIPPET_DEMO("8f372b94-937a-4aa2-8762-0e56f6515ac7"), titre: "Rentrée SunLib", updatedAt: daysAgo(0), updatedBy: "karine.romano@sunlib.fr" } },
 ];
 
+/* ── ABSENCES DU SERVICE CLIENT (§9-nonies) — alias de `SELECT_ABS` ────────────────
+   Jours civils « YYYY-MM-DD » relatifs au jour, comme la table les porte. Quatre cas, un par
+   état que le widget affiche : absente aujourd'hui et déjà réassignée (avec le compte rendu
+   de n8n), à venir avec réassignation prévue, passée sans réassignation, et ANNULÉE — qui ne
+   doit apparaître nulle part, ni dans le bandeau, ni dans le calendrier, ni dans la liste. */
+const jour = (n: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  const p2 = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
+};
+const absencesSC: Rec[] = [
+  { id: "ab1", fields: { nom: "Lola HERNANDEZ", email: "lola@sunlib.fr", debut: jour(-2), fin: jour(3), motif: { name: "Congés" },
+      reassigner: true, annulee: false, creePar: "lola@sunlib.fr", creeLe: daysAgo(9),
+      reassigneLe: daysAgo(2), resultat: "4 tâches réassignées : 2 à Carole SADRAIN, 2 à Roland THUNIN." } },
+  { id: "ab2", fields: { nom: "Melissa CADENEL", email: "melissa@sunlib.fr", debut: jour(6), fin: jour(7), motif: { name: "Formation" },
+      reassigner: true, annulee: false, creePar: "guillaume@sunlib.fr", creeLe: daysAgo(1) } },
+  { id: "ab3", fields: { nom: "Carole SADRAIN", email: "carole@sunlib.fr", debut: jour(-12), fin: jour(-10), motif: { name: "Maladie" },
+      reassigner: false, annulee: false, creePar: "carole@sunlib.fr", creeLe: daysAgo(12) } },
+  { id: "ab4", fields: { nom: "Roland THUNIN", email: "roland@sunlib.fr", debut: jour(1), fin: jour(4), motif: { name: "Congés" },
+      reassigner: true, annulee: true, creePar: "roland@sunlib.fr", creeLe: daysAgo(5) } },
+];
+
+/* « Utilisateurs » (BDD UTILISATEURS) — alias de `SELECT_UTIL_SC`. Les huit membres actifs du
+   service client au 2026-10-15, PLUS deux lignes que le widget doit écarter : un compte
+   « Inactif » du service, et un installateur. `service` et `acces` ont la forme d'objets
+   `{ name }`, celle que Softr peut rendre — c'est ce que `membresDe` doit mettre à plat. */
+const sc = (id: string, nomComplet: string, email: string, ...services: string[]): Rec =>
+  ({ id, fields: { nomComplet, email, service: services.map((name) => ({ name })), acces: { name: "Actif" } } });
+const utilisateursSC: Rec[] = [
+  sc("us1", "Carole SADRAIN", "carole@sunlib.fr", "Service client"),
+  sc("us2", "Falène AMARA", "falene@sunlib.fr", "Service client"),
+  sc("us3", "Guillaume OZANIC", "guillaume@sunlib.fr", "Service client", "Manager"),
+  sc("us4", "Lola HERNANDEZ", "lola@sunlib.fr", "Service client"),
+  sc("us5", "Marie BONAMY", "marie@sunlib.fr", "Service client", "Direction"),
+  sc("us6", "Melissa CADENEL", "melissa@sunlib.fr", "Service client"),
+  sc("us7", "Roland THUNIN", "roland@sunlib.fr", "Service client"),
+  sc("us8", "Romain FLORI", "romain@sunlib.fr", "Direction", "Service client"),
+  { id: "us9", fields: { nomComplet: "Ancien COLLÈGUE", email: "ancien@sunlib.fr", service: [{ name: "Service client" }], acces: { name: "Inactif" } } },
+  sc("us10", "Installateur EXEMPLE", "contact@installateur.example", "Partenaire"),
+];
+
 export const SEED: Record<string, Rec[]> = {
+  [DS_IDS.absencesSC]: absencesSC,
+  [DS_IDS.utilisateursSC]: utilisateursSC,
   [DS_IDS.abonnes]: abonnes,
   [DS_IDS.notesIns]: notesIns,
   [DS_IDS.notesPro]: notesPro,
