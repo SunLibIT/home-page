@@ -5454,6 +5454,28 @@ function WidgetOptionsMenu({ opts, title, defaultTitle }: { opts: WidgetOptions;
   );
 }
 
+/* --- Un RESSORT amorti, pour les gestes « organiques » (2026-10-16) : `x` part de 0 et
+      file vers 1 sous une force de rappel (`raideur`) freinée par `amorti` ; sous-amorti,
+      il DÉPASSE 1 puis revient — ce dépassement est le rebond. Masse 1, intégration d'Euler
+      semi-implicite, pas plafonné à 32 ms pour qu'un onglet ralenti ne fasse pas exploser
+      la simulation. Rend la fonction d'ARRÊT (sans rappel de fin). --- */
+function ressort(surImage: (x: number) => void, surFin: () => void,
+  { raideur = 200, amorti = 20 }: { raideur?: number; amorti?: number } = {}): () => void {
+  let x = 0, v = 0, avant = 0, id = 0, fini = false;
+  const pas = (t: number) => {
+    if (fini) return;
+    const dt = avant ? Math.min(0.032, (t - avant) / 1000) : 1 / 60;
+    avant = t;
+    v += (-raideur * (x - 1) - amorti * v) * dt;
+    x += v * dt;
+    if (Math.abs(x - 1) < 0.0015 && Math.abs(v) < 0.02) { fini = true; surImage(1); surFin(); return; }
+    surImage(x);
+    id = requestAnimationFrame(pas);
+  };
+  id = requestAnimationFrame(pas);
+  return () => { fini = true; cancelAnimationFrame(id); };
+}
+
 /* --- Coquille de widget compact : en-tête (icône + titre + actions), corps
       libre, pied optionnel. L'en-tête est la zone de PRÉHENSION (glisser pour
       réordonner) et porte le ⋮ des réglages ; le corps reste toujours interactif.
@@ -5543,10 +5565,96 @@ function Widget({
   const [grand, setGrand] = useState(false);
   const hauteurCase = useContext(WidgetHeightCtx);
   const [hauteurEcran, setHauteurEcran] = useState(() => (typeof window !== "undefined" ? window.innerHeight : 800));
+
+  /* L'ANIMATION (2026-10-16, demandé) — la carte GRANDIT DEPUIS SA PLACE et y RETOURNE en se
+     refermant, poussée par un ressort (`ressort`) qui dépasse un peu sa cible avant de s'y
+     poser : c'est ce léger rebond qui donne l'effet « organique ».
+     · On anime la BOÎTE (top / left / width / height), pas un `scale()` : le contenu se remet
+       en page à chaque image au lieu d'être étiré, et le texte reste net pendant le geste.
+     · Les valeurs passent DIRECTEMENT par `el.style`, sans rendu React par image ; celles que
+       React avait posées sont relevées avant et REMISES après (`figer`/`rendre`) — les vider
+       effacerait le style de React, qui ne les réécrirait qu'au prochain changement.
+     · Pendant l'agrandissement, une CASE VIDE de la hauteur de la carte reste dans la grille
+       (`hPlace`) : sans elle, la carte sortie du flux laisserait les widgets du dessous
+       remonter, et le retour viserait une place qui n'existe plus.
+     · `prefers-reduced-motion` : ni ressort ni voile animé, la carte s'ouvre et se ferme net. */
+  const teteRef = useRef<HTMLDivElement | null>(null);
+  const placeRef = useRef<HTMLDivElement | null>(null);
+  const voileRef = useRef<HTMLDivElement | null>(null);
+  const depart = useRef<DOMRect | null>(null);
+  const enCours = useRef<null | (() => void)>(null);
+  /* Les valeurs de React relevées au début d'un geste : un geste INTERROMPU (refermer pendant
+     que la carte s'ouvre encore) doit les remettre, sinon un `height` posé en cours de route
+     resterait collé à la carte une fois revenue dans la grille. */
+  const garde = useRef<Record<string, string> | null>(null);
+  const [hPlace, setHPlace] = useState(0);
+  const carteEl = () => (teteRef.current?.parentElement ?? null) as HTMLElement | null;
+  const sansMouvement = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+  const PROPS_BOITE = ["top", "left", "width", "height", "bottom", "right", "margin"] as const;
+  const figer = (el: HTMLElement) => { const s: Record<string, string> = {}; for (const p of PROPS_BOITE) s[p] = el.style[p]; return s; };
+  const rendre = (el: HTMLElement, s: Record<string, string>) => { for (const p of PROPS_BOITE) el.style[p] = s[p]; };
+  const poser = (el: HTMLElement, a: DOMRect, b: DOMRect, x: number) => {
+    el.style.margin = "0"; el.style.right = "auto"; el.style.bottom = "auto";
+    el.style.top = `${a.top + (b.top - a.top) * x}px`;
+    el.style.left = `${a.left + (b.left - a.left) * x}px`;
+    el.style.width = `${Math.max(40, a.width + (b.width - a.width) * x)}px`;
+    el.style.height = `${Math.max(40, a.height + (b.height - a.height) * x)}px`;
+  };
+  const ouvrir = () => {
+    const el = carteEl();
+    if (enCours.current || !el) { setGrand(true); return; }
+    const r = el.getBoundingClientRect();
+    depart.current = sansMouvement() ? null : r;
+    setHPlace(r.height);
+    setGrand(true);
+  };
+  /* L'ouverture se joue APRÈS le rendu en mode grand (la boîte finale n'est mesurable
+     qu'alors) mais AVANT que l'écran ne la peigne : sans quoi on verrait une image de la
+     carte déjà grande avant qu'elle ne parte de sa case. */
+  useLayoutEffect(() => {
+    const el = carteEl(), a = depart.current;
+    depart.current = null;
+    if (!grand || !el || !a) return;
+    const b = el.getBoundingClientRect();
+    garde.current = figer(el);
+    poser(el, a, b, 0);
+    if (voileRef.current) voileRef.current.style.opacity = "0";
+    enCours.current = ressort((x) => {
+      poser(el, a, b, x);
+      if (voileRef.current) voileRef.current.style.opacity = String(Math.min(1, Math.max(0, x)));
+    }, () => {
+      if (garde.current) rendre(el, garde.current);
+      garde.current = null; enCours.current = null;
+      if (voileRef.current) voileRef.current.style.opacity = "";
+    }, { raideur: 190, amorti: 19 });
+  }, [grand]);
+  const fermer = () => {
+    const el = carteEl(), place = placeRef.current;
+    /* La boîte est relevée AVANT d'interrompre un geste en cours : le retour repart de là où
+       la carte se trouve vraiment à l'écran, sans saut. */
+    const a = el?.getBoundingClientRect();
+    if (enCours.current) { enCours.current(); enCours.current = null; }
+    if (el && garde.current) { rendre(el, garde.current); garde.current = null; }
+    if (!el || !a || !place || sansMouvement()) { setGrand(false); return; }
+    const b = place.getBoundingClientRect();
+    garde.current = figer(el);
+    poser(el, a, b, 0);
+    enCours.current = ressort((x) => {
+      poser(el, a, b, x);
+      if (voileRef.current) voileRef.current.style.opacity = String(Math.min(1, Math.max(0, 1 - x)));
+    }, () => {
+      if (garde.current) rendre(el, garde.current);
+      garde.current = null; enCours.current = null;
+      setGrand(false);
+    }, { raideur: 260, amorti: 26 });
+  };
+  /* Un widget démonté en plein geste (changement d'onglet…) ne laisse pas d'image orpheline. */
+  useEffect(() => () => { enCours.current?.(); }, []);
+
   useEffect(() => {
     if (!grand) return;
     const surTaille = () => setHauteurEcran(window.innerHeight);
-    const surTouche = (e: KeyboardEvent) => { if (e.key === "Escape") setGrand(false); };
+    const surTouche = (e: KeyboardEvent) => { if (e.key === "Escape") fermer(); };
     surTaille();
     window.addEventListener("resize", surTaille);
     document.addEventListener("keydown", surTouche);
@@ -5574,15 +5682,17 @@ function Widget({
   return (
     <>
     {grand && (
-      <div aria-hidden onClick={() => setGrand(false)}
+      <div ref={voileRef} aria-hidden onClick={fermer}
         style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(16,26,40,.45)" }} />
     )}
+    {/* La case gardée dans la grille pendant l'agrandissement — invisible, même hauteur. */}
+    {grand && <div ref={placeRef} aria-hidden style={{ height: hPlace }} />}
     <Card style={cardGrand} {...(grand ? { role: "dialog", "aria-modal": true, "aria-label": shown } : {})}>
       {/* L'EN-TÊTE est la zone de préhension (cf. WidgetGrabCtx). `cursor: grab` suffit
           comme affordance : pas de `title` ici, il se déclencherait au survol du titre du
           widget. Pas de poignée « mors de déménageur » non plus — elle n'existait qu'en
           mode Personnaliser, et sur chaque carte en usage courant elle serait du bruit. */}
-      <div style={prise ? { ...headStyle, cursor: "grab", flex: "none" } : { ...headStyle, flex: "none" }}
+      <div ref={teteRef} style={prise ? { ...headStyle, cursor: "grab", flex: "none" } : { ...headStyle, flex: "none" }}
         draggable={!!prise} onDragStart={prise?.onDragStart} onDragEnd={prise?.onDragEnd}
         onPointerDownCapture={prise?.onPointerDownCapture}>
         <span style={!solar && tint.pill ? { ...icoPillSm(false), background: tint.pill, color: tint.ink } : icoPillSm(solar)}>
@@ -5611,7 +5721,7 @@ function Widget({
         )}
         {/* OUVRIR EN GRAND / RÉDUIRE — sur tous les widgets, juste avant le ⋮. */}
         <button type="button" className="slb-nbtn" style={NBTN_SM}
-          onClick={() => setGrand((g) => !g)}
+          onClick={() => (grand ? fermer() : ouvrir())}
           aria-label={grand ? `Réduire — ${shown}` : `Ouvrir en grand — ${shown}`}
           title={grand ? "Réduire (Échap)" : "Ouvrir en grand"}>
           {grand ? <Minimize2 aria-hidden style={{ width: 15, height: 15 }} /> : <Maximize2 aria-hidden style={{ width: 15, height: 15 }} />}

@@ -1326,7 +1326,16 @@ un voile ; Échap, le voile ou ⤡ la referment. Rien n'est persisté. ⚠️ La
 déplacée** dans l'arbre (pas de portail) : seul son style change, sinon le contenu se
 démonterait et perdrait son état. La hauteur du corps passe par `WidgetHeightCtx` (fournisseur
 toujours rendu), donc tout `ScrollBody` en profite sans retouche. L'en-tête n'est plus une poignée
-de glisser pendant l'agrandissement. ⚠️ Pas encore porté au **bloc partenaire** (même socle).
+de glisser pendant l'agrandissement.
+
+**Le geste est animé** : la carte grandit depuis sa case et y revient, poussée par `ressort`
+(ressort amorti, léger dépassement — ouverture raideur 190 / amorti 19, fermeture 260 / 26). On
+anime la **boîte** (top/left/width/height) et non un `scale()`, pour que le contenu se remette en
+page sans être étiré ; les valeurs passent par `el.style` puis celles de React sont **remises**
+(`figer`/`rendre`), y compris quand un geste est interrompu. Une **case vide** de même hauteur
+reste dans la grille pendant l'agrandissement : sans elle, les widgets du dessous remonteraient et
+le retour viserait une place disparue. `prefers-reduced-motion` coupe l'animation.
+**Porté à l'identique au bloc partenaire** le 2026-10-16.
 
 ### Absences du service client — §9-nonies (2026-10-15)
 
