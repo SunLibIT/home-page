@@ -13095,16 +13095,19 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
    la table EST l'interface entre les deux. Une ligne écrite ici est lue par n8n au plus
    tard un quart d'heure après.
 
-   ⚠️ QUI LE VOIT : les membres ACTIFS du service client, d'après « Utilisateurs »
+   ⚠️ QUI LE VOIT (2026-10-16) : les seuls GESTIONNAIRES de `ABS_GESTIONNAIRES` — Marie
+   BONAMY et Guillaume NIGGLI —, reconnus par l'E-MAIL de session (Softr n'expose pas
+   ses groupes au code). Ce ne sont pas forcément des membres du service client : ils
+   déclarent pour eux. Les membres ACTIFS du service client, d'après « Utilisateurs »
    (BDD UTILISATEURS) — `Service` contient « Service client » ET `Accès plateforme
-   sunlib` vaut « Actif ». Pas de liste d'administrateurs en dur. Softr n'exposant pas
-   ses groupes au code, le rapprochement se fait par E-MAIL de session. Ce n'est que de
-   l'UX : la vraie barrière est la permission de l'ACTION Softr sur `absencesSC` —
+   sunlib` vaut « Actif » —, restent la liste des personnes qu'on PEUT déclarer absentes.
+   Ce n'est que de l'UX : la vraie barrière est la permission de l'ACTION Softr sur
+   `absencesSC`, réservée au groupe Softr « Absences SC — gestion » (mêmes deux e-mails) —
    ⚠️⚠️ À RÉAPPLIQUER APRÈS CHAQUE COLLAGE, comme celle des embeds (§9-quinquies).
    Pour les autres : absent de la galerie, et une instance déjà posée ne rend RIEN (ni
    carte vide ni erreur — cf. `typePermis`, appliqué par la grille).
 
-   ⚠️ POSÉ D'OFFICE pour les membres (`ABS_SEED` + `seedOne`, §10-bis) et pour eux seuls,
+   ⚠️ POSÉ D'OFFICE pour les gestionnaires (`ABS_SEED` + `seedOne`, §10-bis) et pour eux seuls,
    une fois : le retirer est définitif, comme tout widget semé ; il se repose depuis la
    galerie.
    ============================================================================ */
@@ -13121,6 +13124,10 @@ const ABS_MOTIFS = ["Congés", "Maladie", "Formation", "Autre"] as const;
  *  grille et la galerie la lisent toutes deux, et un deuxième outil du service y entrera
  *  sans toucher à l'une ni à l'autre. */
 const TYPES_SERVICE_CLIENT: readonly string[] = ["absencesSC"];
+/** Les seules sessions qui voient et utilisent le widget Absences, en MINUSCULES. Une liste
+ *  en dur, voulue (2026-10-16) : ni « Service » ni un groupe Softr ne disent qui gère les
+ *  absences. ⚠️ La garder alignée sur le groupe Softr qui porte la permission des actions. */
+const ABS_GESTIONNAIRES: readonly string[] = ["marie@sunlib.fr", "guillaume.niggli@sunlib.fr"];
 
 /* --- Les dates -----------------------------------------------------------------
    ⚠️ TOUT EST EN JOURS CIVILS « YYYY-MM-DD », comparés comme des chaînes (l'ordre
@@ -13281,8 +13288,10 @@ type ServiceClientApi = {
    *  semer) — un « non » provisoire ferait clignoter le widget, un semis provisoire
    *  serait définitif. */
   pret: boolean;
+  /** Les personnes qu'on peut déclarer absentes : le service client actif. */
   membres: MembreSC[];
-  estMembre: boolean;
+  /** La session est-elle l'un des `ABS_GESTIONNAIRES` ? C'est ce qui ouvre le widget. */
+  peutGerer: boolean;
 };
 const ServiceClientCtx = createContext<ServiceClientApi | null>(null);
 
@@ -13306,15 +13315,15 @@ function useServiceClientSource(): ServiceClientApi {
   useEffect(() => {
     if (!pret || dit.current || USE_MOCK) return;
     dit.current = true;
-    if (!membres.length) console.warn(`[SunLib] Absences SC : aucun membre actif du service client lu dans « Utilisateurs » (${brut.length} ligne(s) reçue(s)${res.error ? `, erreur : ${msgOf(res.error)}` : ""}) — le widget reste invisible pour tous.`);
+    if (!membres.length) console.warn(`[SunLib] Absences SC : aucun membre actif du service client lu dans « Utilisateurs » (${brut.length} ligne(s) reçue(s)${res.error ? `, erreur : ${msgOf(res.error)}` : ""}) — le formulaire n'aura personne à proposer.`);
   }, [pret]);
-  return { pret, membres, estMembre: !!email && membres.some((m) => m.email === email) };
+  return { pret, membres, peutGerer: !!email && ABS_GESTIONNAIRES.includes(email) };
 }
 
 /** Une instance de ce type peut-elle être montrée à la session courante ? PURE.
  *  Faux pour un type réservé tant que la réponse n'est pas là (`pret`). */
 const typePermis = (type: string, sc: ServiceClientApi | null): boolean =>
-  !TYPES_SERVICE_CLIENT.includes(type) || (!!sc?.pret && sc.estMembre);
+  !TYPES_SERVICE_CLIENT.includes(type) || (!!sc?.pret && sc.peutGerer);
 
 /* --- LA SOURCE DES ABSENCES — lecture complète (la table est petite : quelques dizaines
    de lignes par an), création et annulation. Même patron que `useEmbedsSource` : hooks
@@ -13462,7 +13471,7 @@ function AbsenceStatut({ a, auj }: { a: Absence; auj: string }) {
  *  toute façon pas (`typePermis`), cette garde-ci couvre un rendu hors grille. */
 function AbsencesCard() {
   const sc = useContext(ServiceClientCtx);
-  if (!sc?.pret || !sc.estMembre) return null;
+  if (!sc?.pret || !sc.peutGerer) return null;
   return <AbsencesWidget membres={sc.membres} />;
 }
 
@@ -14422,7 +14431,8 @@ const DEFAULT_INSTANCES: Instance[] = [];
 
 /* La pose d'office des ABSENCES DU SERVICE CLIENT (§9-nonies, 2026-10-15). Elle n'entre
    PAS dans `DEFAULT_INSTANCES`, qui vaut pour tout le monde : elle ne concerne que les
-   membres du service, et on ne le sait qu'après avoir lu « Utilisateurs ». C'est donc
+   `ABS_GESTIONNAIRES`, et attend la lecture d'« Utilisateurs » (le formulaire en a
+   besoin). C'est donc
    `Dashboard` qui la sème, une fois la disposition relue en base (`seedOne`).
    L'id est la clé de type, comme les anciens widgets par défaut (cf. `newInstanceId`). */
 const ABS_SEED: Instance = { id: "absencesSC", type: "absencesSC", cfg: {}, w: "half", h: 760 };
@@ -15926,18 +15936,18 @@ function Dashboard() {
      s'annoncer. */
   const onAdd = (p: Preset) => void runSave(addInstance(current, p.type, p.cfg(), p.h ?? H_DEFAULT, p.key), true);
 
-  /* POSE D'OFFICE DES ABSENCES (§9-nonies) — pour un membre du service client, une fois.
+  /* POSE D'OFFICE DES ABSENCES (§9-nonies) — pour un gestionnaire (`ABS_GESTIONNAIRES`), une fois.
      Trois conditions, toutes nécessaires : la disposition RELUE EN BASE (`synced`, cf.
-     `usePersistentLayout`), la réponse d'« Utilisateurs » (`pret`), et l'appartenance.
+     `usePersistentLayout`), la réponse d'« Utilisateurs » (`pret`), et `peutGerer`.
      `seedOne` est idempotent ; la ref évite seulement de retenter à chaque rendu si
      l'écriture a échoué (l'échec s'annonce par le toast, avec « Réessayer »). */
   const semeAbs = useRef(false);
   useEffect(() => {
-    if (semeAbs.current || !synced || !applied || !sc?.pret || !sc.estMembre) return;
+    if (semeAbs.current || !synced || !applied || !sc?.pret || !sc.peutGerer) return;
     semeAbs.current = true;
     const next = seedOne(applied, ABS_SEED);
     if (next !== applied) void runSave(next, true);
-  }, [synced, applied, sc?.pret, sc?.estMembre]);
+  }, [synced, applied, sc?.pret, sc?.peutGerer]);
   // Modèles déjà sur la grille — la galerie les grise (un seul exemplaire par modèle).
   const posed = usedPresets(shown);
 

@@ -1358,9 +1358,12 @@ n'est pas rejouée, le formulaire le dit. Toutes les dates sont
 des jours civils `YYYY-MM-DD` comparés comme des chaînes, « aujourd'hui » étant celui de **Paris**
 (`jourParis`), comme pour n8n.
 
-**Qui le voit.** Les membres **actifs du service client** d'après « Utilisateurs » : `Service`
-contient « Service client » **et** `Accès plateforme sunlib` vaut « Actif ». Pas de liste
-d'administrateurs. Lecture **unique à la racine** (`useServiceClientSource` → `ServiceClientCtx`),
+**Qui le voit.** Depuis le 2026-10-16, **deux personnes seulement** : `ABS_GESTIONNAIRES`
+(`marie@sunlib.fr`, `guillaume.niggli@sunlib.fr`), reconnues par l'e-mail de session
+(`peutGerer`). Ce ne sont pas des membres du service client : elles déclarent pour eux. Les
+membres **actifs du service client** d'après « Utilisateurs » (`Service` contient « Service
+client » **et** `Accès plateforme sunlib` vaut « Actif ») restent la liste des personnes
+**qu'on peut déclarer absentes**, dans le formulaire. Lecture **unique à la racine** (`useServiceClientSource` → `ServiceClientCtx`),
 partagée par la grille, la galerie, la pose d'office et le formulaire. Elle est **filtrée côté
 serveur** sur `Service` (`q.array(…).isOneOf`) parce que la table compte plus de 2 300 lignes ;
 `membresDe` refait le filtre sur les deux champs, et c'est lui qui fait foi. Pour les autres :
@@ -1388,7 +1391,8 @@ disposition **relue en base** (`synced` de `usePersistentLayout`) : partir du se
 risquerait d'écraser une disposition plus récente faite ailleurs.
 
 ⚠️⚠️ **La barrière réelle est la permission de l'ACTION Softr** sur `absencesSC` (création et
-modification réservées au service client). Le masquage du widget n'est que de l'UX. **Un recompile
+modification réservées au groupe Softr **« Absences SC — gestion »** `7ddc1772-…`, les deux mêmes
+e-mails — à tenir aligné sur `ABS_GESTIONNAIRES`). Le masquage du widget n'est que de l'UX. **Un recompile
 réinitialise la visibilité des actions : à réappliquer après CHAQUE collage**, comme pour les embeds.
 Le widget lit `enabled` sur ses deux mutations ; s'il manque ou vaut faux, le formulaire et
 « Annuler » se ferment et un bandeau dit pourquoi.
