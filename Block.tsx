@@ -13518,11 +13518,22 @@ const jourCourt = (iso: string): string =>
 const nbJoursPlage = (debut: string, fin: string): number =>
   Math.round((jourUTC(fin).getTime() - jourUTC(debut).getTime()) / 86400000) + 1;
 
+/** Les durées du calendrier des absences, en mois. */
+const ABS_VUES = [1, 3, 6] as const;
+type AbsVue = typeof ABS_VUES[number];
+const ABS_VUE_CLE = "slb-absences-vue";
+
 function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const api = useAbsencesSource();
   const moi = asText(useCurrentUser()?.email).trim().toLowerCase();
   const auj = jourParis();
-  const [mois, setMois] = useState(() => auj.slice(0, 7));       // « YYYY-MM » affiché
+  const [mois, setMois] = useState(() => auj.slice(0, 7));       // « YYYY-MM » : PREMIER mois affiché
+  /* Combien de mois le calendrier montre (2026-10-16). Retenu par navigateur : c'est un
+     confort de lecture, pas une donnée — perdu, on revient au mois seul. */
+  const [vue, setVueEtat] = useState<AbsVue>(() => {
+    try { const v = Number(localStorage.getItem(ABS_VUE_CLE)); return ABS_VUES.includes(v as AbsVue) ? v as AbsVue : 1; } catch { return 1; }
+  });
+  const setVue = (v: AbsVue) => { setVueEtat(v); try { localStorage.setItem(ABS_VUE_CLE, String(v)); } catch { /* stockage refusé */ } };
   const [ancre, setAncre] = useState<string | null>(null);        // 1er clic d'une plage
   const [survol, setSurvol] = useState<string | null>(null);      // jour sous la souris (aperçu de plage)
   const [form, setForm] = useState<AbsForm | null>(null);
@@ -13587,12 +13598,30 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
     ouvrirForm(a, b);
   };
 
-  /* --- Le calendrier du mois affiché : des semaines entières, du lundi au dimanche. --- */
-  const [an, mo] = mois.split("-").map(Number);
-  const premier = `${mois}-01`;
-  const nbJours = new Date(Date.UTC(an, mo, 0)).getUTCDate();
-  const decalage = jourSemaine(premier);
-  const cases = Array.from({ length: Math.ceil((decalage + nbJours) / 7) * 7 }, (_, i) => plusJours(premier, i - decalage));
+  /* --- LA PÉRIODE AFFICHÉE : `vue` mois à partir de `mois`, chacun en semaines entières du
+     lundi au dimanche. Deux mois voisins partagent la semaine à cheval, si bien que les
+     semaines de la période se suivent SANS TROU : `cases` les couvre toutes, et les traits
+     se calculent une seule fois pour la période (une piste reste la même d'une grille à
+     l'autre sur la semaine partagée). --- */
+  const moisPlus = (m: string, n: number): string => {
+    const d = jourUTC(`${m}-01`);
+    d.setUTCMonth(d.getUTCMonth() + n);
+    return d.toISOString().slice(0, 7);
+  };
+  const casesDuMois = (m: string): string[] => {
+    const [an, mo] = m.split("-").map(Number);
+    const premier = `${m}-01`;
+    const nbJours = new Date(Date.UTC(an, mo, 0)).getUTCDate();
+    const decalage = jourSemaine(premier);
+    return Array.from({ length: Math.ceil((decalage + nbJours) / 7) * 7 }, (_, i) => plusJours(premier, i - decalage));
+  };
+  const moisAffiches = Array.from({ length: vue }, (_, i) => moisPlus(mois, i));
+  const dernierMois = moisAffiches[moisAffiches.length - 1];
+  const cases: string[] = [];
+  {
+    const fin = casesDuMois(dernierMois).slice(-1)[0];
+    for (let d = casesDuMois(mois)[0]; d <= fin; d = plusJours(d, 1)) cases.push(d);
+  }
 
   /* LES BARRES D'ABSENCE (2026-10-16) : un trait continu par personne, d'une case à l'autre,
      à sa couleur ; ses initiales n'apparaissent qu'au DÉBUT de chaque tronçon — le premier
@@ -13641,12 +13670,12 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
       }
     }
   }
-  const libelleMois = jourUTC(premier).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
-  const decalerMois = (n: number) => {
-    const d = jourUTC(premier);
-    d.setUTCMonth(d.getUTCMonth() + n);
-    setMois(d.toISOString().slice(0, 7));
-  };
+  const nomMois = (m: string, o: Intl.DateTimeFormatOptions) => jourUTC(`${m}-01`).toLocaleDateString("fr-FR", { ...o, timeZone: "UTC" });
+  /* « octobre 2026 » ; « oct. – déc. 2026 » ; « nov. 2026 – avr. 2027 ». */
+  const libellePeriode = vue === 1 ? nomMois(mois, { month: "long", year: "numeric" })
+    : `${nomMois(mois, mois.slice(0, 4) === dernierMois.slice(0, 4) ? { month: "short" } : { month: "short", year: "numeric" })} – ${nomMois(dernierMois, { month: "short", year: "numeric" })}`;
+  /* Les flèches tournent la période ENTIÈRE : trois mois par trois mois en vue trimestre. */
+  const decalerMois = (n: number) => setMois(moisPlus(mois, n));
 
   const ecritureFermee = !!api.blocage;
   const lbl: CSSProperties = { display: "block", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".05em", margin: "0 0 5px" };
@@ -13741,6 +13770,103 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
       )}
     </div>
   );
+
+  /* LA GRILLE D'UN MOIS — la même en vue d'un mois et dans chaque mini-mois des vues 3 et 6.
+     En `compact`, les cases rapetissent, les traits deviennent des filets sans initiales (le
+     survol dit qui), et les jours des mois voisins sont de simples cases vides : la semaine
+     à cheval est déjà dans la grille d'à côté, la cliquer deux fois embrouillerait. */
+  const grille = (m: string, compact: boolean) => {
+    /* Le débord d'un tronçon qui continue jusqu'au milieu de la gouttière :
+       padding + bord 1 + demi-gouttière. */
+    const pad = compact ? 2 : 4, gout = compact ? 2 : 4, deborde = pad + 1 + gout / 2;
+    const hTrait = compact ? 4 : 12;
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: `${gout}px` }}
+        onMouseLeave={() => setSurvol(null)}>
+        {(compact ? ["L", "M", "M", "J", "V", "S", "D"] : ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]).map((j, i) => (
+          <span key={i} style={{ textAlign: "center", fontSize: compact ? "9.5px" : "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em", paddingBottom: 2 }}>{j}</span>
+        ))}
+        {casesDuMois(m).map((d) => {
+          const horsMois = d.slice(0, 7) !== m;
+          if (horsMois && compact) return <span key={d} aria-hidden />;
+          const weekend = jourSemaine(d) >= 5;
+          const absents = actives.filter((a) => a.debut <= d && d <= a.fin)
+            .filter((a, i, l) => l.findIndex((x) => x.email === a.email) === i);
+          const estAuj = d === auj;
+          /* Un jour PASSÉ est barré et atténué, mais reste cliquable : une absence
+             commencée hier se déclare encore (seule une plage ENTIÈREMENT passée est
+             refusée, par la validation du formulaire). */
+          const passe = d < auj;
+          /* LA PLAGE PEINTE : en cours de choix, de l'ancre au jour survolé (aperçu, bord
+             pointillé) ; sinon celle du formulaire ouvert. Bornes en plein, intérieur teinté.
+             ⚠️ Aujourd'hui n'emprunte RIEN à ce langage (ni fond ni bord de marque) : il
+             ne doit pas avoir l'air sélectionné. */
+          const [lo, hi] = ancre
+            ? (survol && survol < ancre ? [survol, ancre] : [ancre, survol && survol > ancre ? survol : ancre])
+            : form && form.debut && form.fin && form.fin >= form.debut ? [form.debut, form.fin] : ["", ""];
+          const enPlage = !!lo && lo <= d && d <= hi;
+          const borne = enPlage && (d === lo || d === hi);
+          const apercu = !!ancre && enPlage && !borne;
+          const titre = `${jjmm(d)}${estAuj ? " (aujourd'hui)" : ""}${absents.length ? ` — absent${absents.length > 1 ? "s" : ""} : ${absents.map((a) => a.nom).join(", ")}` : ""}`;
+          const pistes = pistesDuJour.get(d) ?? [];
+          return (
+            <button key={d} type="button" className="slb-calday" disabled={ecritureFermee}
+              onClick={() => cliqueJour(d)} onMouseEnter={() => setSurvol(d)} onFocus={() => setSurvol(d)}
+              title={titre} aria-label={titre} aria-pressed={enPlage}
+              aria-current={estAuj ? "date" : undefined}
+              style={{
+                minHeight: compact ? 32 : 50, padding: `${pad}px`, boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "stretch", gap: compact ? "2px" : "3px",
+                borderRadius: compact ? 5 : T.rSm, fontFamily: "inherit", textAlign: "left",
+                border: `1px ${apercu ? "dashed" : "solid"} ${borne ? T.brand : enPlage ? T.brand100 : estAuj && compact ? T.brand700 : T.line}`,
+                background: borne ? T.brand : enPlage ? T.brand050 : passe || weekend ? T.surface2 : T.surface,
+                opacity: horsMois ? 0.4 : passe && !enPlage ? 0.6 : 1, cursor: ecritureFermee ? "default" : "pointer",
+                transition: "background-color .1s ease, border-color .1s ease",
+              }}>
+              <span style={{ display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0 }}>
+                <span style={{ fontSize: compact ? "9.5px" : "11px", fontWeight: borne || estAuj ? 800 : 600, lineHeight: 1,
+                  color: borne ? "#fff" : estAuj ? T.brand700 : passe || weekend ? T.ink4 : T.ink2,
+                  textDecoration: passe ? "line-through" : undefined }}>
+                  {Number(d.slice(8, 10))}
+                </span>
+                {/* Aujourd'hui : un simple mot, à côté du numéro (en compact, un liseré suffit). */}
+                {estAuj && !compact && (
+                  <span style={{ fontSize: "8.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em",
+                    color: borne ? "rgba(255,255,255,.85)" : T.brand700, whiteSpace: "nowrap", overflow: "hidden" }}>auj.</span>
+                )}
+              </span>
+              {/* Les traits. Un tronçon qui continue DÉBORDE de la case jusqu'au milieu de la
+                  gouttière (`deborde`) : celui de la case voisine en fait autant, et les deux
+                  se rejoignent sans se couvrir. */}
+              <span aria-hidden style={{ display: "flex", flexDirection: "column", gap: compact ? "1px" : "2px" }}>
+                {pistes.slice(0, PISTES_MAX).map((t, k) => {
+                  if (!t) return <span key={`vide${k}`} style={{ height: hTrait }} />;
+                  const c = teinteDe(t);
+                  const rayon = compact ? 2 : 6;
+                  return (
+                    <span key={t.email} style={{
+                      height: hTrait, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap",
+                      marginLeft: t.debut ? 0 : -deborde, marginRight: t.fin ? 0 : -deborde,
+                      paddingLeft: t.debut && !compact ? 4 : 0,
+                      borderTopLeftRadius: t.debut ? rayon : 0, borderBottomLeftRadius: t.debut ? rayon : 0,
+                      borderTopRightRadius: t.fin ? rayon : 0, borderBottomRightRadius: t.fin ? rayon : 0,
+                      background: c.solide, color: "#fff", fontSize: "8.5px", fontWeight: 800, letterSpacing: ".02em", lineHeight: 1,
+                    }}>
+                      {t.debut && !compact ? initials(t.nom) : null}
+                    </span>
+                  );
+                })}
+                {!compact && pistes.slice(PISTES_MAX).some(Boolean) && (
+                  <span style={{ fontSize: "9px", fontWeight: 700, color: borne ? "#fff" : T.ink3, lineHeight: 1 }}>
+                    +{pistes.slice(PISTES_MAX).filter(Boolean).length}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <Widget icon={CalendarDays} title="Absences service client"
@@ -13935,19 +14061,35 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
             </div>
           )}
 
-          {/* 3. LE CALENDRIER DU MOIS */}
+          {/* 3. LE CALENDRIER — 1, 3 ou 6 mois */}
           <div style={section}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
-              <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Mois précédent" title="Mois précédent" onClick={() => decalerMois(-1)}>
-                <ChevronLeft aria-hidden style={{ width: 16, height: 16 }} />
-              </button>
-              <span style={{ flex: 1, textAlign: "center", fontSize: "13px", fontWeight: 700, color: T.ink, textTransform: "capitalize" }}>{libelleMois}</span>
-              {mois !== auj.slice(0, 7) && (
-                <button type="button" className="slb-btng" style={{ ...btnG, padding: "3px 8px", fontSize: "11.5px" }} onClick={() => setMois(auj.slice(0, 7))}>Aujourd'hui</button>
-              )}
-              <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Mois suivant" title="Mois suivant" onClick={() => decalerMois(1)}>
-                <ChevronRight aria-hidden style={{ width: 16, height: 16 }} />
-              </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "8px" }}>
+              <div style={{ flex: "1 1 220px", display: "flex", alignItems: "center", gap: "6px", minWidth: 0 }}>
+                <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label={vue === 1 ? "Mois précédent" : `${vue} mois précédents`} title={vue === 1 ? "Mois précédent" : `${vue} mois précédents`} onClick={() => decalerMois(-vue)}>
+                  <ChevronLeft aria-hidden style={{ width: 16, height: 16 }} />
+                </button>
+                <span style={{ flex: 1, textAlign: "center", fontSize: "13px", fontWeight: 700, color: T.ink, textTransform: "capitalize", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{libellePeriode}</span>
+                {!moisAffiches.includes(auj.slice(0, 7)) && (
+                  <button type="button" className="slb-btng" style={{ ...btnG, padding: "3px 8px", fontSize: "11.5px" }} onClick={() => setMois(auj.slice(0, 7))}>Aujourd'hui</button>
+                )}
+                <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label={vue === 1 ? "Mois suivant" : `${vue} mois suivants`} title={vue === 1 ? "Mois suivant" : `${vue} mois suivants`} onClick={() => decalerMois(vue)}>
+                  <ChevronRight aria-hidden style={{ width: 16, height: 16 }} />
+                </button>
+              </div>
+              {/* La durée affichée : trois pastilles collées, comme un interrupteur à positions. */}
+              <div role="radiogroup" aria-label="Durée affichée" style={{ display: "inline-flex", flex: "none", padding: 2, borderRadius: T.rSm, background: T.surface2, border: `1px solid ${T.line}` }}>
+                {ABS_VUES.map((v) => {
+                  const sel = vue === v;
+                  return (
+                    <button key={v} type="button" role="radio" aria-checked={sel} onClick={() => setVue(v)}
+                      style={{ padding: "3px 10px", border: "none", borderRadius: 5, fontFamily: "inherit", fontSize: "11.5px", fontWeight: 700, cursor: "pointer",
+                        background: sel ? T.surface : "transparent", color: sel ? T.brand700 : T.ink3,
+                        boxShadow: sel ? "0 1px 2px rgba(16,26,40,.12)" : "none", transition: "background-color .12s ease, color .12s ease" }}>
+                      {v} mois
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* LA BARRE D'ÉTAPE — dit où l'on en est de la sélection : 1) premier jour,
@@ -13977,87 +14119,20 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
               );
             })()}
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "4px" }}
-              onMouseLeave={() => setSurvol(null)}>
-              {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((j) => (
-                <span key={j} style={{ textAlign: "center", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em", paddingBottom: 2 }}>{j}</span>
-              ))}
-              {cases.map((d) => {
-                const horsMois = d.slice(0, 7) !== mois;
-                const weekend = jourSemaine(d) >= 5;
-                const absents = actives.filter((a) => a.debut <= d && d <= a.fin)
-                  .filter((a, i, l) => l.findIndex((x) => x.email === a.email) === i);
-                const estAuj = d === auj;
-                /* Un jour PASSÉ est barré et atténué, mais reste cliquable : une absence
-                   commencée hier se déclare encore (seule une plage ENTIÈREMENT passée est
-                   refusée, par la validation du formulaire). */
-                const passe = d < auj;
-                /* LA PLAGE PEINTE : en cours de choix, de l'ancre au jour survolé (aperçu, bord
-                   pointillé) ; sinon celle du formulaire ouvert. Bornes en plein, intérieur teinté.
-                   ⚠️ Aujourd'hui n'emprunte RIEN à ce langage (ni fond ni bord de marque) : il
-                   ne doit pas avoir l'air sélectionné. */
-                const [lo, hi] = ancre
-                  ? (survol && survol < ancre ? [survol, ancre] : [ancre, survol && survol > ancre ? survol : ancre])
-                  : form && form.debut && form.fin && form.fin >= form.debut ? [form.debut, form.fin] : ["", ""];
-                const enPlage = !!lo && lo <= d && d <= hi;
-                const borne = enPlage && (d === lo || d === hi);
-                const apercu = !!ancre && enPlage && !borne;
-                const titre = `${jjmm(d)}${estAuj ? " (aujourd'hui)" : ""}${absents.length ? ` — absent${absents.length > 1 ? "s" : ""} : ${absents.map((a) => a.nom).join(", ")}` : ""}`;
-                return (
-                  <button key={d} type="button" className="slb-calday" disabled={ecritureFermee}
-                    onClick={() => cliqueJour(d)} onMouseEnter={() => setSurvol(d)} onFocus={() => setSurvol(d)}
-                    title={titre} aria-label={titre} aria-pressed={enPlage}
-                    aria-current={estAuj ? "date" : undefined}
-                    style={{
-                      minHeight: 50, padding: "4px", boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "stretch", gap: "3px",
-                      borderRadius: T.rSm, fontFamily: "inherit", textAlign: "left",
-                      border: `1px ${apercu ? "dashed" : "solid"} ${borne ? T.brand : enPlage ? T.brand100 : T.line}`,
-                      background: borne ? T.brand : enPlage ? T.brand050 : passe || weekend ? T.surface2 : T.surface,
-                      opacity: horsMois ? 0.4 : passe && !enPlage ? 0.6 : 1, cursor: ecritureFermee ? "default" : "pointer",
-                      transition: "background-color .1s ease, border-color .1s ease",
-                    }}>
-                    <span style={{ display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0 }}>
-                      <span style={{ fontSize: "11px", fontWeight: borne || estAuj ? 800 : 600,
-                        color: borne ? "#fff" : estAuj ? T.brand700 : passe || weekend ? T.ink4 : T.ink2,
-                        textDecoration: passe ? "line-through" : undefined }}>
-                        {Number(d.slice(8, 10))}
-                      </span>
-                      {/* Aujourd'hui : un simple mot, à côté du numéro. */}
-                      {estAuj && (
-                        <span style={{ fontSize: "8.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em",
-                          color: borne ? "rgba(255,255,255,.85)" : T.brand700, whiteSpace: "nowrap", overflow: "hidden" }}>auj.</span>
-                      )}
-                    </span>
-                    {/* Les traits. Un tronçon qui continue DÉBORDE de la case jusqu'au milieu
-                        de la gouttière (padding 4 + bord 1 + demi-gouttière 2 = 7 px) : celui de
-                        la case voisine en fait autant, et les deux se rejoignent sans se couvrir. */}
-                    <span aria-hidden style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                      {(pistesDuJour.get(d) ?? []).slice(0, PISTES_MAX).map((t, k) => {
-                        if (!t) return <span key={`vide${k}`} style={{ height: 12 }} />;
-                        const c = teinteDe(t);
-                        return (
-                          <span key={t.email} style={{
-                            height: 12, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap",
-                            marginLeft: t.debut ? 0 : -7, marginRight: t.fin ? 0 : -7,
-                            paddingLeft: t.debut ? 4 : 0,
-                            borderTopLeftRadius: t.debut ? 6 : 0, borderBottomLeftRadius: t.debut ? 6 : 0,
-                            borderTopRightRadius: t.fin ? 6 : 0, borderBottomRightRadius: t.fin ? 6 : 0,
-                            background: c.solide, color: "#fff", fontSize: "8.5px", fontWeight: 800, letterSpacing: ".02em", lineHeight: 1,
-                          }}>
-                            {t.debut ? initials(t.nom) : null}
-                          </span>
-                        );
-                      })}
-                      {(pistesDuJour.get(d) ?? []).slice(PISTES_MAX).some(Boolean) && (
-                        <span style={{ fontSize: "9px", fontWeight: 700, color: borne ? "#fff" : T.ink3, lineHeight: 1 }}>
-                          +{(pistesDuJour.get(d) ?? []).slice(PISTES_MAX).filter(Boolean).length}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            {vue === 1 ? grille(mois, false) : (
+              /* Les mini-mois, autant par ligne que la largeur en permet : deux dans la carte
+                 en demi-largeur, trois ou six une fois ouverte en grand. */
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "14px 16px" }}>
+                {moisAffiches.map((m) => (
+                  <div key={m} style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: m === auj.slice(0, 7) ? T.brand700 : T.ink2, textTransform: "capitalize", marginBottom: "4px" }}>
+                      {nomMois(m, { month: "long", year: "numeric" })}
+                    </div>
+                    {grille(m, true)}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* 4. EN COURS ET À VENIR, puis les passées des 30 derniers jours (repliées). */}

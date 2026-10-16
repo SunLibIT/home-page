@@ -1386,6 +1386,14 @@ ligne déclarée. Faute de table des personnes, la couleur d'une personne est ce
 **dernière ligne déclarée qui en porte une** (`couleursDe`) ; à défaut, le monogramme calculé.
 À qui n'en a pas, le formulaire propose la première couleur libre.
 
+**Vues 1 / 3 / 6 mois** (2026-10-16, `ABS_VUES`). Le choix est retenu par navigateur
+(`localStorage`, clé `slb-absences-vue`, repli sur 1 mois). En 3 et 6 mois, des mini-mois
+côte à côte (`grille(m, true)`) : cases réduites, traits en filets sans initiales (le survol dit
+qui), jours des mois voisins laissés vides pour qu'aucune date ne soit cliquable deux fois. Les
+traits se calculent une seule fois sur toute la période (`cases`, semaines contiguës), si bien
+qu'une piste reste la même d'un mini-mois à l'autre sur la semaine à cheval. Les flèches tournent
+la période entière.
+
 **Posé d'office** pour les membres, une seule fois (`ABS_SEED` + `seedOne`). La pose attend la
 disposition **relue en base** (`synced` de `usePersistentLayout`) : partir du seul cache local
 risquerait d'écraser une disposition plus récente faite ailleurs.
