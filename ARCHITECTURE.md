@@ -1388,7 +1388,7 @@ ligne déclarée. Faute de table des personnes, la couleur d'une personne est ce
 
 **Vues 1 / 3 / 6 mois** (2026-10-16, `ABS_VUES`). Le choix est retenu par navigateur
 (`localStorage`, clé `slb-absences-vue`, repli sur 1 mois). En 3 et 6 mois, des mini-mois
-côte à côte (`grille(m, true)`) : cases réduites, traits en filets sans initiales (le survol dit
+côte à côte (`grille(m, true)`), trois par ligne sur toute la largeur (3 mois = une ligne, 6 = 3 × 2) : cases réduites, traits en filets sans initiales (le survol dit
 qui), jours des mois voisins laissés vides pour qu'aucune date ne soit cliquable deux fois. Les
 traits se calculent une seule fois sur toute la période (`cases`, semaines contiguës), si bien
 qu'une piste reste la même d'un mini-mois à l'autre sur la semaine à cheval. Les flèches tournent

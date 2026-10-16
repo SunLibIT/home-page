@@ -14120,9 +14120,13 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
             })()}
 
             {vue === 1 ? grille(mois, false) : (
-              /* Les mini-mois, autant par ligne que la largeur en permet : deux dans la carte
-                 en demi-largeur, trois ou six une fois ouverte en grand. */
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "14px 16px" }}>
+              /* Les mini-mois occupent TOUTE la largeur, trois par ligne : 3 mois = une ligne,
+                 6 mois = 3 × 2. Le plancher `max(150px, tiers de la largeur)` plafonne à trois
+                 colonnes ; sous ~480 px seulement, on passe à deux, puis une.
+                 ⚠️ Ni `auto-fill` (colonnes VIDES à droite dans une carte large) ni un minimum
+                 de 210 px (2 + 1 dans la carte en demi-largeur, le 3e mois seul à gauche) : les
+                 deux laissaient la droite vide. */
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(max(150px, calc((100% - 24px) / 3)), 1fr))", gap: "14px 12px" }}>
                 {moisAffiches.map((m) => (
                   <div key={m} style={{ minWidth: 0 }}>
                     <div style={{ fontSize: "12px", fontWeight: 700, color: m === auj.slice(0, 7) ? T.brand700 : T.ink2, textTransform: "capitalize", marginBottom: "4px" }}>
