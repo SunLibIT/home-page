@@ -13096,7 +13096,7 @@ function ChecklistCard({ cfg }: { cfg: ChecklistCfg }) {
    tard un quart d'heure après.
 
    ⚠️ QUI LE VOIT (2026-10-16) : les seuls GESTIONNAIRES de `ABS_GESTIONNAIRES` — Marie
-   BONAMY et Guillaume NIGGLI —, reconnus par l'E-MAIL de session (Softr n'expose pas
+   BONAMY et Guillaume OZANIC —, reconnus par l'E-MAIL de session (Softr n'expose pas
    ses groupes au code). Ce ne sont pas forcément des membres du service client : ils
    déclarent pour eux. Les membres ACTIFS du service client, d'après « Utilisateurs »
    (BDD UTILISATEURS) — `Service` contient « Service client » ET `Accès plateforme
@@ -13127,7 +13127,7 @@ const TYPES_SERVICE_CLIENT: readonly string[] = ["absencesSC"];
 /** Les seules sessions qui voient et utilisent le widget Absences, en MINUSCULES. Une liste
  *  en dur, voulue (2026-10-16) : ni « Service » ni un groupe Softr ne disent qui gère les
  *  absences. ⚠️ La garder alignée sur le groupe Softr qui porte la permission des actions. */
-const ABS_GESTIONNAIRES: readonly string[] = ["marie@sunlib.fr", "guillaume.niggli@sunlib.fr"];
+const ABS_GESTIONNAIRES: readonly string[] = ["marie@sunlib.fr", "guillaume@sunlib.fr"];
 
 /* --- Les dates -----------------------------------------------------------------
    ⚠️ TOUT EST EN JOURS CIVILS « YYYY-MM-DD », comparés comme des chaînes (l'ordre

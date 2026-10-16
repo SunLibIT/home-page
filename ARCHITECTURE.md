@@ -1359,8 +1359,8 @@ des jours civils `YYYY-MM-DD` comparés comme des chaînes, « aujourd'hui » é
 (`jourParis`), comme pour n8n.
 
 **Qui le voit.** Depuis le 2026-10-16, **deux personnes seulement** : `ABS_GESTIONNAIRES`
-(`marie@sunlib.fr`, `guillaume.niggli@sunlib.fr`), reconnues par l'e-mail de session
-(`peutGerer`). Ce ne sont pas des membres du service client : elles déclarent pour eux. Les
+(`marie@sunlib.fr`, `guillaume@sunlib.fr` — Guillaume OZANIC), reconnues par l'e-mail de session
+(`peutGerer`). Elles déclarent pour toute l'équipe, pas seulement pour elles-mêmes. Les
 membres **actifs du service client** d'après « Utilisateurs » (`Service` contient « Service
 client » **et** `Accès plateforme sunlib` vaut « Actif ») restent la liste des personnes
 **qu'on peut déclarer absentes**, dans le formulaire. Lecture **unique à la racine** (`useServiceClientSource` → `ServiceClientCtx`),
