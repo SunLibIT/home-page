@@ -1121,8 +1121,9 @@ function monogramOf(name: string): { bg: string; ink: string } {
    Le rayon suit la taille (~29 %, soit 11 px pour 38 comme dans la maquette) : un carré
    arrondi garde sa forme à toutes les échelles, là où un rayon fixe paraît carré en
    grand et rond en petit. */
-function Monogram({ name, size = 32, className }: { name: string; size?: number; className?: string }) {
-  const { bg, ink } = monogramOf(name);
+function Monogram({ name, size = 32, className, couleur }: { name: string; size?: number; className?: string; couleur?: { bg: string; ink: string } }) {
+  /* `couleur` : une teinte CHOISIE (les absences, §9-nonies) remplace celle du hachage. */
+  const { bg, ink } = couleur ?? monogramOf(name);
   return (
     <span aria-hidden className={className} style={{
       width: size, height: size, flex: "none", display: "grid", placeItems: "center",
@@ -1777,15 +1778,16 @@ const SELECT_ABS = q.select({
   annulee: "annulee",                 // checkbox — on n'efface JAMAIS une ligne, on l'annule
   creePar: "cree_par",                // email de la session qui a déclaré
   creeLe: "cree_le",                  // dateTime ISO
+  couleur: "couleur",                 // texte — clé de `ABS_COULEURS` (2026-10-16), ignorée par n8n
   reassigneLe: "reassignation_le",    // dateTime — ⚠️ ÉCRIT PAR n8n, jamais par le bloc
   resultat: "reassignation_resultat", // texte long — ⚠️ ÉCRIT PAR n8n, jamais par le bloc
 });
-/* Whitelist d'ÉCRITURE : les neuf premiers seulement. Les deux champs de n8n n'y sont pas,
+/* Whitelist d'ÉCRITURE : les dix premiers seulement. Les deux champs de n8n n'y sont pas,
    et c'est voulu — le bloc ne doit pas pouvoir effacer le compte rendu d'une réassignation. */
 const SELECT_ABS_W = q.select({
   nom: "staff_nom", email: "staff_email", debut: "date_debut", fin: "date_fin",
   motif: "motif", reassigner: "reassigner_taches", annulee: "annulee",
-  creePar: "cree_par", creeLe: "cree_le",
+  creePar: "cree_par", creeLe: "cree_le", couleur: "couleur",
 });
 
 /* Qui est au service client ← « Utilisateurs » (BDD UTILISATEURS), LECTURE SEULE, aucun
@@ -12942,7 +12944,7 @@ type MembreSC = { nom: string; email: string };
 type Absence = {
   id: string; nom: string; email: string; debut: string; fin: string; motif: string;
   reassigner: boolean; annulee: boolean; creePar: string; creeLe: string;
-  reassigneLe: string; resultat: string;
+  couleur: string; reassigneLe: string; resultat: string;
 };
 
 const ABS_MOTIFS = ["Congés", "Maladie", "Formation", "Autre"] as const;
@@ -13011,9 +13013,44 @@ function absenceDe(r: Row): Absence | null {
     annulee: coche(r.annulee),
     creePar: asText(r.creePar),
     creeLe: asText(r.creeLe),
+    couleur: asText(r.couleur).trim().toLowerCase(),
     reassigneLe: asText(r.reassigneLe).trim(),
     resultat: asText(r.resultat).trim(),
   };
+}
+
+/* --- LA COULEUR D'UNE PERSONNE (2026-10-16) ------------------------------------
+   Choisie dans le formulaire, écrite dans `couleur` sur la ligne déclarée. Il n'y a pas
+   de table des personnes où la ranger : la couleur d'une personne est donc celle de sa
+   DERNIÈRE absence déclarée qui en porte une (annulée ou non), et en changer la change
+   sur toutes ses absences. Sans couleur choisie, on retombe sur le monogramme calculé.
+   Les teintes `solide` portent du texte blanc : toutes passent 4,5:1. */
+const ABS_COULEURS = [
+  { cle: "teal", nom: "Sarcelle", solide: "#0F766E", fond: "#E3F4F1", encre: "#0A5F56" },
+  { cle: "bleu", nom: "Bleu", solide: "#2563EB", fond: "#E6EEFD", encre: "#1E40AF" },
+  { cle: "violet", nom: "Violet", solide: "#7C3AED", fond: "#F0EAFD", encre: "#5B21B6" },
+  { cle: "rose", nom: "Rose", solide: "#BE185D", fond: "#FCE8F1", encre: "#9D174D" },
+  { cle: "rouge", nom: "Rouge", solide: "#DC2626", fond: "#FDECEC", encre: "#991B1B" },
+  { cle: "orange", nom: "Orange", solide: "#C2410C", fond: "#FDEDE3", encre: "#9A3412" },
+  { cle: "jaune", nom: "Moutarde", solide: "#A16207", fond: "#FBF3DB", encre: "#854D0E" },
+  { cle: "vert", nom: "Vert", solide: "#15803D", fond: "#E5F6EB", encre: "#166534" },
+] as const;
+type AbsCouleur = { solide: string; fond: string; encre: string };
+
+/** E-mail → clé de couleur, d'après la dernière ligne déclarée (`creeLe`) qui en porte une. */
+function couleursDe(abs: Absence[]): Map<string, string> {
+  const out = new Map<string, string>();
+  const tries = abs.filter((a) => ABS_COULEURS.some((c) => c.cle === a.couleur))
+    .sort((a, b) => a.creeLe.localeCompare(b.creeLe));
+  for (const a of tries) out.set(a.email, a.couleur);
+  return out;
+}
+/** La teinte à peindre pour une personne : la choisie, sinon celle de son monogramme. */
+function couleurAbs(cle: string | undefined, nom: string): AbsCouleur {
+  const c = ABS_COULEURS.find((x) => x.cle === cle);
+  if (c) return c;
+  const m = monogramOf(nom);
+  return { solide: m.ink, fond: m.bg, encre: m.ink };
 }
 
 /** Les membres actifs du service client, triés par nom, un par e-mail.
@@ -13055,10 +13092,10 @@ const mockAbsences = (): Row[] => {
   const auj = jourParis();
   return [
     { id: "abs1", nom: "Lola HERNANDEZ", email: "lola@sunlib.fr", debut: plusJours(auj, -2), fin: plusJours(auj, 3), motif: "Congés",
-      reassigner: true, annulee: false, creePar: "lola@sunlib.fr", creeLe: `${plusJours(auj, -9)}T09:12:00.000Z`,
+      reassigner: true, annulee: false, creePar: "lola@sunlib.fr", creeLe: `${plusJours(auj, -9)}T09:12:00.000Z`, couleur: "violet",
       reassigneLe: `${plusJours(auj, -2)}T06:15:00.000Z`, resultat: "4 tâches réassignées : 2 à Carole SADRAIN, 2 à Roland THUNIN." },
     { id: "abs2", nom: "Melissa CADENEL", email: "melissa@sunlib.fr", debut: plusJours(auj, 6), fin: plusJours(auj, 7), motif: "Formation",
-      reassigner: true, annulee: false, creePar: "guillaume@sunlib.fr", creeLe: `${plusJours(auj, -1)}T14:40:00.000Z`, reassigneLe: "", resultat: "" },
+      reassigner: true, annulee: false, creePar: "guillaume@sunlib.fr", creeLe: `${plusJours(auj, -1)}T14:40:00.000Z`, couleur: "orange", reassigneLe: "", resultat: "" },
     { id: "abs3", nom: "Carole SADRAIN", email: "carole@sunlib.fr", debut: plusJours(auj, -12), fin: plusJours(auj, -10), motif: "Maladie",
       reassigner: false, annulee: false, creePar: "carole@sunlib.fr", creeLe: `${plusJours(auj, -12)}T07:30:00.000Z`, reassigneLe: "", resultat: "" },
     { id: "abs4", nom: "Roland THUNIN", email: "roland@sunlib.fr", debut: plusJours(auj, 1), fin: plusJours(auj, 4), motif: "Congés",
@@ -13119,7 +13156,7 @@ type AbsencesApi = {
   erreur: boolean;
   /** `null` si l'écriture est possible, sinon la phrase qui dit pourquoi elle ne l'est pas. */
   blocage: string | null;
-  creer: (a: { nom: string; email: string; debut: string; fin: string; motif: string; reassigner: boolean }) => Promise<{ ok: boolean; error?: string }>;
+  creer: (a: { nom: string; email: string; debut: string; fin: string; motif: string; reassigner: boolean; couleur: string }) => Promise<{ ok: boolean; error?: string }>;
   annuler: (id: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
@@ -13155,7 +13192,7 @@ function useAbsencesSource(): AbsencesApi {
   const creer: AbsencesApi["creer"] = async (a) => {
     if (blocage) return { ok: false, error: blocage };
     const champs = { nom: a.nom, email: a.email.toLowerCase(), debut: a.debut, fin: a.fin, motif: a.motif,
-      reassigner: a.reassigner, annulee: false, creePar: email, creeLe: new Date().toISOString() };
+      reassigner: a.reassigner, annulee: false, creePar: email, creeLe: new Date().toISOString(), couleur: a.couleur };
     if (USE_MOCK) {
       setMock((m) => [...m, { id: `abs_mock_${Date.now()}`, ...champs, reassigneLe: "", resultat: "" }]);
       return { ok: true };
@@ -13237,7 +13274,44 @@ function AbsencesCard() {
   return <AbsencesWidget membres={sc.membres} />;
 }
 
-type AbsForm = { email: string; debut: string; fin: string; motif: string; reassigner: boolean };
+type AbsForm = { email: string; debut: string; fin: string; motif: string; reassigner: boolean; couleur: string };
+
+/** Un champ date qui ouvre le calendrier natif au clic N'IMPORTE OÙ dans le champ, et pas
+ *  seulement sur sa petite icône (le défaut de Chrome, où un clic sur le texte ne fait que
+ *  sélectionner le jour ou le mois). `showPicker` exige un geste de l'utilisateur, ce qu'est
+ *  le clic, et manque aux navigateurs anciens : on l'essaie, sans plus — la saisie au
+ *  clavier et l'icône native restent là dans tous les cas. */
+function AbsDateField({ id, value, min, onChange, style }: {
+  id: string; value: string; min?: string; onChange: (v: string) => void; style: CSSProperties;
+}) {
+  return (
+    <input id={id} type="date" value={value} min={min} style={{ ...style, cursor: "pointer" }}
+      onChange={(e) => onChange(e.target.value)}
+      onClick={(e) => {
+        const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void };
+        try { el.showPicker?.(); } catch { /* déjà ouvert, ou refusé par le navigateur */ }
+      }} />
+  );
+}
+
+/** Interrupteur visuel (piste + pastille). Purement présentiel : le bouton qui le porte
+ *  tient le `role="switch"` et l'état. */
+function AbsSwitch({ on }: { on: boolean }) {
+  return (
+    <span aria-hidden style={{ position: "relative", flex: "none", width: 36, height: 20, borderRadius: 999,
+      background: on ? T.brand : T.ink4, transition: "background-color .15s ease" }}>
+      <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 16, height: 16, borderRadius: 999,
+        background: "#fff", boxShadow: "0 1px 2px rgba(16,26,40,.25)", transition: "left .15s ease" }} />
+    </span>
+  );
+}
+
+/** « jeudi 16 octobre » — un jour civil écrit en toutes lettres. */
+const jourLong = (iso: string): string =>
+  jourUTC(iso).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+/** Nombre de jours d'une plage, bornes INCLUSES. */
+const nbJoursPlage = (debut: string, fin: string): number =>
+  Math.round((jourUTC(fin).getTime() - jourUTC(debut).getTime()) / 86400000) + 1;
 
 function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const api = useAbsencesSource();
@@ -13263,9 +13337,23 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const limitePassees = plusJours(auj, -30);
   const passees = actives.filter((a) => a.fin < auj && a.fin >= limitePassees).sort((a, b) => b.fin.localeCompare(a.fin));
 
+  /* La couleur de chacun (celle de sa dernière déclaration), et celle qu'on propose à qui
+     n'en a pas encore : la première que personne d'autre ne porte. */
+  const couleurs = couleursDe(api.absences);
+  const couleurProposee = (email: string): string => {
+    const connue = couleurs.get(email);
+    if (connue) return connue;
+    const prises = new Set([...couleurs].filter(([e]) => e !== email).map(([, c]) => c));
+    return (ABS_COULEURS.find((c) => !prises.has(c.cle)) ?? ABS_COULEURS[0]).cle;
+  };
+  const teinteDe = (a: { email: string; nom: string }) => couleurAbs(couleurs.get(a.email), a.nom);
+
   const ouvrirForm = (debut: string, fin: string) => {
     const defaut = membres.some((m) => m.email === moi) ? moi : membres[0]?.email ?? "";
-    setForm((f) => ({ email: f?.email || defaut, debut, fin, motif: f?.motif || "Congés", reassigner: f?.reassigner ?? true }));
+    setForm((f) => {
+      const email = f?.email || defaut;
+      return { email, debut, fin, motif: f?.motif || "Congés", reassigner: f?.reassigner ?? true, couleur: f?.couleur || couleurProposee(email) };
+    });
     setErreurForm("");
   };
   const cliqueJour = (d: string) => {
@@ -13310,7 +13398,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
     if (!form || !personne || invalide || envoi) return;
     setEnvoi(true);
     setErreurForm("");
-    const r = await api.creer({ nom: personne.nom, email: personne.email, debut: form.debut, fin: form.fin, motif: form.motif, reassigner: form.reassigner });
+    const r = await api.creer({ nom: personne.nom, email: personne.email, debut: form.debut, fin: form.fin, motif: form.motif, reassigner: form.reassigner, couleur: form.couleur });
     setEnvoi(false);
     if (r.ok) { setForm(null); setMois(form.debut.slice(0, 7)); }
     else setErreurForm(r.error || "L'enregistrement a échoué.");
@@ -13324,7 +13412,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
 
   const ligne = (a: Absence) => (
     <div key={a.id} className="slb-row" style={{ display: "flex", alignItems: "flex-start", gap: "11px", padding: "10px 16px", borderTop: `1px solid ${T.line}` }}>
-      <Monogram name={a.nom} size={30} />
+      <Monogram name={a.nom} size={30} couleur={{ bg: teinteDe(a).fond, ink: teinteDe(a).encre }} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "5px" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
           <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>{a.nom}</span>
@@ -13370,7 +13458,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 {absentsJour.map((a) => (
                   <span key={a.email} title={`${a.nom} — ${a.motif}, jusqu'au ${jjmm(a.fin)} inclus`}
                     style={{ display: "inline-flex", alignItems: "center", gap: "7px", padding: "3px 10px 3px 3px", borderRadius: 999, border: `1px solid ${T.line}`, background: T.surface2, fontSize: "12.5px", fontWeight: 600, color: T.ink2, maxWidth: "100%" }}>
-                    <Monogram name={a.nom} size={22} />
+                    <Monogram name={a.nom} size={22} couleur={{ bg: teinteDe(a).solide, ink: "#fff" }} />
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nom}</span>
                     <span style={{ color: T.ink4, fontWeight: 500, whiteSpace: "nowrap" }}>→ {jjmm(a.fin)}</span>
                   </span>
@@ -13389,57 +13477,117 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
 
           {/* 2. LE FORMULAIRE — inline, ouvert par le bouton ou par une plage du calendrier. */}
           {form ? (
-            <div style={{ ...section, background: T.surface2, display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ ...titreSection, marginBottom: 0, flex: 1 }}>Déclarer une absence</span>
+            <div style={{ ...section, background: T.surface2 }}>
+              <div style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: "0 1px 2px rgba(16,26,40,.05)", padding: "14px", display: "flex", flexDirection: "column", gap: "14px" }}>
+              {/* En-tête : ce qu'on déclare, résumé en toutes lettres au fil de la saisie. */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span aria-hidden style={{ width: 32, height: 32, flex: "none", display: "grid", placeItems: "center", borderRadius: T.rSm, background: T.brand050, color: T.brand700 }}>
+                  <CalendarDays style={{ width: 16, height: 16 }} />
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "13.5px", fontWeight: 700, color: T.ink }}>Nouvelle absence</div>
+                  <div style={{ marginTop: 1, fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
+                    {form.debut && form.fin && form.fin >= form.debut
+                      ? `${form.debut === form.fin ? `Le ${jourLong(form.debut)}` : `Du ${jourLong(form.debut)} au ${jourLong(form.fin)}`} · ${nbJoursPlage(form.debut, form.fin)} jour${nbJoursPlage(form.debut, form.fin) > 1 ? "s" : ""}`
+                      : "Choisissez les dates."}
+                  </div>
+                </div>
                 <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Fermer le formulaire" title="Fermer"
                   onClick={() => { setForm(null); setErreurForm(""); }}>
                   <X aria-hidden style={{ width: 15, height: 15 }} />
                 </button>
               </div>
+
+              {/* La personne, et sa couleur dans le calendrier. */}
               <div>
                 <label style={lbl} htmlFor="slb-abs-personne">Personne</label>
-                <select id="slb-abs-personne" style={field} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}>
-                  {!personne && <option value="">— Choisir —</option>}
-                  {membres.map((m) => <option key={m.email} value={m.email}>{m.nom}</option>)}
-                </select>
-                <p style={{ margin: "5px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-                  Une personne sans compte Sellsy à la même adresse e-mail n'a pas de tâches à réassigner :
-                  n8n l'indique alors dans le résultat de la réassignation.
-                </p>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px" }}>
-                <div>
-                  <label style={lbl} htmlFor="slb-abs-du">Du</label>
-                  <input id="slb-abs-du" type="date" style={field} value={form.debut}
-                    onChange={(e) => setForm({ ...form, debut: e.target.value })} />
-                </div>
-                <div>
-                  <label style={lbl} htmlFor="slb-abs-au">Au (inclus)</label>
-                  <input id="slb-abs-au" type="date" style={field} value={form.fin}
-                    min={form.debut && form.debut > auj ? form.debut : auj}
-                    onChange={(e) => setForm({ ...form, fin: e.target.value })} />
-                </div>
-                <div>
-                  <label style={lbl} htmlFor="slb-abs-motif">Motif</label>
-                  <select id="slb-abs-motif" style={field} value={form.motif} onChange={(e) => setForm({ ...form, motif: e.target.value })}>
-                    {ABS_MOTIFS.map((m) => <option key={m} value={m}>{m}</option>)}
+                <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+                  {personne && <Monogram name={personne.nom} size={34} couleur={{ bg: couleurAbs(form.couleur, personne.nom).solide, ink: "#fff" }} />}
+                  <select id="slb-abs-personne" style={{ ...field, flex: 1, minWidth: 0 }} value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value, couleur: couleurProposee(e.target.value) })}>
+                    {!personne && <option value="">— Choisir —</option>}
+                    {membres.map((m) => <option key={m.email} value={m.email}>{m.nom}</option>)}
                   </select>
                 </div>
+                <div role="radiogroup" aria-label="Couleur dans le calendrier"
+                  style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", marginTop: "10px" }}>
+                  <span style={{ fontSize: "11.5px", fontWeight: 600, color: T.ink3, marginRight: 2 }}>Couleur</span>
+                  {ABS_COULEURS.map((c) => {
+                    const sel = form.couleur === c.cle;
+                    return (
+                      <button key={c.cle} type="button" role="radio" aria-checked={sel} aria-label={c.nom} title={c.nom}
+                        onClick={() => setForm({ ...form, couleur: c.cle })}
+                        style={{ width: 22, height: 22, flex: "none", padding: 0, border: "none", borderRadius: 999, background: c.solide,
+                          display: "grid", placeItems: "center", cursor: "pointer",
+                          boxShadow: sel ? `0 0 0 2px ${T.surface}, 0 0 0 4px ${c.solide}` : "none", transition: "box-shadow .12s ease" }}>
+                        {sel && <Check aria-hidden style={{ width: 12, height: 12, color: "#fff" }} />}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p style={{ margin: "6px 0 0", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
+                  La couleur vaut pour toutes ses absences dans le calendrier.
+                </p>
               </div>
-              <label style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "12.5px", fontWeight: 600, color: T.ink2, cursor: "pointer" }}>
-                <input type="checkbox" checked={form.reassigner} style={{ marginTop: 2 }}
-                  onChange={(e) => setForm({ ...form, reassigner: e.target.checked })} />
-                <span>
-                  Réassigner ses tâches Sellsy ouvertes
-                  <span style={{ display: "block", marginTop: "3px", fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-                    Ses tâches ouvertes à échéance avant son retour seront réparties au hasard entre les présents
-                    le {jjmm(form.debut ? jourReassignation(form.debut, auj) : auj)}
-                    {form.debut && form.debut <= auj ? " (dans le quart d'heure, l'absence commençant aujourd'hui)" : ""}.
-                    {" "}Ses clients lui reviennent à son retour.
+
+              {/* Les dates — un clic n'importe où dans le champ ouvre le calendrier. */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "10px" }}>
+                <div>
+                  <label style={lbl} htmlFor="slb-abs-du">Premier jour</label>
+                  <AbsDateField id="slb-abs-du" style={field} value={form.debut}
+                    onChange={(v) => setForm({ ...form, debut: v, fin: v && form.fin && form.fin < v ? v : form.fin })} />
+                </div>
+                <div>
+                  <label style={lbl} htmlFor="slb-abs-au">Dernier jour (inclus)</label>
+                  <AbsDateField id="slb-abs-au" style={field} value={form.fin}
+                    min={form.debut && form.debut > auj ? form.debut : auj}
+                    onChange={(v) => setForm({ ...form, fin: v })} />
+                </div>
+              </div>
+
+              {/* Le motif — quatre pastilles plutôt qu'une liste déroulante. */}
+              <div>
+                <span style={lbl}>Motif</span>
+                <div role="radiogroup" aria-label="Motif" style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                  {ABS_MOTIFS.map((m) => {
+                    const sel = form.motif === m;
+                    return (
+                      <button key={m} type="button" role="radio" aria-checked={sel} onClick={() => setForm({ ...form, motif: m })}
+                        style={{ display: "inline-flex", alignItems: "center", gap: "5px", padding: "6px 12px", borderRadius: 999,
+                          border: `1px solid ${sel ? T.brand : T.line}`, background: sel ? T.brand050 : T.surface,
+                          color: sel ? T.brand700 : T.ink2, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 600, cursor: "pointer" }}>
+                        {sel && <Check aria-hidden style={{ width: 13, height: 13 }} />}{m}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* La réassignation : un interrupteur sur toute la largeur, son effet dit dessous. */}
+              <button type="button" role="switch" aria-checked={form.reassigner}
+                onClick={() => setForm({ ...form, reassigner: !form.reassigner })}
+                style={{ display: "flex", alignItems: "flex-start", gap: "12px", width: "100%", boxSizing: "border-box", textAlign: "left",
+                  padding: "11px 12px", borderRadius: T.rSm, border: `1px solid ${form.reassigner ? T.brand100 : T.line}`,
+                  background: form.reassigner ? T.brand050 : T.surface, fontFamily: "inherit", cursor: "pointer",
+                  transition: "background-color .15s ease, border-color .15s ease" }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: "12.5px", fontWeight: 700, color: T.ink }}>Réassigner ses tâches Sellsy ouvertes</span>
+                  <span style={{ display: "block", marginTop: "3px", fontSize: "11.5px", fontWeight: 500, color: T.ink3, lineHeight: 1.45 }}>
+                    {form.reassigner ? (
+                      <>
+                        Ses tâches ouvertes à échéance avant son retour seront réparties au hasard entre les présents
+                        le {jjmm(form.debut ? jourReassignation(form.debut, auj) : auj)}
+                        {form.debut && form.debut <= auj ? " (dans le quart d'heure, l'absence commençant aujourd'hui)" : ""}.
+                        {" "}Ses clients lui reviennent à son retour.
+                      </>
+                    ) : "Ses tâches restent à son nom pendant l'absence ; seules les nouvelles tâches vont aux présents."}
+                  </span>
+                  <span style={{ display: "block", marginTop: "4px", fontSize: "11px", fontWeight: 500, color: T.ink4 }}>
+                    Sans compte Sellsy à la même adresse e-mail, il n'y a rien à réassigner : n8n l'indique dans le résultat.
                   </span>
                 </span>
-              </label>
+                <AbsSwitch on={form.reassigner} />
+              </button>
               {chevauche && chevauche.length > 0 && (
                 <div style={{ display: "flex", gap: "8px", alignItems: "flex-start", padding: "8px 10px", borderRadius: T.rSm, background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
                   <AlertTriangle aria-hidden style={{ width: 14, height: 14, flex: "none", marginTop: 1 }} />
@@ -13452,13 +13600,14 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
               {(invalide || erreurForm) && (
                 <span style={{ fontSize: "12px", fontWeight: 600, color: erreurForm ? T.dangerInk : T.ink3 }}>{erreurForm || invalide}</span>
               )}
-              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", flexWrap: "wrap" }}>
-                <button type="button" className="slb-btng" style={btnG} onClick={() => { setForm(null); setErreurForm(""); }}>Fermer</button>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", flexWrap: "wrap", paddingTop: "12px", borderTop: `1px solid ${T.line}` }}>
+                <button type="button" className="slb-btng" style={btnG} onClick={() => { setForm(null); setErreurForm(""); }}>Annuler</button>
                 <button type="button" className="slb-btnp" disabled={!!invalide || envoi || ecritureFermee} onClick={() => void enregistrer()}
                   title={api.blocage ?? undefined}
                   style={{ ...btnP, opacity: invalide || envoi || ecritureFermee ? 0.55 : 1, cursor: invalide || envoi || ecritureFermee ? "not-allowed" : "pointer" }}>
                   <Check aria-hidden style={{ width: 14, height: 14 }} />{envoi ? "Enregistrement…" : "Enregistrer l'absence"}
                 </button>
+              </div>
               </div>
             </div>
           ) : (
@@ -13499,25 +13648,42 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                   .filter((a, i, l) => l.findIndex((x) => x.email === a.email) === i);
                 const estAncre = ancre === d;
                 const estAuj = d === auj;
-                const titre = `${jjmm(d)}${absents.length ? ` — absent${absents.length > 1 ? "s" : ""} : ${absents.map((a) => a.nom).join(", ")}` : ""}`;
+                /* Un jour PASSÉ est barré et atténué, mais reste cliquable : une absence
+                   commencée hier se déclare encore (seule une plage ENTIÈREMENT passée est
+                   refusée, par la validation du formulaire). */
+                const passe = d < auj;
+                const titre = `${jjmm(d)}${estAuj ? " (aujourd'hui)" : ""}${absents.length ? ` — absent${absents.length > 1 ? "s" : ""} : ${absents.map((a) => a.nom).join(", ")}` : ""}`;
                 return (
                   <button key={d} type="button" className="slb-calday" disabled={ecritureFermee}
                     onClick={() => cliqueJour(d)} title={titre} aria-label={titre} aria-pressed={estAncre}
+                    aria-current={estAuj ? "date" : undefined}
                     style={{
                       minHeight: 50, padding: "4px", boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "stretch", gap: "3px",
                       borderRadius: T.rSm, fontFamily: "inherit", textAlign: "left",
-                      border: `1px solid ${estAncre ? T.brand : estAuj ? T.brand100 : T.line}`,
-                      background: estAncre ? T.brand050 : weekend ? T.surface2 : T.surface,
-                      opacity: horsMois ? 0.45 : 1, cursor: ecritureFermee ? "default" : "pointer",
+                      /* Aujourd'hui : un bord de marque doublé (l'ombre intérieure évite de
+                         décaler le contenu comme le ferait une bordure de 2 px). */
+                      border: `1px solid ${estAncre || estAuj ? T.brand : T.line}`,
+                      boxShadow: estAuj ? `inset 0 0 0 1px ${T.brand}` : undefined,
+                      background: estAncre || estAuj ? T.brand050 : passe || weekend ? T.surface2 : T.surface,
+                      opacity: horsMois ? 0.4 : passe ? 0.6 : 1, cursor: ecritureFermee ? "default" : "pointer",
                     }}>
-                    <span style={{ fontSize: "11px", fontWeight: estAuj ? 800 : 600, color: estAuj ? T.brand700 : weekend ? T.ink4 : T.ink2 }}>
-                      {Number(d.slice(8, 10))}
-                    </span>
+                    {estAuj ? (
+                      <span style={{ alignSelf: "flex-start", minWidth: 20, height: 20, padding: "0 5px", boxSizing: "border-box", borderRadius: 999,
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        background: T.brand, color: "#fff", fontSize: "11px", fontWeight: 800 }}>
+                        {Number(d.slice(8, 10))}
+                      </span>
+                    ) : (
+                      <span style={{ fontSize: "11px", fontWeight: 600, color: passe || weekend ? T.ink4 : T.ink2,
+                        textDecoration: passe ? "line-through" : undefined }}>
+                        {Number(d.slice(8, 10))}
+                      </span>
+                    )}
                     <span style={{ display: "flex", flexWrap: "wrap", gap: "2px" }}>
                       {absents.slice(0, 3).map((a) => {
-                        const c = monogramOf(a.nom);
+                        const c = teinteDe(a);
                         return (
-                          <span key={a.email} aria-hidden style={{ padding: "1px 3px", borderRadius: 4, background: c.bg, color: c.ink, fontSize: "9.5px", fontWeight: 700, lineHeight: 1.2 }}>
+                          <span key={a.email} aria-hidden style={{ padding: "1px 3px", borderRadius: 4, background: c.solide, color: "#fff", fontSize: "9.5px", fontWeight: 700, lineHeight: 1.2 }}>
                             {initials(a.nom)}
                           </span>
                         );

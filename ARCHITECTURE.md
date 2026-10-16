@@ -1302,7 +1302,7 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 | `parcPart` | « BDD Installateur » (`tblQLEpjqyUn54XTb`) — dénominateur | ⏳ **non connecté** | nom `Nom de l'entreprise` |
 | `parcAbo` | « Abonnés » **relue en 1 champ**, paginée — dénominateur | ✅ **connecté** (même `8fc957d0-…`) | ref `Contrat abonné` |
 | `comKpi` | « Abonnés » **relue** (même datasource que `abonnes`) | ✅ **connecté**, lecture seule **paginée** | commercial `Propio SOFTR` · capex `Prix Installation HT total` · contratSigne `Contrat abonnement signe` *(pièce jointe)* · statutAbonne `Statut de l'abonné` · moisSignature `Mois de signature contrat` |
-| `absencesSC` | « Absences Service Client » (SunLib CRM — Préférences, `tblFTDH8iRykjn9nw`) — id **`absencesSC`** | ✅ **connecté** *(2026-10-15)*, lue **et écrite** — création et modification réservées au groupe Softr « Service client » | nom `staff_nom` · email `staff_email` *(minuscules — la clé lue par n8n)* · debut `date_debut` · fin `date_fin` · motif `motif` *(Congés / Maladie / Formation / Autre)* · reassigner `reassigner_taches` · annulee `annulee` · creePar `cree_par` · creeLe `cree_le` — **écrits par le bloc** (`SELECT_ABS_W`) ; reassigneLe `reassignation_le` · resultat `reassignation_resultat` — **écrits par n8n, lecture seule** |
+| `absencesSC` | « Absences Service Client » (SunLib CRM — Préférences, `tblFTDH8iRykjn9nw`) — id **`absencesSC`** | ✅ **connecté** *(2026-10-15)*, lue **et écrite** — création et modification réservées au groupe Softr « Service client » | nom `staff_nom` · email `staff_email` *(minuscules — la clé lue par n8n)* · debut `date_debut` · fin `date_fin` · motif `motif` *(Congés / Maladie / Formation / Autre)* · reassigner `reassigner_taches` · annulee `annulee` · creePar `cree_par` · creeLe `cree_le` · couleur `couleur` *(texte, clé de `ABS_COULEURS` — ajouté le 2026-10-16, ignoré par n8n)* — **écrits par le bloc** (`SELECT_ABS_W`) ; reassigneLe `reassignation_le` · resultat `reassignation_resultat` — **écrits par n8n, lecture seule** |
 | `utilisateursSC` | « Utilisateurs » (BDD UTILISATEURS, `tblE6J8wB1KlXadVv`) — id **`utilisateursSC`** | ✅ **connecté** *(2026-10-15)*, **lecture seule**, filtrée côté serveur | nomComplet `Nom complet` *(formule)* · email `Email` · service `Service` *(multipleSelects)* · acces `Accès plateforme sunlib` *(singleSelect)* |
 
 > **Deux entrées de catalogue pour une même table** (`abonnes` et `comKpi`) : une source
@@ -1344,6 +1344,16 @@ serveur** sur `Service` (`q.array(…).isOneOf`) parce que la table compte plus 
 `membresDe` refait le filtre sur les deux champs, et c'est lui qui fait foi. Pour les autres :
 `typePermis` retire le modèle de la galerie, et la grille ne donne **aucune case** à une instance
 déjà posée.
+
+**Retouches du 2026-10-16.** Aujourd'hui porte un bord de marque doublé et son numéro en
+pastille pleine ; les jours passés sont barrés et atténués mais **restent cliquables** (seule une
+plage entièrement passée est refusée, par la validation). Le formulaire est une carte : résumé de
+la plage en toutes lettres, motifs en pastilles, réassignation en **interrupteur** (`AbsSwitch`),
+et des champs date qui ouvrent le calendrier natif au clic n'importe où (`AbsDateField`,
+`showPicker`). **Couleur par personne** : choisie au formulaire, écrite dans `couleur` sur la
+ligne déclarée. Faute de table des personnes, la couleur d'une personne est celle de sa
+**dernière ligne déclarée qui en porte une** (`couleursDe`) ; à défaut, le monogramme calculé.
+À qui n'en a pas, le formulaire propose la première couleur libre.
 
 **Posé d'office** pour les membres, une seule fois (`ABS_SEED` + `seedOne`). La pose attend la
 disposition **relue en base** (`synced` de `usePersistentLayout`) : partir du seul cache local
