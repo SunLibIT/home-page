@@ -119,6 +119,8 @@ import {
   Map as MapIcon, Boxes,
   // Absences du service client (§9-nonies) : navigation du calendrier et icône du widget.
   ChevronLeft, CalendarDays, AlertTriangle,
+  // « Ouvrir en grand » (2026-10-16), sur l'en-tête de chaque widget.
+  Maximize2, Minimize2,
   type LucideIcon,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -5527,15 +5529,62 @@ function Widget({
   const headStyle: CSSProperties = tint.head
     ? { ...WHEAD, position: "relative", borderBottom: `1px solid ${tint.pill || T.line}` }
     : { ...WHEAD, position: "relative" };
+
+  /* OUVRIR EN GRAND (2026-10-16, demandé) — un agrandissement TEMPORAIRE, pour travailler
+     dans un widget précis : la carte passe en surimpression au centre de l'écran, sur un
+     voile, et revient à sa case en la refermant (bouton, Échap ou clic sur le voile). Rien
+     n'est enregistré : la disposition ne change pas.
+     ⚠️ LA CARTE N'EST PAS DÉPLACÉE DANS L'ARBRE : seul son style change (`position:
+     fixed`). La rendre ailleurs (portail, autre branche) démonterait le contenu et ferait
+     perdre son état — un formulaire à moitié rempli, un onglet choisi, un défilement.
+     ⚠️ Le corps reçoit une hauteur plus grande par `WidgetHeightCtx`, le canal que lisent
+     déjà tous les `ScrollBody` : le fournisseur est TOUJOURS rendu (valeur héritée hors
+     agrandissement), pour la même raison — ne pas changer la forme de l'arbre. */
+  const [grand, setGrand] = useState(false);
+  const hauteurCase = useContext(WidgetHeightCtx);
+  const [hauteurEcran, setHauteurEcran] = useState(() => (typeof window !== "undefined" ? window.innerHeight : 800));
+  useEffect(() => {
+    if (!grand) return;
+    const surTaille = () => setHauteurEcran(window.innerHeight);
+    const surTouche = (e: KeyboardEvent) => { if (e.key === "Escape") setGrand(false); };
+    surTaille();
+    window.addEventListener("resize", surTaille);
+    document.addEventListener("keydown", surTouche);
+    /* La page derrière ne défile plus : la molette reste dans le widget. */
+    const avant = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("resize", surTaille);
+      document.removeEventListener("keydown", surTouche);
+      document.body.style.overflow = avant;
+    };
+  }, [grand]);
+  /* 92 vh de carte, moins l'en-tête (~62 px) et un éventuel pied (~45 px). */
+  const hauteurGrande = Math.max(hauteurCase, Math.round(hauteurEcran * 0.92) - (footer ? 110 : 64));
+  const cardGrand: CSSProperties = grand
+    ? { ...cardStyle, position: "fixed", top: "4vh", bottom: "4vh", left: 0, right: 0, margin: "0 auto",
+        /* `gap: 0` : le Card de Softr porte `gap-6` en classe, sans effet tant que CARD le
+           force en `block`, mais qui écarterait de 24 px en-tête et corps une fois en flex. */
+        width: "min(1280px, calc(100vw - 32px))", zIndex: 81, display: "flex", flexDirection: "column", gap: 0,
+        boxShadow: "0 24px 60px rgba(16,26,40,.28)", overflow: "hidden" }
+    : cardStyle;
+  /* Pendant l'agrandissement, l'en-tête n'est plus une poignée : on ne range pas une carte
+     qui flotte au-dessus de la grille. */
+  const prise = grand ? null : grab;
   return (
-    <Card style={cardStyle}>
+    <>
+    {grand && (
+      <div aria-hidden onClick={() => setGrand(false)}
+        style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(16,26,40,.45)" }} />
+    )}
+    <Card style={cardGrand} {...(grand ? { role: "dialog", "aria-modal": true, "aria-label": shown } : {})}>
       {/* L'EN-TÊTE est la zone de préhension (cf. WidgetGrabCtx). `cursor: grab` suffit
           comme affordance : pas de `title` ici, il se déclencherait au survol du titre du
           widget. Pas de poignée « mors de déménageur » non plus — elle n'existait qu'en
           mode Personnaliser, et sur chaque carte en usage courant elle serait du bruit. */}
-      <div style={grab ? { ...headStyle, cursor: "grab" } : headStyle}
-        draggable={!!grab} onDragStart={grab?.onDragStart} onDragEnd={grab?.onDragEnd}
-        onPointerDownCapture={grab?.onPointerDownCapture}>
+      <div style={prise ? { ...headStyle, cursor: "grab", flex: "none" } : { ...headStyle, flex: "none" }}
+        draggable={!!prise} onDragStart={prise?.onDragStart} onDragEnd={prise?.onDragEnd}
+        onPointerDownCapture={prise?.onPointerDownCapture}>
         <span style={!solar && tint.pill ? { ...icoPillSm(false), background: tint.pill, color: tint.ink } : icoPillSm(solar)}>
           <Icon aria-hidden style={{ width: 15, height: 15 }} strokeWidth={1.7} />
         </span>
@@ -5560,6 +5609,13 @@ function Widget({
               style={{ width: 15, height: 15 }} />
           </button>
         )}
+        {/* OUVRIR EN GRAND / RÉDUIRE — sur tous les widgets, juste avant le ⋮. */}
+        <button type="button" className="slb-nbtn" style={NBTN_SM}
+          onClick={() => setGrand((g) => !g)}
+          aria-label={grand ? `Réduire — ${shown}` : `Ouvrir en grand — ${shown}`}
+          title={grand ? "Réduire (Échap)" : "Ouvrir en grand"}>
+          {grand ? <Minimize2 aria-hidden style={{ width: 15, height: 15 }} /> : <Maximize2 aria-hidden style={{ width: 15, height: 15 }} />}
+        </button>
         {/* ⋮ affiché pour TOUS les widgets depuis le 2026-08-04 : même un type sans
             réglages propres est RENOMMABLE, donc le bouton a toujours quelque chose
             à offrir — il n'est plus décoratif pour autant. */}
@@ -5590,15 +5646,18 @@ function Widget({
           </span>
         )}
       </div>
-      <div>
-        {children}
+      <div style={grand ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } : undefined}>
+        <WidgetHeightCtx.Provider value={grand ? hauteurGrande : hauteurCase}>
+          {children}
+        </WidgetHeightCtx.Provider>
         {footer && (
-          <div style={{ display: "flex", justifyContent: "center", padding: "8px 16px", borderTop: `1px solid ${tint.head ? tint.pill || T.line : T.line}` }}>
+          <div style={{ display: "flex", justifyContent: "center", padding: "8px 16px", borderTop: `1px solid ${tint.head ? tint.pill || T.line : T.line}`, marginTop: grand ? "auto" : undefined }}>
             {footer}
           </div>
         )}
       </div>
     </Card>
+    </>
   );
 }
 
@@ -13158,6 +13217,8 @@ type AbsencesApi = {
   blocage: string | null;
   creer: (a: { nom: string; email: string; debut: string; fin: string; motif: string; reassigner: boolean; couleur: string }) => Promise<{ ok: boolean; error?: string }>;
   annuler: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Retouche une absence existante : dates, motif, réassignation, couleur (2026-10-16). */
+  modifier: (id: string, champs: Partial<Pick<Absence, "debut" | "fin" | "motif" | "reassigner" | "couleur">>) => Promise<{ ok: boolean; error?: string }>;
 };
 
 function useAbsencesSource(): AbsencesApi {
@@ -13174,10 +13235,12 @@ function useAbsencesSource(): AbsencesApi {
   const [mock, setMock] = useState<Row[]>(mockAbsences);
   const [ajouts, setAjouts] = useState<Absence[]>([]);
   const [annulees, setAnnulees] = useState<string[]>([]);
+  const [retouches, setRetouches] = useState<Record<string, Partial<Absence>>>({});
 
   const lues = (USE_MOCK ? mock : flattenRows(res)).map(absenceDe).filter((a): a is Absence => !!a);
   const ids = new Set(lues.map((a) => a.id));
   const absences = [...lues, ...ajouts.filter((a) => !ids.has(a.id))]
+    .map((a) => (retouches[a.id] ? { ...a, ...retouches[a.id] } : a))
     .map((a) => (annulees.includes(a.id) ? { ...a, annulee: true } : a));
 
   /* LE DROIT D'ÉCRIRE — `enabled` reflète la permission de l'action Softr. ⚠️ S'il
@@ -13229,7 +13292,26 @@ function useAbsencesSource(): AbsencesApi {
     }
   };
 
-  return { absences, chargement: !USE_MOCK && !!res.isLoading, erreur: !USE_MOCK && !!res.error, blocage, creer, annuler };
+  const modifier: AbsencesApi["modifier"] = async (id, champs) => {
+    if (blocage) return { ok: false, error: blocage };
+    if (USE_MOCK) {
+      setMock((m) => m.map((r) => (r.id === id ? { ...r, ...champs } : r)));
+      return { ok: true };
+    }
+    try {
+      /* UPDATE : ENVELOPPÉ { recordId, fields }, comme l'annulation. Seuls les champs
+         retouchés partent ; `reassignation_le`/`_resultat` (n8n) ne sont jamais touchés. */
+      await updateM.mutateAsync({ recordId: id, fields: champs });
+      setRetouches((r) => ({ ...r, [id]: { ...r[id], ...champs } }));
+      await res.refetch?.();
+      return { ok: true };
+    } catch (e) {
+      console.error("[SunLib] Échec de modification d'une absence :", e);
+      return { ok: false, error: msgOf(e) };
+    }
+  };
+
+  return { absences, chargement: !USE_MOCK && !!res.isLoading, erreur: !USE_MOCK && !!res.error, blocage, creer, annuler, modifier };
 }
 
 /** Le jour où n8n répartira les tâches : le premier jour d'absence, ou aujourd'hui si
@@ -13274,7 +13356,8 @@ function AbsencesCard() {
   return <AbsencesWidget membres={sc.membres} />;
 }
 
-type AbsForm = { email: string; debut: string; fin: string; motif: string; reassigner: boolean; couleur: string };
+/** `id` présent = on RETOUCHE cette absence (bouton « Modifier ») ; absent = on en déclare une. */
+type AbsForm = { id?: string; email: string; debut: string; fin: string; motif: string; reassigner: boolean; couleur: string };
 
 /** Un champ date qui ouvre le calendrier natif au clic N'IMPORTE OÙ dans le champ, et pas
  *  seulement sur sa petite icône (le défaut de Chrome, où un clic sur le texte ne fait que
@@ -13309,6 +13392,9 @@ function AbsSwitch({ on }: { on: boolean }) {
 /** « jeudi 16 octobre » — un jour civil écrit en toutes lettres. */
 const jourLong = (iso: string): string =>
   jourUTC(iso).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
+/** « jeu. 16 oct. » — la forme courte, pour la barre d'étape du calendrier. */
+const jourCourt = (iso: string): string =>
+  jourUTC(iso).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 /** Nombre de jours d'une plage, bornes INCLUSES. */
 const nbJoursPlage = (debut: string, fin: string): number =>
   Math.round((jourUTC(fin).getTime() - jourUTC(debut).getTime()) / 86400000) + 1;
@@ -13319,7 +13405,9 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const auj = jourParis();
   const [mois, setMois] = useState(() => auj.slice(0, 7));       // « YYYY-MM » affiché
   const [ancre, setAncre] = useState<string | null>(null);        // 1er clic d'une plage
+  const [survol, setSurvol] = useState<string | null>(null);      // jour sous la souris (aperçu de plage)
   const [form, setForm] = useState<AbsForm | null>(null);
+  const formRef = useRef<HTMLDivElement | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [erreurForm, setErreurForm] = useState("");
   const [aConfirmer, setAConfirmer] = useState<string | null>(null);
@@ -13352,12 +13440,29 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
     const defaut = membres.some((m) => m.email === moi) ? moi : membres[0]?.email ?? "";
     setForm((f) => {
       const email = f?.email || defaut;
-      return { email, debut, fin, motif: f?.motif || "Congés", reassigner: f?.reassigner ?? true, couleur: f?.couleur || couleurProposee(email) };
+      return { id: f?.id, email, debut, fin, motif: f?.motif || "Congés", reassigner: f?.reassigner ?? true, couleur: f?.couleur || couleurProposee(email) };
     });
     setErreurForm("");
   };
+  /** Ouvre le formulaire sur une absence existante, et le calendrier sur son mois. */
+  const ouvrirModif = (a: Absence) => {
+    setForm({ id: a.id, email: a.email, debut: a.debut, fin: a.fin, motif: a.motif, reassigner: a.reassigner, couleur: couleurs.get(a.email) || couleurProposee(a.email) });
+    setAncre(null);
+    setAConfirmer(null);
+    setErreurForm("");
+    setMois(a.debut.slice(0, 7));
+    /* Le formulaire est en haut du widget, la ligne cliquée souvent bien plus bas. */
+    setTimeout(() => { try { formRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); } catch { /* vieux navigateur */ } }, 0);
+  };
+  /* LA SÉLECTION DANS LE CALENDRIER : premier clic = premier jour (le formulaire ouvert suit
+     aussitôt, sur un seul jour), second clic = dernier jour, dans l'ordre qu'on veut. Entre
+     les deux, la plage se dessine sous la souris (`survol`). */
   const cliqueJour = (d: string) => {
-    if (!ancre) { setAncre(d); return; }
+    if (!ancre) {
+      setAncre(d);
+      if (form) setForm({ ...form, debut: d, fin: d });
+      return;
+    }
     const [a, b] = ancre <= d ? [ancre, d] : [d, ancre];
     setAncre(null);
     ouvrirForm(a, b);
@@ -13369,6 +13474,54 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const nbJours = new Date(Date.UTC(an, mo, 0)).getUTCDate();
   const decalage = jourSemaine(premier);
   const cases = Array.from({ length: Math.ceil((decalage + nbJours) / 7) * 7 }, (_, i) => plusJours(premier, i - decalage));
+
+  /* LES BARRES D'ABSENCE (2026-10-16) : un trait continu par personne, d'une case à l'autre,
+     à sa couleur ; ses initiales n'apparaissent qu'au DÉBUT de chaque tronçon — le premier
+     jour, puis chaque lundi (une barre ne traverse pas la fin de semaine d'une ligne de
+     grille à la suivante). Deux absences d'une même personne qui se touchent ou se
+     chevauchent ne font qu'un trait.
+     Les pistes (la hauteur du trait dans la case) sont attribuées PAR SEMAINE, au plus
+     tôt commencé d'abord : un trait garde sa piste d'un bout à l'autre de sa semaine. */
+  type Troncon = { email: string; nom: string; debut: boolean; fin: boolean };
+  const PISTES_MAX = 3;
+  const pistesDuJour = new Map<string, (Troncon | null)[]>();
+  {
+    const parPersonne = new Map<string, Absence[]>();
+    for (const a of actives) {
+      if (a.fin < cases[0] || a.debut > cases[cases.length - 1]) continue;
+      const l = parPersonne.get(a.email) ?? [];
+      l.push(a);
+      parPersonne.set(a.email, l);
+    }
+    const plages: { email: string; nom: string; debut: string; fin: string }[] = [];
+    for (const [email, l] of parPersonne) {
+      l.sort((x, y) => x.debut.localeCompare(y.debut));
+      let cur: { email: string; nom: string; debut: string; fin: string } | null = null;
+      for (const a of l) {
+        if (cur && a.debut <= plusJours(cur.fin, 1)) { if (a.fin > cur.fin) cur.fin = a.fin; continue; }
+        if (cur) plages.push(cur);
+        cur = { email, nom: a.nom, debut: a.debut, fin: a.fin };
+      }
+      if (cur) plages.push(cur);
+    }
+    for (let s = 0; s < cases.length; s += 7) {
+      const lun = cases[s], dim = cases[s + 6];
+      const tronq = plages.filter((p) => p.fin >= lun && p.debut <= dim)
+        .map((p) => ({ ...p, du: p.debut < lun ? lun : p.debut, au: p.fin > dim ? dim : p.fin }))
+        .sort((x, y) => x.du.localeCompare(y.du) || y.au.localeCompare(x.au) || x.nom.localeCompare(y.nom, "fr"));
+      const finDePiste: string[] = [];
+      for (const t of tronq) {
+        let k = finDePiste.findIndex((f) => f < t.du);
+        if (k < 0) { k = finDePiste.length; finDePiste.push(t.au); } else finDePiste[k] = t.au;
+        for (let d = t.du; d <= t.au; d = plusJours(d, 1)) {
+          const l = pistesDuJour.get(d) ?? [];
+          while (l.length <= k) l.push(null);
+          l[k] = { email: t.email, nom: t.nom, debut: d === t.du, fin: d === t.au };
+          pistesDuJour.set(d, l);
+        }
+      }
+    }
+  }
   const libelleMois = jourUTC(premier).toLocaleDateString("fr-FR", { month: "long", year: "numeric", timeZone: "UTC" });
   const decalerMois = (n: number) => {
     const d = jourUTC(premier);
@@ -13385,22 +13538,38 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const titreSection: CSSProperties = { ...LIST_K, marginBottom: "8px" };
 
   /* --- Validation du formulaire : des phrases, pas des codes. --- */
-  const personne = form ? membres.find((m) => m.email === form.email) : undefined;
+  /* En retouche, la personne est celle de la ligne, même si elle a quitté le service depuis. */
+  const enCours = form?.id ? api.absences.find((a) => a.id === form.id) : undefined;
+  const personne = !form ? undefined
+    : membres.find((m) => m.email === form.email) ?? (enCours ? { nom: enCours.nom, email: enCours.email } : undefined);
   const invalide = !form ? "" : !personne ? "Choisissez la personne absente."
     : !form.debut || !form.fin ? "Indiquez le premier et le dernier jour."
     : form.fin < form.debut ? "Le dernier jour ne peut pas précéder le premier."
     : form.fin < auj ? "Une absence entièrement passée n'a plus d'effet : le dernier jour doit être aujourd'hui ou après."
     : "";
   const chevauche = form && personne && !invalide
-    ? actives.filter((a) => a.email === form.email && a.debut <= form.fin && a.fin >= form.debut) : [];
+    ? actives.filter((a) => a.id !== form.id && a.email === form.email && a.debut <= form.fin && a.fin >= form.debut) : [];
 
   const enregistrer = async () => {
     if (!form || !personne || invalide || envoi) return;
     setEnvoi(true);
     setErreurForm("");
-    const r = await api.creer({ nom: personne.nom, email: personne.email, debut: form.debut, fin: form.fin, motif: form.motif, reassigner: form.reassigner, couleur: form.couleur });
+    let r: { ok: boolean; error?: string };
+    if (form.id) {
+      r = await api.modifier(form.id, { debut: form.debut, fin: form.fin, motif: form.motif, reassigner: form.reassigner, couleur: form.couleur });
+      /* La couleur d'une personne est celle de sa ligne la plus RÉCENTE (`couleursDe`) :
+         retoucher une ligne plus ancienne ne suffirait pas à la changer. On aligne donc
+         ses autres lignes colorées — en pratique zéro, une ou deux. */
+      if (r.ok && form.couleur !== couleurs.get(form.email)) {
+        for (const a of api.absences) {
+          if (a.id !== form.id && a.email === form.email && a.couleur && a.couleur !== form.couleur) await api.modifier(a.id, { couleur: form.couleur });
+        }
+      }
+    } else {
+      r = await api.creer({ nom: personne.nom, email: personne.email, debut: form.debut, fin: form.fin, motif: form.motif, reassigner: form.reassigner, couleur: form.couleur });
+    }
     setEnvoi(false);
-    if (r.ok) { setForm(null); setMois(form.debut.slice(0, 7)); }
+    if (r.ok) { setForm(null); setAncre(null); setMois(form.debut.slice(0, 7)); }
     else setErreurForm(r.error || "L'enregistrement a échoué.");
   };
   const confirmerAnnulation = async (id: string) => {
@@ -13413,7 +13582,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
   const ligne = (a: Absence) => (
     <div key={a.id} className="slb-row" style={{ display: "flex", alignItems: "flex-start", gap: "11px", padding: "10px 16px", borderTop: `1px solid ${T.line}` }}>
       <Monogram name={a.nom} size={30} couleur={{ bg: teinteDe(a).fond, ink: teinteDe(a).encre }} />
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "5px" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "5px" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
           <span style={{ fontSize: "13px", fontWeight: 700, color: T.ink }}>{a.nom}</span>
           <span style={{ fontSize: "12px", fontWeight: 600, color: T.ink3 }}>
@@ -13422,7 +13591,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
         </div>
         <AbsenceStatut a={a} auj={auj} />
         {aConfirmer === a.id && (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "8px 10px", borderRadius: T.rSm, background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
+          <div style={{ alignSelf: "stretch", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", padding: "8px 10px", borderRadius: T.rSm, background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
             <span style={{ flex: "1 1 160px" }}>Annuler l'absence de {a.nom} ? Elle reste dans la table, marquée annulée.</span>
             <button type="button" className="slb-btnp" style={{ ...btnP, padding: "5px 10px" }} onClick={() => void confirmerAnnulation(a.id)}>Oui, annuler</button>
             <button type="button" className="slb-btng" style={{ ...btnG, padding: "5px 10px" }} onClick={() => { setAConfirmer(null); setErreurLigne(null); }}>Garder</button>
@@ -13432,13 +13601,24 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
           <span style={{ fontSize: "12px", fontWeight: 600, color: T.dangerInk }}>{erreurLigne.msg}</span>
         )}
       </div>
-      {a.fin >= auj && aConfirmer !== a.id && (
-        <button type="button" className="slb-btng" disabled={ecritureFermee}
-          title={api.blocage ?? "Annuler cette absence"}
-          onClick={() => { setAConfirmer(a.id); setErreurLigne(null); }}
-          style={{ ...btnG, padding: "4px 9px", fontSize: "12px", flex: "none", opacity: ecritureFermee ? 0.5 : 1, cursor: ecritureFermee ? "not-allowed" : "pointer" }}>
-          Annuler
-        </button>
+      {a.fin >= auj && aConfirmer !== a.id && form?.id !== a.id && (
+        <span style={{ display: "inline-flex", gap: "6px", flex: "none" }}>
+          <button type="button" className="slb-btng" disabled={ecritureFermee}
+            title={api.blocage ?? "Modifier les dates, le motif ou la réassignation"}
+            onClick={() => ouvrirModif(a)}
+            style={{ ...btnG, padding: "4px 9px", fontSize: "12px", opacity: ecritureFermee ? 0.5 : 1, cursor: ecritureFermee ? "not-allowed" : "pointer" }}>
+            <Pencil aria-hidden style={{ width: 12, height: 12 }} />Modifier
+          </button>
+          <button type="button" className="slb-btng" disabled={ecritureFermee}
+            title={api.blocage ?? "Annuler cette absence"}
+            onClick={() => { setAConfirmer(a.id); setErreurLigne(null); }}
+            style={{ ...btnG, padding: "4px 9px", fontSize: "12px", opacity: ecritureFermee ? 0.5 : 1, cursor: ecritureFermee ? "not-allowed" : "pointer" }}>
+            Annuler
+          </button>
+        </span>
+      )}
+      {form?.id === a.id && (
+        <span style={{ flex: "none", alignSelf: "center" }}><Badge variant="info" icon={Pencil}>En cours de modification</Badge></span>
       )}
     </div>
   );
@@ -13478,14 +13658,14 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
           {/* 2. LE FORMULAIRE — inline, ouvert par le bouton ou par une plage du calendrier. */}
           {form ? (
             <div style={{ ...section, background: T.surface2 }}>
-              <div style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: "0 1px 2px rgba(16,26,40,.05)", padding: "14px", display: "flex", flexDirection: "column", gap: "14px" }}>
+              <div ref={formRef} style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: T.rMd, boxShadow: "0 1px 2px rgba(16,26,40,.05)", padding: "14px", display: "flex", flexDirection: "column", gap: "14px" }}>
               {/* En-tête : ce qu'on déclare, résumé en toutes lettres au fil de la saisie. */}
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                 <span aria-hidden style={{ width: 32, height: 32, flex: "none", display: "grid", placeItems: "center", borderRadius: T.rSm, background: T.brand050, color: T.brand700 }}>
-                  <CalendarDays style={{ width: 16, height: 16 }} />
+                  {form.id ? <Pencil style={{ width: 15, height: 15 }} /> : <CalendarDays style={{ width: 16, height: 16 }} />}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: "13.5px", fontWeight: 700, color: T.ink }}>Nouvelle absence</div>
+                  <div style={{ fontSize: "13.5px", fontWeight: 700, color: T.ink }}>{form.id ? `Modifier l'absence${personne ? ` de ${personne.nom}` : ""}` : "Nouvelle absence"}</div>
                   <div style={{ marginTop: 1, fontSize: "11.5px", fontWeight: 500, color: T.ink3 }}>
                     {form.debut && form.fin && form.fin >= form.debut
                       ? `${form.debut === form.fin ? `Le ${jourLong(form.debut)}` : `Du ${jourLong(form.debut)} au ${jourLong(form.fin)}`} · ${nbJoursPlage(form.debut, form.fin)} jour${nbJoursPlage(form.debut, form.fin) > 1 ? "s" : ""}`
@@ -13493,7 +13673,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                   </div>
                 </div>
                 <button type="button" className="slb-nbtn" style={NBTN_SM} aria-label="Fermer le formulaire" title="Fermer"
-                  onClick={() => { setForm(null); setErreurForm(""); }}>
+                  onClick={() => { setForm(null); setAncre(null); setErreurForm(""); }}>
                   <X aria-hidden style={{ width: 15, height: 15 }} />
                 </button>
               </div>
@@ -13503,9 +13683,14 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 <label style={lbl} htmlFor="slb-abs-personne">Personne</label>
                 <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
                   {personne && <Monogram name={personne.nom} size={34} couleur={{ bg: couleurAbs(form.couleur, personne.nom).solide, ink: "#fff" }} />}
-                  <select id="slb-abs-personne" style={{ ...field, flex: 1, minWidth: 0 }} value={form.email}
+                  {/* En retouche, la personne est figée : changer de personne, c'est déclarer
+                      une autre absence (et n8n rapproche les lignes par e-mail). */}
+                  <select id="slb-abs-personne" disabled={!!form.id}
+                    style={{ ...field, flex: 1, minWidth: 0, ...(form.id ? { background: T.surface2, color: T.ink2, cursor: "not-allowed" } : {}) }}
+                    value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value, couleur: couleurProposee(e.target.value) })}>
                     {!personne && <option value="">— Choisir —</option>}
+                    {personne && !membres.some((m) => m.email === personne.email) && <option value={personne.email}>{personne.nom}</option>}
                     {membres.map((m) => <option key={m.email} value={m.email}>{m.nom}</option>)}
                   </select>
                 </div>
@@ -13588,6 +13773,14 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 </span>
                 <AbsSwitch on={form.reassigner} />
               </button>
+              {/* Une réassignation déjà faite ne se refait pas : n8n la marque sur la ligne et
+                  ne la rejoue pas si l'on déplace les dates après coup. */}
+              {enCours?.reassigneLe && (
+                <div style={{ display: "flex", gap: "8px", alignItems: "flex-start", padding: "8px 10px", borderRadius: T.rSm, background: T.info050, color: T.infoInk, fontSize: "12px", fontWeight: 600 }}>
+                  <AlertTriangle aria-hidden style={{ width: 14, height: 14, flex: "none", marginTop: 1 }} />
+                  <span>Les tâches ont déjà été réassignées le {horoParis(enCours.reassigneLe) || jjmm(jourIso(enCours.reassigneLe))}. Changer les dates ne relance pas la réassignation.</span>
+                </div>
+              )}
               {chevauche && chevauche.length > 0 && (
                 <div style={{ display: "flex", gap: "8px", alignItems: "flex-start", padding: "8px 10px", borderRadius: T.rSm, background: T.warn050, color: T.warnInk, fontSize: "12px", fontWeight: 600 }}>
                   <AlertTriangle aria-hidden style={{ width: 14, height: 14, flex: "none", marginTop: 1 }} />
@@ -13601,11 +13794,11 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 <span style={{ fontSize: "12px", fontWeight: 600, color: erreurForm ? T.dangerInk : T.ink3 }}>{erreurForm || invalide}</span>
               )}
               <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", flexWrap: "wrap", paddingTop: "12px", borderTop: `1px solid ${T.line}` }}>
-                <button type="button" className="slb-btng" style={btnG} onClick={() => { setForm(null); setErreurForm(""); }}>Annuler</button>
+                <button type="button" className="slb-btng" style={btnG} onClick={() => { setForm(null); setAncre(null); setErreurForm(""); }}>Annuler</button>
                 <button type="button" className="slb-btnp" disabled={!!invalide || envoi || ecritureFermee} onClick={() => void enregistrer()}
                   title={api.blocage ?? undefined}
                   style={{ ...btnP, opacity: invalide || envoi || ecritureFermee ? 0.55 : 1, cursor: invalide || envoi || ecritureFermee ? "not-allowed" : "pointer" }}>
-                  <Check aria-hidden style={{ width: 14, height: 14 }} />{envoi ? "Enregistrement…" : "Enregistrer l'absence"}
+                  <Check aria-hidden style={{ width: 14, height: 14 }} />{envoi ? "Enregistrement…" : form.id ? "Enregistrer les modifications" : "Enregistrer l'absence"}
                 </button>
               </div>
               </div>
@@ -13618,7 +13811,7 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 <Plus aria-hidden style={{ width: 14, height: 14 }} />Déclarer une absence
               </button>
               <span style={{ fontSize: "11.5px", fontWeight: 500, color: T.ink4 }}>
-                {ancre ? `Du ${jjmm(ancre)} : cliquez le dernier jour.` : "Ou cliquez le premier puis le dernier jour dans le calendrier."}
+                Ou sélectionnez les jours dans le calendrier.
               </span>
             </div>
           )}
@@ -13637,7 +13830,36 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 <ChevronRight aria-hidden style={{ width: 16, height: 16 }} />
               </button>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "4px" }}>
+
+            {/* LA BARRE D'ÉTAPE — dit où l'on en est de la sélection : 1) premier jour,
+                2) dernier jour, puis la plage retenue. Aperçu du nombre de jours au survol. */}
+            {(() => {
+              const plageForm = form && form.debut && form.fin && form.fin >= form.debut ? [form.debut, form.fin] as const : null;
+              const etape = ancre ? 2 : plageForm ? 3 : 1;
+              const apercu = ancre && survol && survol !== ancre ? nbJoursPlage(ancre < survol ? ancre : survol, ancre < survol ? survol : ancre) : 0;
+              const texte = etape === 2
+                ? `Premier jour : ${jourCourt(ancre!)} — cliquez le dernier jour${apercu ? ` (${apercu} jours)` : ", ou le même pour un seul jour"}.`
+                : etape === 3
+                  ? `${plageForm![0] === plageForm![1] ? `Le ${jourCourt(plageForm![0])}` : `Du ${jourCourt(plageForm![0])} au ${jourCourt(plageForm![1])}`} · ${nbJoursPlage(plageForm![0], plageForm![1])} jour${nbJoursPlage(plageForm![0], plageForm![1]) > 1 ? "s" : ""} — cliquez un jour pour recommencer.`
+                  : "Cliquez le premier jour de l'absence, puis le dernier.";
+              return (
+                <div aria-live="polite" style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", padding: "7px 10px", borderRadius: T.rSm,
+                  background: etape === 1 ? T.surface2 : T.brand050, color: etape === 1 ? T.ink3 : T.brand700, fontSize: "12px", fontWeight: 600 }}>
+                  <span aria-hidden style={{ width: 18, height: 18, flex: "none", display: "grid", placeItems: "center", borderRadius: 999,
+                    background: etape === 1 ? T.ink4 : T.brand, color: "#fff", fontSize: "10.5px", fontWeight: 800 }}>
+                    {etape === 3 ? <Check style={{ width: 11, height: 11 }} /> : etape}
+                  </span>
+                  <span style={{ flex: 1, minWidth: 0 }}>{texte}</span>
+                  {ancre && (
+                    <button type="button" className="slb-btng" onClick={() => setAncre(null)}
+                      style={{ ...btnG, padding: "2px 8px", fontSize: "11.5px", flex: "none" }}>Effacer</button>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "4px" }}
+              onMouseLeave={() => setSurvol(null)}>
               {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((j) => (
                 <span key={j} style={{ textAlign: "center", fontSize: "10.5px", fontWeight: 700, color: T.ink4, textTransform: "uppercase", letterSpacing: ".04em", paddingBottom: 2 }}>{j}</span>
               ))}
@@ -13646,50 +13868,71 @@ function AbsencesWidget({ membres }: { membres: MembreSC[] }) {
                 const weekend = jourSemaine(d) >= 5;
                 const absents = actives.filter((a) => a.debut <= d && d <= a.fin)
                   .filter((a, i, l) => l.findIndex((x) => x.email === a.email) === i);
-                const estAncre = ancre === d;
                 const estAuj = d === auj;
                 /* Un jour PASSÉ est barré et atténué, mais reste cliquable : une absence
                    commencée hier se déclare encore (seule une plage ENTIÈREMENT passée est
                    refusée, par la validation du formulaire). */
                 const passe = d < auj;
+                /* LA PLAGE PEINTE : en cours de choix, de l'ancre au jour survolé (aperçu, bord
+                   pointillé) ; sinon celle du formulaire ouvert. Bornes en plein, intérieur teinté.
+                   ⚠️ Aujourd'hui n'emprunte RIEN à ce langage (ni fond ni bord de marque) : il
+                   ne doit pas avoir l'air sélectionné. */
+                const [lo, hi] = ancre
+                  ? (survol && survol < ancre ? [survol, ancre] : [ancre, survol && survol > ancre ? survol : ancre])
+                  : form && form.debut && form.fin && form.fin >= form.debut ? [form.debut, form.fin] : ["", ""];
+                const enPlage = !!lo && lo <= d && d <= hi;
+                const borne = enPlage && (d === lo || d === hi);
+                const apercu = !!ancre && enPlage && !borne;
                 const titre = `${jjmm(d)}${estAuj ? " (aujourd'hui)" : ""}${absents.length ? ` — absent${absents.length > 1 ? "s" : ""} : ${absents.map((a) => a.nom).join(", ")}` : ""}`;
                 return (
                   <button key={d} type="button" className="slb-calday" disabled={ecritureFermee}
-                    onClick={() => cliqueJour(d)} title={titre} aria-label={titre} aria-pressed={estAncre}
+                    onClick={() => cliqueJour(d)} onMouseEnter={() => setSurvol(d)} onFocus={() => setSurvol(d)}
+                    title={titre} aria-label={titre} aria-pressed={enPlage}
                     aria-current={estAuj ? "date" : undefined}
                     style={{
                       minHeight: 50, padding: "4px", boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "stretch", gap: "3px",
                       borderRadius: T.rSm, fontFamily: "inherit", textAlign: "left",
-                      /* Aujourd'hui : un bord de marque doublé (l'ombre intérieure évite de
-                         décaler le contenu comme le ferait une bordure de 2 px). */
-                      border: `1px solid ${estAncre || estAuj ? T.brand : T.line}`,
-                      boxShadow: estAuj ? `inset 0 0 0 1px ${T.brand}` : undefined,
-                      background: estAncre || estAuj ? T.brand050 : passe || weekend ? T.surface2 : T.surface,
-                      opacity: horsMois ? 0.4 : passe ? 0.6 : 1, cursor: ecritureFermee ? "default" : "pointer",
+                      border: `1px ${apercu ? "dashed" : "solid"} ${borne ? T.brand : enPlage ? T.brand100 : T.line}`,
+                      background: borne ? T.brand : enPlage ? T.brand050 : passe || weekend ? T.surface2 : T.surface,
+                      opacity: horsMois ? 0.4 : passe && !enPlage ? 0.6 : 1, cursor: ecritureFermee ? "default" : "pointer",
+                      transition: "background-color .1s ease, border-color .1s ease",
                     }}>
-                    {estAuj ? (
-                      <span style={{ alignSelf: "flex-start", minWidth: 20, height: 20, padding: "0 5px", boxSizing: "border-box", borderRadius: 999,
-                        display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        background: T.brand, color: "#fff", fontSize: "11px", fontWeight: 800 }}>
-                        {Number(d.slice(8, 10))}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: "11px", fontWeight: 600, color: passe || weekend ? T.ink4 : T.ink2,
+                    <span style={{ display: "flex", alignItems: "baseline", gap: "4px", minWidth: 0 }}>
+                      <span style={{ fontSize: "11px", fontWeight: borne || estAuj ? 800 : 600,
+                        color: borne ? "#fff" : estAuj ? T.brand700 : passe || weekend ? T.ink4 : T.ink2,
                         textDecoration: passe ? "line-through" : undefined }}>
                         {Number(d.slice(8, 10))}
                       </span>
-                    )}
-                    <span style={{ display: "flex", flexWrap: "wrap", gap: "2px" }}>
-                      {absents.slice(0, 3).map((a) => {
-                        const c = teinteDe(a);
+                      {/* Aujourd'hui : un simple mot, à côté du numéro. */}
+                      {estAuj && (
+                        <span style={{ fontSize: "8.5px", fontWeight: 800, textTransform: "uppercase", letterSpacing: ".05em",
+                          color: borne ? "rgba(255,255,255,.85)" : T.brand700, whiteSpace: "nowrap", overflow: "hidden" }}>auj.</span>
+                      )}
+                    </span>
+                    {/* Les traits. Un tronçon qui continue DÉBORDE de la case jusqu'au milieu
+                        de la gouttière (padding 4 + bord 1 + demi-gouttière 2 = 7 px) : celui de
+                        la case voisine en fait autant, et les deux se rejoignent sans se couvrir. */}
+                    <span aria-hidden style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      {(pistesDuJour.get(d) ?? []).slice(0, PISTES_MAX).map((t, k) => {
+                        if (!t) return <span key={`vide${k}`} style={{ height: 12 }} />;
+                        const c = teinteDe(t);
                         return (
-                          <span key={a.email} aria-hidden style={{ padding: "1px 3px", borderRadius: 4, background: c.solide, color: "#fff", fontSize: "9.5px", fontWeight: 700, lineHeight: 1.2 }}>
-                            {initials(a.nom)}
+                          <span key={t.email} style={{
+                            height: 12, display: "flex", alignItems: "center", overflow: "hidden", whiteSpace: "nowrap",
+                            marginLeft: t.debut ? 0 : -7, marginRight: t.fin ? 0 : -7,
+                            paddingLeft: t.debut ? 4 : 0,
+                            borderTopLeftRadius: t.debut ? 6 : 0, borderBottomLeftRadius: t.debut ? 6 : 0,
+                            borderTopRightRadius: t.fin ? 6 : 0, borderBottomRightRadius: t.fin ? 6 : 0,
+                            background: c.solide, color: "#fff", fontSize: "8.5px", fontWeight: 800, letterSpacing: ".02em", lineHeight: 1,
+                          }}>
+                            {t.debut ? initials(t.nom) : null}
                           </span>
                         );
                       })}
-                      {absents.length > 3 && (
-                        <span aria-hidden style={{ fontSize: "9.5px", fontWeight: 700, color: T.ink3, lineHeight: 1.4 }}>+{absents.length - 3}</span>
+                      {(pistesDuJour.get(d) ?? []).slice(PISTES_MAX).some(Boolean) && (
+                        <span style={{ fontSize: "9px", fontWeight: 700, color: borne ? "#fff" : T.ink3, lineHeight: 1 }}>
+                          +{(pistesDuJour.get(d) ?? []).slice(PISTES_MAX).filter(Boolean).length}
+                        </span>
                       )}
                     </span>
                   </button>

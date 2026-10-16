@@ -1318,6 +1318,16 @@ const DS = datasource.define({           // 6 sources connectées au 2026-08-04
 > Airtable le 2026-08-04. `Propio SOFTR` est un **singleSelect** : Softr peut le rendre en
 > objet `{ id, name }`, d'où le passage systématique par `asText`.
 
+### « Ouvrir en grand » — la coquille `Widget` (2026-10-16)
+
+Un bouton ⤢ dans l'en-tête de **chaque** widget (juste avant le ⋮) l'agrandit
+**temporairement** : la carte passe en `position: fixed` au centre (92 vh, 1 280 px au plus) sur
+un voile ; Échap, le voile ou ⤡ la referment. Rien n'est persisté. ⚠️ La carte n'est **pas
+déplacée** dans l'arbre (pas de portail) : seul son style change, sinon le contenu se
+démonterait et perdrait son état. La hauteur du corps passe par `WidgetHeightCtx` (fournisseur
+toujours rendu), donc tout `ScrollBody` en profite sans retouche. L'en-tête n'est plus une poignée
+de glisser pendant l'agrandissement. ⚠️ Pas encore porté au **bloc partenaire** (même socle).
+
 ### Absences du service client — §9-nonies (2026-10-15)
 
 **Ce que c'est.** Le service client déclare ici les absences de ses membres. Ces lignes pilotent
@@ -1332,7 +1342,10 @@ ni Sellsy, la table est l'interface.
 (semaine du lundi, initiales colorées par `monogramOf`, plage choisie en deux clics), formulaire
 **inline**, liste « En cours et à venir » + repli « Passées (30 j) » avec le statut de
 réassignation. Création **directe**, annulation **enveloppée** (`annulee: true`) — **on ne supprime
-jamais une ligne**, et les dates ne s'éditent pas : on annule puis on recrée. Toutes les dates sont
+jamais une ligne**. Depuis le 2026-10-16, une absence en cours ou à venir se **modifie**
+(bouton « Modifier » : dates, motif, réassignation, couleur — la personne reste figée), par un
+UPDATE enveloppé qui ne touche jamais aux deux champs de n8n ; une réassignation déjà faite
+n'est pas rejouée, le formulaire le dit. Toutes les dates sont
 des jours civils `YYYY-MM-DD` comparés comme des chaînes, « aujourd'hui » étant celui de **Paris**
 (`jourParis`), comme pour n8n.
 
@@ -1345,8 +1358,14 @@ serveur** sur `Service` (`q.array(…).isOneOf`) parce que la table compte plus 
 `typePermis` retire le modèle de la galerie, et la grille ne donne **aucune case** à une instance
 déjà posée.
 
-**Retouches du 2026-10-16.** Aujourd'hui porte un bord de marque doublé et son numéro en
-pastille pleine ; les jours passés sont barrés et atténués mais **restent cliquables** (seule une
+**Retouches du 2026-10-16.** La **sélection** a son langage à elle : bornes en plein (fond de
+marque), intérieur teinté, aperçu pointillé au survol entre les deux clics, et une barre d'étape
+(1 premier jour · 2 dernier jour · ✓ plage retenue). Aujourd'hui n'en emprunte **rien** — numéro
+en vert foncé et mention « auj. », sans fond ni bord : il ne doit pas avoir l'air sélectionné.
+Chaque personne absente est un **trait continu** à sa couleur, d'une case à l'autre (le tronçon
+déborde jusqu'au milieu de la gouttière, 7 px, pour rejoindre celui d'à côté) ; ses initiales
+n'apparaissent qu'au début de chaque tronçon — premier jour, puis chaque lundi. Pistes attribuées
+par semaine (`pistesDuJour`), trois au plus, « +N » au-delà. Les jours passés sont barrés et atténués mais **restent cliquables** (seule une
 plage entièrement passée est refusée, par la validation). Le formulaire est une carte : résumé de
 la plage en toutes lettres, motifs en pastilles, réassignation en **interrupteur** (`AbsSwitch`),
 et des champs date qui ouvrent le calendrier natif au clic n'importe où (`AbsDateField`,
