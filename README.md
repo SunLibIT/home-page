@@ -1300,7 +1300,18 @@ un repli sur l'entreprise l'aurait ouvert à tout le monde.
 n'importe quel connecté peut réécrire l'annonce vue par tous.
 
 ⚠️ **Ce qui reste écrit en dur est le REPLI** (`EMBEDS_REPLI`) : table injoignable, ligne
-absente, identifiant mal formé — la carte affiche alors la valeur du code, jamais du vide.
+absente, identifiant mal formé — la carte affiche alors la valeur du code.
+
+**« Supprimer » — vider un widget (2026-10-21)** : à côté de chaque « Modifier » de la feuille,
+confirmation en deux temps sur la carte. Écrit `widget_id = "vide"` (`EMBED_VIDE`), snippet
+effacé, titre gardé : la carte reste affichée, **en blanc** (ni widget, ni repli ; un emplacement
+AF vidé n'hérite plus des installateurs). « Modifier » la remplit de nouveau.
+⚠️ **CONTRAT partagé avec le CRM 3** (MARKETING « Gestion Accueil », SUN/INST/AF/ABO_ACCUEIL) :
+mêmes tables, même valeur `"vide"` — la changer impose de la changer partout.
+Livré en version 86 « Accueil CRM 2 — Supprimer un widget (carte blanche) — 21/10/2026 »
+(sha256 `c6899b85…`, fichier normalisé en LF — la copie de travail est en CRLF, `core.autocrlf`).
+Visibilités réappliquées après la recompile : ADD/UPDATE `embeds` et `embedsPartenaire` →
+groupes `2c13e522…` + `7c86e06c…` ; ADD/UPDATE `absencesSC` → groupe `7ddc1772…`.
 
 ⚠️ **Le contenu, lui, reste chez Elfsight.** Cette table ne porte que l'aiguillage.
 

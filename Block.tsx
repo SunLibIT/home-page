@@ -10085,10 +10085,14 @@ function ElfsightWidget({ widgetId, height, title = "Contenu SunLib", hideLabel 
      défaut — la hauteur du cran « Moyen ». */
   const reglee = useContext(WidgetHeightCtx);
   const h = height ?? reglee;
+  /* `widgetId` vide = emplacement VIDÉ (contrat `EMBED_VIDE`) : la carte garde sa place et
+     sa hauteur, son corps reste blanc — ni iframe, ni `platform.js`. */
   return (
     <div style={{ padding: "10px 16px 16px" }}>
-      <iframe title={title} loading="lazy" srcDoc={elfsightDoc(widgetId, hideLabel)}
-        style={{ display: "block", width: "100%", height: h, border: 0 }} />
+      {widgetId ? (
+        <iframe title={title} loading="lazy" srcDoc={elfsightDoc(widgetId, hideLabel)}
+          style={{ display: "block", width: "100%", height: h, border: 0 }} />
+      ) : <div aria-label={`${title} — vidé`} style={{ height: h }} />}
     </div>
   );
 }
@@ -10187,6 +10191,12 @@ const EMBEDS_ENABLED = !DS.embeds.startsWith("TODO");
 const EMBEDS_PART_ENABLED = !DS.embedsPartenaire.startsWith("TODO");
 
 const UUID_ELF = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** ⚠️ CONTRAT avec le CRM 3 (MARKETING « Gestion Accueil » + SUN/INST/AF/ABO_ACCUEIL), 2026-10-21 :
+ *  « widget_id » = "vide" → l'emplacement a été VIDÉ (« Supprimer ») : la carte reste affichée,
+ *  en BLANC — ni widget, ni repli, ni héritage installateurs pour un emplacement AF. Un
+ *  widget_id vide ou invalide garde le sens d'avant : le widget par défaut. Mêmes tables des
+ *  deux côtés : changer cette valeur impose de la changer dans les six blocs. */
+const EMBED_VIDE = "vide";
 
 /** Ce qu'on accepte dans le champ de collage, et c'est volontairement large : le snippet
  *  ENTIER servi par Elfsight (son commentaire, son `<script>`, son `<div class="elfsight-
@@ -10205,8 +10215,11 @@ function elfsightIdDe(saisie: string): string | null {
 type EmbedLigne = { recordId: string; widgetId: string; snippet: string; titre: string; updatedAt: string; updatedBy: string };
 
 type EmbedsApi = {
-  /** L'identifiant à afficher : jamais vide, repli compris. */
+  /** L'identifiant à afficher, repli compris ; "" seulement pour un emplacement VIDÉ
+   *  (`EMBED_VIDE`), que `ElfsightWidget` rend blanc. */
   idDe: (cle: EmbedCle) => string;
+  /** Vrai si l'emplacement a été vidé (« Supprimer »). */
+  estVide: (cle: EmbedCle) => boolean;
   /** Le titre voulu pour tout le monde, ou "" — à l'appelant de retomber sur le sien. */
   titreDe: (cle: EmbedCle) => string;
   ligneDe: (cle: EmbedCle) => EmbedLigne | null;
@@ -10379,15 +10392,18 @@ function useEmbedsApi(
      Même règle qu'AF_ACCUEIL, qui doit montrer exactement ce que la feuille annonce. */
   const effective = (cle: EmbedCle): EmbedLigne | null => {
     const propre = vue(cle);
-    if (propre && UUID_ELF.test(propre.widgetId)) return propre;
+    /* Vidé est un choix PROPRE : un emplacement AF à "vide" n'hérite pas des installateurs. */
+    if (propre && (UUID_ELF.test(propre.widgetId) || propre.widgetId === EMBED_VIDE)) return propre;
     return heritees[cle] ?? propre;
   };
 
   return {
     idDe: (cle) => {
       const w = effective(cle)?.widgetId ?? "";
+      if (w === EMBED_VIDE) return "";
       return UUID_ELF.test(w) ? w : repli[cle];
     },
+    estVide: (cle) => effective(cle)?.widgetId === EMBED_VIDE,
     titreDe: (cle) => asText(effective(cle)?.titre).trim(),
     ligneDe: (cle) => effective(cle),
     herite: (cle) => { const e = effective(cle); return !!e && e === heritees[cle]; },
@@ -15005,6 +15021,9 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState<EmbedCle | null>(null);
   const [erreur, setErreur] = useState<Partial<Record<EmbedCle, string>>>({});
   const [fait, setFait] = useState<Partial<Record<EmbedCle, boolean>>>({});
+  /* « Supprimer » (2026-10-21) : l'emplacement dont on demande la confirmation, en deux temps
+     sur la carte même — comme « Retirer » du ⋮. */
+  const [aVider, setAVider] = useState<EmbedCle | null>(null);
   useModalScrollLock();
 
   /* Changer d'espace REPART DE ZÉRO : les saisies sont indexées par emplacement, pas par
@@ -15015,7 +15034,7 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
     if (busy || !cible || cible.id === espace) return;
     setEspace(cible.id);
     setChoisi(null);
-    setSaisies({}); setTitres({}); setErreur({}); setFait({});
+    setSaisies({}); setTitres({}); setErreur({}); setFait({}); setAVider(null);
   };
 
   /* Échap RECULE avant de fermer : depuis le détail il revient à la grille, et ne ferme
@@ -15065,6 +15084,18 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
     } else {
       setErreur((e) => ({ ...e, [cle]: res.error ?? "Échec." }));
     }
+  };
+
+  /* VIDER un emplacement : widget_id "vide", snippet effacé, titre GARDÉ (la carte reste
+     affichée, avec son en-tête, en blanc). Même écriture — et même optimisme — qu'« Appliquer ». */
+  const vider = async (cle: EmbedCle) => {
+    setAVider(null);
+    setBusy(cle);
+    setErreur((e) => ({ ...e, [cle]: "" }));
+    const res = await api!.enregistrer(cle, EMBED_VIDE, "", asText(api?.titreDe(cle)));
+    setBusy(null);
+    setSaisies((s) => ({ ...s, [cle]: undefined }));
+    if (!res.ok) setErreur((e) => ({ ...e, [cle]: res.error ?? "Échec." }));
   };
 
   /* --- LE DÉTAIL : l'annonce en place, ce qu'on colle, et rien d'autre. --- */
@@ -15222,7 +15253,11 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
                 const Icon = EMBEDS_ICON[cle];
                 const ligne = api?.ligneDe(cle) ?? null;
                 const herite = !!api?.herite(cle);
+                const vide = !!api?.estVide(cle);
                 const surRepli = !ligne || !UUID_ELF.test(ligne.widgetId);
+                const quand = ligne?.updatedAt && ligne.updatedAt.length >= 10 ? ` le ${ligne.updatedAt.slice(8, 10)}/${ligne.updatedAt.slice(5, 7)}` : "";
+                const par = ligne?.updatedBy ? ` par ${ligne.updatedBy.split("@")[0]}` : "";
+                const errCarte = erreur[cle];
                 return (
                   <div key={cle}
                     style={{ display: "flex", flexDirection: "column", gap: "9px", padding: "12px", borderRadius: T.rLg, background: T.surface, border: `1px solid ${T.line}`, boxShadow: T.shSm }}>
@@ -15232,21 +15267,60 @@ function EmbedsAdmin({ onClose }: { onClose: () => void }) {
                       <span style={{ minWidth: 0, fontSize: "13px", fontWeight: 700, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{EMBEDS_LABEL[cle]}</span>
                       {/* RIEN quand tout va bien. Ne reste que l'anomalie — aucune ligne ne
                           répond pour cet emplacement, donc c'est le code qui parle. */}
-                      {herite ? (
+                      {vide ? (
+                        <span style={{ marginLeft: "auto", flex: "none", fontSize: "10.5px", fontWeight: 600, color: T.warnInk }}>vidé{quand}{par}</span>
+                      ) : herite ? (
                         <span style={{ marginLeft: "auto", flex: "none", fontSize: "10.5px", fontWeight: 600, color: T.ink4 }}>comme installateurs</span>
                       ) : surRepli ? (
                         <span style={{ marginLeft: "auto", flex: "none", fontSize: "10.5px", fontWeight: 600, color: T.warnInk }}>par défaut</span>
                       ) : null}
                     </div>
-                    <button className="slb-btnp" onClick={() => setChoisi(cle)}
-                      aria-label={`Modifier ${EMBEDS_LABEL[cle]}`}
-                      style={{
-                        display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px",
-                        padding: "8px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700,
-                        cursor: "pointer", border: "none", background: T.brand, color: "#fff",
-                      }}>
-                      <Pencil aria-hidden style={{ width: 14, height: 14 }} />Modifier
-                    </button>
+                    {/* « SUPPRIMER » (2026-10-21) : à côté de « Modifier », absent sur un
+                        emplacement déjà vidé. Confirmation en deux temps SUR la carte, comme
+                        « Retirer » du ⋮ : la question prend la place des deux boutons. */}
+                    {aVider === cle ? (
+                      <div role="alertdialog" aria-label={`Vider ${EMBEDS_LABEL[cle]} ?`}
+                        style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px", borderRadius: T.rSm, background: T.danger050, border: `1px solid ${T.danger}` }}>
+                        <span style={{ fontSize: "11.5px", fontWeight: 600, color: T.dangerInk, lineHeight: 1.45 }}>
+                          Vider ce widget ? La carte reste affichée, en blanc, pour tout le monde (CRM 2 et CRM 3). « Modifier » permet de la remplir de nouveau.
+                        </span>
+                        <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                          <button type="button" className="slb-btng" onClick={() => setAVider(null)}
+                            style={{ display: "inline-flex", alignItems: "center", padding: "7px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, cursor: "pointer", border: `1px solid ${T.line}`, background: T.surface, color: T.ink3 }}>
+                            Non
+                          </button>
+                          <button type="button" onClick={() => void vider(cle)}
+                            style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "7px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700, cursor: "pointer", border: `1px solid ${T.danger}`, background: T.danger, color: "#fff" }}>
+                            <Trash2 aria-hidden style={{ width: 14, height: 14 }} />Supprimer
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <button type="button" className="slb-btnp" onClick={() => setChoisi(cle)}
+                          aria-label={`Modifier ${EMBEDS_LABEL[cle]}`}
+                          style={{
+                            flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                            padding: "8px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700,
+                            cursor: "pointer", border: "none", background: T.brand, color: "#fff",
+                          }}>
+                          <Pencil aria-hidden style={{ width: 14, height: 14 }} />Modifier
+                        </button>
+                        {!vide ? (
+                          <button type="button" className="slb-btng" onClick={() => setAVider(cle)} disabled={busy === cle}
+                            aria-label={`Supprimer ${EMBEDS_LABEL[cle]}`} title="Vider ce widget (la carte reste, en blanc)"
+                            style={{
+                              flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "6px",
+                              padding: "8px 12px", borderRadius: T.rSm, fontFamily: "inherit", fontSize: "12.5px", fontWeight: 700,
+                              cursor: busy === cle ? "default" : "pointer", border: `1px solid ${T.line}`, background: T.surface, color: T.dangerInk,
+                              opacity: busy === cle ? .55 : 1,
+                            }}>
+                            <Trash2 aria-hidden style={{ width: 14, height: 14 }} />{busy === cle ? "Suppression…" : "Supprimer"}
+                          </button>
+                        ) : null}
+                      </div>
+                    )}
+                    {errCarte ? <span role="status" style={{ fontSize: "11.5px", fontWeight: 600, color: T.danger }}>{errCarte}</span> : null}
                   </div>
                 );
               })}
